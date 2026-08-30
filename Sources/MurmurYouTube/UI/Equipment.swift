@@ -261,17 +261,34 @@ struct VUMeter: View {
     /// inside a `Canvas` draw closure is a mutation during view update — which SwiftUI logs
     /// as undefined behavior and which, at 120fps, floods the process. A reference the view
     /// merely holds is invisible to the state graph, so stepping it is safe.
-    @State private var movement = NeedleMovement()
+    private let movement = NeedleMovement()
 
     private final class NeedleMovement {
         var position: Double = 0
         var velocity: Double = 0
+
+        func advance(toward target: Double) -> Double {
+            let rising = target > position
+            let time = rising ? DS.Motion.needleAttack : DS.Motion.needleRelease
+            // Frame-rate independent enough at 60–120Hz, and a meter is forgiving of the rest.
+            let stiffness = 1 / time
+            let delta = target - position
+            velocity += delta * stiffness * 0.16
+            velocity *= 0.72
+            position += velocity
+            position = min(max(position, 0), 1 + DS.Motion.needleOvershoot)
+            return position
+        }
     }
 
     var body: some View {
         TimelineView(.animation) { timeline in
+            let needlePosition = movement.advance(
+                toward: Double(min(max(level, 0), 1))
+            )
+
             Canvas { context, size in
-                draw(in: &context, size: size, at: timeline.date)
+                draw(in: &context, size: size, needlePosition: needlePosition)
             }
         }
         .background(DS.Color.meterFace)
@@ -288,9 +305,11 @@ struct VUMeter: View {
         )
     }
 
-    private func draw(in context: inout GraphicsContext, size: CGSize, at date: Date) {
-        advanceNeedle()
-
+    private func draw(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        needlePosition: Double
+    ) {
         let pivot = CGPoint(x: size.width / 2, y: size.height * 1.05)
         let radius = min(size.width * 0.46, size.height * 0.92)
         let sweep = DS.Material.needleSweep.radians
@@ -311,7 +330,7 @@ struct VUMeter: View {
         }
 
         // Needle.
-        let angle = -sweep / 2 + sweep * movement.position
+        let angle = -sweep / 2 + sweep * needlePosition
         var needlePath = Path()
         needlePath.move(to: pivot)
         needlePath.addLine(to: point(from: pivot, angle: angle, distance: radius * 0.98))
@@ -320,20 +339,6 @@ struct VUMeter: View {
             with: .color(DS.Color.meterNeedle),
             lineWidth: DS.Material.needleWidth
         )
-    }
-
-    /// Critically-damped-ish spring toward the target, tuned to VU ballistics.
-    private func advanceNeedle() {
-        let target = Double(min(max(level, 0), 1))
-        let rising = target > movement.position
-        let time = rising ? DS.Motion.needleAttack : DS.Motion.needleRelease
-        // Frame-rate independent enough at 60–120Hz, and a meter is forgiving of the rest.
-        let stiffness = 1 / time
-        let delta = target - movement.position
-        movement.velocity += delta * stiffness * 0.16
-        movement.velocity *= 0.72
-        movement.position += movement.velocity
-        movement.position = min(max(movement.position, 0), 1 + DS.Motion.needleOvershoot)
     }
 
     private func point(from origin: CGPoint, angle: Double, distance: CGFloat) -> CGPoint {

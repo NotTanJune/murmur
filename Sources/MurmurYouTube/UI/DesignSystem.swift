@@ -225,6 +225,32 @@ enum DS {
         static let window: CGFloat = 8
     }
 
+    // MARK: - HUD
+
+    /// The compact listening indicator. It is instrumentation, so its only color is the
+    /// existing meter amber rather than a second UI accent.
+    enum HUD {
+        static let width: CGFloat = 136
+        static let height: CGFloat = 36
+        static let cornerRadius: CGFloat = Radius.window
+
+        static let waveformWidth: CGFloat = 112
+        static let waveformHeight: CGFloat = 24
+        static let waveformBarCount = 16
+        static let waveformBarWidth: CGFloat = 3
+        static let waveformBarSpacing: CGFloat = 3
+        static let waveformBarRadius: CGFloat = 1.5
+        static let waveformFloorHeight: CGFloat = 2
+        static let waveformAmplitude: CGFloat = 22
+        static let waveformMinimumLevel: Float = 0.04
+        static let waveformInterval: TimeInterval = 1.0 / 30.0
+        static let waveformFrequency: Double = 6.0
+        static let waveformEnvelopeFloor: Double = 0.35
+        static let waveformEnvelopeRange: Double = 0.65
+        static let waveformLevelFloor: Double = 0.55
+        static let waveformLevelRange: Double = 0.45
+    }
+
     // MARK: - Border
 
     enum Border {
@@ -249,6 +275,8 @@ enum DS {
         static let panel = Spec(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
         /// The window against the desktop.
         static let window = Spec(color: .black.opacity(0.30), radius: 24, x: 0, y: 8)
+        /// The compact listening indicator against the desktop.
+        static let hud = Spec(color: .black.opacity(0.30), radius: 10, x: 0, y: 4)
 
         struct Spec {
             let color: SwiftUI.Color

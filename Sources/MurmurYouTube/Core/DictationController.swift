@@ -11,9 +11,8 @@ import Observation
 /// ineligible to be `@Sendable`. Reading the setting per-utterance is what lets the menu's
 /// engine picker take effect on the very next hold instead of needing a restart.
 @Sendable
-func engineForCurrentSetting() -> any TranscriptionEngine {
-    // Always invoked from `beginDictation`, which runs on the main actor.
-    MainActor.assumeIsolated {
+func engineForCurrentSetting() async -> any TranscriptionEngine {
+    await MainActor.run {
         switch Settings.shared.engine {
         case .apple: AppleSpeechEngine()
         case .parakeet: ParakeetEngine()
@@ -40,14 +39,14 @@ final class DictationController {
     }
 
     private(set) var state: State = .idle
-    /// Live transcript, updated as the engine revises it. Drives the HUD.
+    /// Live transcript, updated as the engine revises it. Drives the main and comparison views.
     private(set) var transcript = ""
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
 
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
-    private let makeEngine: @Sendable () -> any TranscriptionEngine
+    private let makeEngine: @Sendable () async -> any TranscriptionEngine
 
     /// Injected only by tests; production reads the setting per-utterance below.
     private let formatter: (any TextFormatter)?
@@ -61,6 +60,10 @@ final class DictationController {
     }
 
     private var engine: (any TranscriptionEngine)?
+    /// Keeps capture running while the speech engine prepares, so startup cannot discard
+    /// the first words of an utterance.
+    private var startupTask: Task<Void, Never>?
+    private var finishTask: Task<Void, Never>?
     private var consumeTask: Task<Void, Never>?
     /// Returns the ordered recording when compare mode is on, empty otherwise.
     private var feedTask: Task<[AudioChunk], Never>?
@@ -77,7 +80,7 @@ final class DictationController {
 
     init(
         formatter: (any TextFormatter)? = nil,
-        makeEngine: @escaping @Sendable () -> any TranscriptionEngine = engineForCurrentSetting
+        makeEngine: @escaping @Sendable () async -> any TranscriptionEngine = engineForCurrentSetting
     ) {
         self.formatter = formatter
         self.makeEngine = makeEngine
@@ -85,12 +88,16 @@ final class DictationController {
 
     // MARK: - Lifecycle
 
-    /// - Returns: `false` if the hotkey tap couldn't be installed (missing Accessibility).
+    /// - Returns: `false` if the global keyboard monitor couldn't be installed.
     @discardableResult
     func activate() -> Bool {
         hotkey.key = Settings.shared.pushToTalkKey
-        hotkey.onPress = { [weak self] in self?.beginDictation() }
-        hotkey.onRelease = { [weak self] in self?.endDictation() }
+        hotkey.onPress = { [weak self] in
+            Task { @MainActor in self?.beginDictation() }
+        }
+        hotkey.onRelease = { [weak self] in
+            Task { @MainActor in self?.endDictation() }
+        }
         return hotkey.start()
     }
 
@@ -99,7 +106,13 @@ final class DictationController {
         cancelDictation()
     }
 
-    /// Re-arms the tap after the user picks a different push-to-talk key.
+    /// Prepares AVAudioEngine's graph while idle. This does not start microphone I/O.
+    func prepareAudio() {
+        guard Permissions.hasMicrophone else { return }
+        capture.prepare()
+    }
+
+    /// Re-arms the keyboard monitors after the user picks a different push-to-talk key.
     @discardableResult
     func reloadHotkey() -> Bool {
         hotkey.stop()
@@ -137,17 +150,17 @@ final class DictationController {
         recorded.removeAll(keepingCapacity: true)
         engineName = isComparing ? "Comparing…" : Settings.shared.engine.displayName
 
-        Task { @MainActor in
+        let startupInterval = Log.performanceSignposter.beginInterval("dictation startup")
+        startupTask = Task { @MainActor in
+            defer { Log.performanceSignposter.endInterval("dictation startup", startupInterval) }
             do {
                 guard await Permissions.requestMicrophone() else {
                     fail("Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone.")
                     return
                 }
 
-                let engine = makeEngine()
+                let engine = await makeEngine()
                 self.engine = engine
-
-                let chunks = try await engine.start()
 
                 // Compare mode captures in *Apple's* format, not a format of our choosing.
                 //
@@ -157,16 +170,67 @@ final class DictationController {
                 // int16/int32/float32), so the strict engine picks the format and the
                 // tolerant engine adapts. Both still replay the identical buffers.
                 let formatOwner: any TranscriptionEngine = isComparing ? AppleSpeechEngine() : engine
+                let formatStartedAt = Date()
                 guard let format = await formatOwner.preferredInputFormat() else {
                     throw TranscriptionError.noAudioFormat
                 }
+                Log.performance.info(
+                    "speech input format ready in \(Date().timeIntervalSince(formatStartedAt), format: .fixed(precision: 3))s"
+                )
 
-                // Audio must reach the engine in capture order. A stream plus a single
-                // draining task guarantees that; spawning a Task per buffer would not.
+                // Start capture before the recognizer. Model loading and analyzer startup
+                // can take long enough to lose the beginning of a short utterance, so this
+                // stream buffers capture-order audio until the engine is ready.
                 let (audioStream, audioContinuation) = AsyncStream<AudioChunk>.makeStream(
-                    bufferingPolicy: .bufferingNewest(64)
+                    bufferingPolicy: .bufferingOldest(2_048)
                 )
                 self.audioContinuation = audioContinuation
+
+                guard !Task.isCancelled, case .starting = self.state else {
+                    self.audioContinuation = nil
+                    self.engine = nil
+                    audioContinuation.finish()
+                    await engine.finish()
+                    return
+                }
+
+                let captureStartedAt = Date()
+                try capture.start(
+                    outputFormat: format,
+                    onBuffer: { chunk in
+                        audioContinuation.yield(chunk)
+                    },
+                    onLevel: { [weak self] level in
+                        Task { @MainActor in self?.updateLevel(level) }
+                    }
+                )
+                Log.performance.info(
+                    "capture start call returned in \(Date().timeIntervalSince(captureStartedAt), format: .fixed(precision: 3))s"
+                )
+
+                guard self.state.isActive else {
+                    capture.stop()
+                    self.audioContinuation = nil
+                    self.engine = nil
+                    audioContinuation.finish()
+                    await engine.finish()
+                    return
+                }
+
+                if case .starting = self.state {
+                    self.state = .listening
+                    if Settings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
+                }
+
+                // The microphone is live now. The buffered audio stream is drained only
+                // after start() has installed the engine's input stream, so no chunks are
+                // offered to an uninitialized recognizer.
+                let chunks = try await engine.start()
+
+                guard !Task.isCancelled, self.state.isActive else {
+                    await engine.finish()
+                    return
+                }
 
                 // The recording is accumulated *inside* the ordered drain, not by spawning
                 // a task per buffer. Unstructured tasks have no ordering guarantee, so
@@ -181,25 +245,6 @@ final class DictationController {
                     }
                     return recording
                 }
-
-                try capture.start(
-                    outputFormat: format,
-                    onBuffer: { chunk in
-                        audioContinuation.yield(chunk)
-                    },
-                    onLevel: { [weak self] level in
-                        Task { @MainActor in self?.updateLevel(level) }
-                    }
-                )
-
-                // Bail out if the user already let go while we were spinning up.
-                guard case .starting = self.state else {
-                    await self.teardown()
-                    return
-                }
-
-                self.state = .listening
-                if Settings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
 
                 self.consumeTask = Task { @MainActor in
                     do {
@@ -227,53 +272,75 @@ final class DictationController {
         level = 0
         releasedAt = Date()
 
-        Task { @MainActor in
-            // Drain every captured buffer into the engine before asking it to finalize,
-            // or the tail of the utterance gets dropped.
-            audioContinuation?.finish()
-            audioContinuation = nil
-            recorded = await feedTask?.value ?? []
-            feedTask = nil
-
-            await engine?.finish()
-            await consumeTask?.value
-            consumeTask = nil
-            engine = nil
-
-            if isComparing {
-                await runComparison()
-                return
-            }
-
-            let raw = transcript
-            guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                state = .idle
-                transcript = ""
-                return
-            }
-
-            let cleaned = Settings.shared.cleanupEnabled
-                ? await activeFormatter.format(raw)
-                : raw
-
-            // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
-            // only raises the odds of the right word; this is the pass that guarantees it,
-            // so it must not be something the user can accidentally switch off.
-            let (output, corrections) = DictionaryStore.shared.corrector.apply(to: cleaned)
-            if !corrections.isEmpty {
-                Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
-            }
-
-            recordRun(text: output, corrections: corrections)
-            TextInjector.insert(output)
-            if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
-
-            state = .idle
-            transcript = ""
+        finishTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // If the recognizer is still loading, wait for the startup task to finish its
+            // handoff. Finalizing concurrently would race the engine's input stream.
+            _ = await self.startupTask?.value
+            self.startupTask = nil
+            guard case .finishing = self.state else { return }
+            await self.finishDictation()
+            self.finishTask = nil
         }
     }
 
+    private func finishDictation() async {
+        // Drain every captured buffer into the engine before asking it to finalize, or the
+        // tail of the utterance gets dropped.
+        audioContinuation?.finish()
+        audioContinuation = nil
+        recorded = await feedTask?.value ?? []
+        feedTask = nil
+
+        guard case .finishing = state else { return }
+
+        let engine = self.engine
+        self.engine = nil
+        await engine?.finish()
+        await consumeTask?.value
+        consumeTask = nil
+
+        guard case .finishing = state else { return }
+
+        if isComparing {
+            await runComparison()
+            return
+        }
+
+        let raw = transcript
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            state = .idle
+            transcript = ""
+            return
+        }
+
+        let cleaned = Settings.shared.cleanupEnabled
+            ? await activeFormatter.format(raw)
+            : raw
+
+        guard case .finishing = state else { return }
+
+        // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
+        // only raises the odds of the right word; this is the pass that guarantees it,
+        // so it must not be something the user can accidentally switch off.
+        let (output, corrections) = DictionaryStore.shared.corrector.apply(to: cleaned)
+        if !corrections.isEmpty {
+            Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
+        }
+
+        recordRun(text: output, corrections: corrections)
+        TextInjector.insert(output)
+        if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+
+        state = .idle
+        transcript = ""
+    }
+
     private func cancelDictation() {
+        startupTask?.cancel()
+        startupTask = nil
+        finishTask?.cancel()
+        finishTask = nil
         capture.stop()
         audioContinuation?.finish()
         audioContinuation = nil
@@ -289,19 +356,6 @@ final class DictationController {
         state = .idle
         transcript = ""
         level = 0
-    }
-
-    private func teardown() async {
-        capture.stop()
-        audioContinuation?.finish()
-        audioContinuation = nil
-        await feedTask?.value
-        feedTask = nil
-        await engine?.finish()
-        engine = nil
-        consumeTask?.cancel()
-        consumeTask = nil
-        state = .idle
     }
 
     // MARK: - Helpers
@@ -421,9 +475,11 @@ final class DictationController {
         audioContinuation = nil
         feedTask?.cancel()
         feedTask = nil
-        engine = nil
+        let engine = self.engine
+        self.engine = nil
         consumeTask?.cancel()
         consumeTask = nil
+        Task { await engine?.finish() }
         state = .error(message)
         level = 0
 

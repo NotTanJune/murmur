@@ -20,6 +20,8 @@ import Foundation
 /// target app, so "the focused element" is still their text field.
 @MainActor
 enum TextInjector {
+    private static var pasteTask: Task<Void, Never>?
+
     static func insert(_ text: String) {
         guard !text.isEmpty else { return }
 
@@ -121,21 +123,61 @@ enum TextInjector {
             return copy
         }
 
+        // A previous fallback may still be waiting to post ⌘V or restore the clipboard.
+        // Cancel it before replacing the pasteboard so an older transcript cannot win the
+        // race with the current one.
+        pasteTask?.cancel()
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        guard pasteboard.setString(text, forType: .string) else {
+            Log.inject.error("failed to write transcript to pasteboard")
+            return
+        }
 
-        Task { @MainActor in
-            // Give the target app a moment to observe the new pasteboard generation before
-            // ⌘V arrives, or a fast paste can grab the *previous* contents.
-            try? await Task.sleep(for: .milliseconds(40))
+        let expectedChangeCount = pasteboard.changeCount
+
+        pasteTask = Task { @MainActor in
+            // Do not post ⌘V until the pasteboard exposes this exact generation and string.
+            // A successful write call alone does not prove that the target can read it yet.
+            guard await waitForPasteboard(
+                text,
+                changeCount: expectedChangeCount,
+                pasteboard: pasteboard
+            ) else {
+                Log.inject.error("pasteboard did not expose the current transcript")
+                if pasteboard.changeCount == expectedChangeCount {
+                    restore(saved, to: pasteboard)
+                }
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
             postCommandV()
             Log.inject.info("pasted (\(text.count) chars)")
 
             // The paste is asynchronous in the target app; restore only once it's had time
-            // to read the pasteboard.
-            try? await Task.sleep(for: .milliseconds(500))
+            // to read the pasteboard. Never overwrite a clipboard value the user changed
+            // while the paste was in flight.
+            try? await Task.sleep(for: .milliseconds(750))
+            guard !Task.isCancelled, pasteboard.changeCount == expectedChangeCount else { return }
             restore(saved, to: pasteboard)
         }
+    }
+
+    private static func waitForPasteboard(
+        _ text: String,
+        changeCount: Int,
+        pasteboard: NSPasteboard
+    ) async -> Bool {
+        for _ in 0..<40 {
+            guard !Task.isCancelled else { return false }
+            if pasteboard.changeCount == changeCount,
+               pasteboard.string(forType: .string) == text {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     private static func postCommandV() {

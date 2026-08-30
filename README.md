@@ -19,7 +19,7 @@ is not automatic on macOS and is worth understanding before changing anything:
 - **Executable `MurmurYouTube`** — distinct enough that `pkill -x MurmurYouTube` cannot
   match a differently-named binary. The `Makefile` only ever targets `$(EXEC)`.
 - **Hotkey is configurable** (Right ⌥ / fn / Right ⌘) precisely because another tool may
-  already own the key you'd reach for first. The event tap inspects only its own keycode
+  already own the key you'd reach for first. The global monitor inspects only its own keycode
   and passes everything else through untouched.
 
 If you run more than one dictation app, give each a different push-to-talk key. Two apps on
@@ -33,14 +33,20 @@ the same key both record, and whichever injects text will fight the other.
 make install     # builds, bundles, signs, copies to /Applications, launches
 ```
 
-Then grant two permissions — neither is optional, and neither can be requested silently:
+Then grant two permissions. Neither is optional, and neither can be requested silently:
 
 | Permission | Where | Needed for |
 |---|---|---|
-| **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | The `CGEventTap` that sees the hotkey, and the AX text insert |
+| **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | Global key monitoring and the AX text insert |
 | **Microphone** | Prompted on first dictation | Audio capture |
 
 Restart Murmur YouTube after granting Accessibility. Then hold **Right ⌥** and talk.
+
+On first launch, Murmur copies the tracked starter vocabulary from
+`Resources/default-dictionary.txt` into
+`~/Library/Application Support/MurmurYouTube/dictionary.txt`. Existing dictionaries,
+including empty ones, are never replaced. Edit entries in the Dictionary panel or choose
+**Reveal Dictionary File** from the app menu.
 
 ### Why grants survive rebuilds here
 
@@ -49,9 +55,11 @@ changes on every build, so the rebuilt binary stops satisfying the stored requir
 and the symptom is nasty: the Accessibility toggle still **shows as on** while the app is
 reported untrusted, and flipping it changes nothing because the stale row is the problem.
 
-The `Makefile` therefore signs with a stable Developer ID (auto-detected via
-`security find-identity`, falling back to ad-hoc). Verified: rebuild + reinstall keeps both
-grants with no re-prompt.
+The `Makefile` therefore signs with a stable Developer ID or Apple Development identity
+(auto-detected via `security find-identity`, falling back to ad-hoc). A stable identity keeps
+the local Accessibility requirement consistent across rebuilds. If the app reports that its
+global keyboard monitor is unavailable, enable Murmur YouTube in Accessibility, then quit and
+reopen it.
 
 If a grant ever does get wedged, reset that one row and re-add — never toggle:
 
@@ -97,10 +105,10 @@ Other targets: `make app` (bundle only), `make run` (run in place), `make clean`
 took key status, the user's text field would lose focus and there'd be nothing left to
 inject into. Everything else is replaceable; this isn't.
 
-**The hotkey needs a `CGEventTap`, not `NSEvent`.** `fn` and left/right modifier
-discrimination don't surface through `NSEvent.addGlobalMonitorForEvents` or the Carbon
-hotkey API. A session event tap is the only way to see them — which is why Accessibility
-permission is a hard requirement rather than a nicety.
+**The hotkey uses AppKit's global event monitor.** `flagsChanged` events include a virtual key
+code, so the monitor can distinguish the configured right-hand modifier without decoding
+aggregate modifier flags. Accessibility permission is a hard requirement because macOS
+restricts global key monitoring to trusted apps.
 
 **Audio ordering is explicit.** `AudioCapture` yields into an `AsyncStream` drained by a
 single task. Spawning a `Task` per buffer would be simpler and would silently corrupt the
@@ -120,7 +128,7 @@ Sources/MurmurYouTube/
 ├── MurmurYouTubeApp.swift              @main, AppDelegate, MenuBarExtra
 ├── Core/
 │   ├── DictationController.swift   state machine, wires everything
-│   ├── HotkeyMonitor.swift         CGEventTap on .flagsChanged
+│   ├── HotkeyMonitor.swift         NSEvent global/local monitors on .flagsChanged
 │   ├── AudioCapture.swift          AVAudioEngine tap + format conversion + RMS
 │   └── TextInjector.swift          AX insert, pasteboard+⌘V fallback
 ├── Transcription/
@@ -130,7 +138,7 @@ Sources/MurmurYouTube/
 │   └── TextFormatter.swift         protocol + RuleBasedFormatter
 ├── UI/
 │   ├── HUDPanel.swift              non-activating floating panel
-│   └── HUDView.swift               waveform + live transcript, Brand palette
+│   └── HUDView.swift               compact amber waveform, Brand palette
 └── Support/
     ├── Settings.swift, Permissions.swift, Log.swift
 ```
@@ -168,13 +176,11 @@ change.
    optional higher-quality tier.
 2. **Command Mode.** Select text, hold a second hotkey, say "make this more formal."
    Needs AX read of `kAXSelectedTextAttribute` plus an LLM round-trip.
-3. **Personal dictionary.** Names and jargon the ASR keeps missing. `SpeechAnalyzer`
-   supports this through `AnalysisContext` / `SFCustomLanguageModelData`.
-4. **Branding.** `Brand` in `HUDView.swift` is a two-color placeholder gradient. App icon,
+3. **Branding.** `Brand` in `HUDView.swift` is a two-color placeholder gradient. App icon,
    real palette, HUD motion design, onboarding.
-5. **Onboarding.** A first-run window that walks through both permissions instead of
+4. **Onboarding.** A first-run window that walks through both permissions instead of
    relying on the menu's "Grant…" items.
-6. **Developer ID signing + notarization.** Ends the TCC-reset churn and makes the app
+5. **Developer ID signing + notarization.** Ends the TCC-reset churn and makes the app
    distributable.
 
 ---
@@ -188,7 +194,7 @@ events) and confirmed via `/usr/bin/log show --predicate 'subsystem ==
 - Builds clean under Swift 6 strict concurrency.
 - Signs with Developer ID; grants survive rebuild + reinstall.
 - Launches as an accessory app, no Dock icon, menu bar item present.
-- Event tap arms on grant without a restart (the poller catches it).
+- Global keyboard monitor arms on grant without a restart (the poller catches it).
 - Full state machine: `starting → listening → finishing → idle`, no errors.
 - `SpeechAnalyzer` starts; models already installed, no download stall.
 - Audio capture runs and converts native 48 kHz → 16 kHz for the engine.

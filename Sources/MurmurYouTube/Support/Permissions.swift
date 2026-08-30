@@ -5,11 +5,11 @@ import Foundation
 
 /// Murmur YouTube needs two grants, and neither can be worked around:
 /// - **Microphone** — obviously.
-/// - **Accessibility** — for both the `CGEventTap` (hotkey) and the AX text insert.
+/// - **Accessibility** — for global key monitoring and AX text insertion.
 ///
 /// Accessibility has no programmatic request; the OS only shows the prompt, and the user
-/// must toggle it in System Settings. TCC also keys on the code signature, so re-signing
-/// the app resets the grant.
+/// must toggle it in System Settings. TCC also keys on the code signature, so re-signing the
+/// app resets the grant.
 @MainActor
 enum Permissions {
     static var hasAccessibility: Bool {

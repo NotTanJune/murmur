@@ -18,6 +18,8 @@ actor AppleSpeechEngine: TranscriptionEngine {
     /// Text the engine has committed. Volatile results are appended on top for display
     /// but discarded as soon as a final result covering the same range arrives.
     private var finalizedText = ""
+    private var firstAudioAt: Date?
+    private var firstResultLogged = false
 
     init(locale: Locale = Locale.current) {
         self.locale = locale
@@ -28,7 +30,34 @@ actor AppleSpeechEngine: TranscriptionEngine {
         return await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
     }
 
+    /// Installs the OS-managed speech asset ahead of the first recording. Analyzer startup
+    /// still happens per utterance, but a first-use asset download no longer sits on the
+    /// push-to-talk path.
+    static func prewarm() async {
+        guard SpeechTranscriber.isAvailable else { return }
+
+        let resolvedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current)
+            ?? Locale(identifier: "en-US")
+        let transcriber = Self.makeTranscriber(locale: resolvedLocale)
+
+        do {
+            try await Self.ensureModelInstalled(for: transcriber)
+            // Format selection has its own first-use setup cost. Warm it with the same
+            // module configuration used by each utterance so it does not sit between the
+            // key press and `AudioCapture.start()` on the first recording.
+            let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+            if format == nil {
+                Log.speech.error("Apple speech input format prewarm unavailable for \(resolvedLocale.identifier)")
+            } else {
+                Log.speech.info("Apple speech model and input format ready for \(resolvedLocale.identifier)")
+            }
+        } catch {
+            Log.speech.error("Apple speech prewarm failed: \(error.localizedDescription)")
+        }
+    }
+
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error> {
+        let startedAt = Date()
         guard SpeechTranscriber.isAvailable else {
             throw TranscriptionError.localeUnsupported(locale)
         }
@@ -62,6 +91,8 @@ actor AppleSpeechEngine: TranscriptionEngine {
         }
 
         finalizedText = ""
+        firstAudioAt = nil
+        firstResultLogged = false
 
         let (chunks, chunkContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
 
@@ -83,12 +114,17 @@ actor AppleSpeechEngine: TranscriptionEngine {
         }
 
         try await analyzer.start(inputSequence: inputStream)
-        Log.speech.info("SpeechAnalyzer started for \(resolvedLocale.identifier)")
+        Log.speech.info(
+            "SpeechAnalyzer started for \(resolvedLocale.identifier) — setup \(Date().timeIntervalSince(startedAt), format: .fixed(precision: 3))s"
+        )
 
         return chunks
     }
 
     func feed(_ chunk: AudioChunk) async {
+        if firstAudioAt == nil {
+            firstAudioAt = Date()
+        }
         inputContinuation?.yield(AnalyzerInput(buffer: chunk.buffer))
     }
 
@@ -116,6 +152,16 @@ actor AppleSpeechEngine: TranscriptionEngine {
     /// text but never stored, so the next revision replaces it cleanly.
     private func absorb(_ result: SpeechTranscriber.Result) -> String {
         let text = String(result.text.characters)
+        if !firstResultLogged, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            firstResultLogged = true
+            if let firstAudioAt {
+                Log.performance.info(
+                    "Apple first transcription result \(Date().timeIntervalSince(firstAudioAt), format: .fixed(precision: 3))s after first audio"
+                )
+            } else {
+                Log.performance.info("Apple transcription result arrived before audio")
+            }
+        }
         guard result.isFinal else {
             return (finalizedText + text).trimmingCharacters(in: .whitespaces)
         }
@@ -150,7 +196,9 @@ actor AppleSpeechEngine: TranscriptionEngine {
             locale: locale,
             transcriptionOptions: [],
             // `.volatileResults` is what makes live text appear while you're still talking.
-            reportingOptions: [.volatileResults],
+            // `.fastResults` trades some recognition accuracy for earlier revisions, which
+            // is the right trade for a push-to-talk HUD that must feel immediate.
+            reportingOptions: [.volatileResults, .fastResults],
             attributeOptions: []
         )
     }

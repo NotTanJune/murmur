@@ -10,7 +10,7 @@ import SwiftUI
 final class HUDPanel: NSPanel {
     init(controller: DictationController) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 76),
+            contentRect: NSRect(x: 0, y: 0, width: DS.HUD.width, height: DS.HUD.height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -27,7 +27,11 @@ final class HUDPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
 
-        contentView = NSHostingView(rootView: HUDView(controller: controller))
+        let hostingView = NSHostingView(rootView: HUDView(controller: controller))
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.layer?.isOpaque = false
+        contentView = hostingView
     }
 
     override var canBecomeKey: Bool { false }
@@ -73,8 +77,7 @@ final class HUDPanel: NSPanel {
             context.duration = 0.16
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            // AppKit always calls this on the main thread.
-            MainActor.assumeIsolated { self?.orderOut(nil) }
+            Task { @MainActor in self?.orderOut(nil) }
         }
     }
 }

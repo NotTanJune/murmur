@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
 import Foundation
 
 /// Which modifier key holds the mic open.
@@ -16,23 +17,6 @@ enum PushToTalkKey: String, CaseIterable, Sendable {
         }
     }
 
-    /// Device-*dependent* bit for this specific physical key.
-    ///
-    /// `CGEventFlags.maskAlternate` is the union mask — it's set whenever *either* Option
-    /// key is down. Using it means: hold Left ⌥, tap Right ⌥, and the release is invisible
-    /// (the union bit is still set by the left key), so `onRelease` never fires. The mic
-    /// stays open, the HUD stays up, and the next press is swallowed too.
-    ///
-    /// These raw values are the NX_DEVICE* masks from IOKit's event system; they carry the
-    /// left/right distinction that the public `CGEventFlags` constants discard.
-    var flag: CGEventFlags {
-        switch self {
-        case .rightOption: CGEventFlags(rawValue: 0x40)   // NX_DEVICERALTKEYMASK
-        case .rightCommand: CGEventFlags(rawValue: 0x10)  // NX_DEVICERCMDKEYMASK
-        case .fn: .maskSecondaryFn                        // no left/right variant exists
-        }
-    }
-
     var displayName: String {
         switch self {
         case .rightOption: "Right ⌥"
@@ -41,99 +25,124 @@ enum PushToTalkKey: String, CaseIterable, Sendable {
         }
     }
 
-    /// Swallowing `fn` would break fn+arrow, fn+delete and the emoji picker, so we let it
-    /// through. Dedicated right-hand modifiers are safe to consume.
-    var shouldConsumeEvent: Bool { self != .fn }
 }
 
-/// Watches for a held modifier key using a `CGEventTap`.
+/// Watches for a held modifier key using AppKit's global and local event monitors.
 ///
-/// A tap is required rather than `NSEvent.addGlobalMonitor` because `fn` and left/right
-/// modifier discrimination don't surface through the higher-level APIs. This needs
-/// Accessibility permission; without it `CGEvent.tapCreate` returns nil.
-@MainActor
-final class HotkeyMonitor {
-    private var tap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+/// `NSEvent` flags-changed events retain the physical virtual key code, so the monitor can
+/// distinguish the configured right-hand key without relying on aggregate modifier flags.
+/// Global key events require Accessibility permission. The monitor observes events and does
+/// not suppress them, so holding a modifier alone cannot interfere with the focused app.
+final class HotkeyMonitor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
     private var isPressed = false
 
-    var key: PushToTalkKey = .rightOption
-    var onPress: (() -> Void)?
-    var onRelease: (() -> Void)?
+    private var storedKey: PushToTalkKey = .rightOption
+    private var storedOnPress: (@Sendable () -> Void)?
+    private var storedOnRelease: (@Sendable () -> Void)?
 
-    /// - Returns: `false` if the tap couldn't be created — almost always missing Accessibility permission.
+    var key: PushToTalkKey {
+        get { withLock { storedKey } }
+        set {
+            withLock {
+                storedKey = newValue
+                isPressed = false
+            }
+        }
+    }
+
+    var onPress: (@Sendable () -> Void)? {
+        get { withLock { storedOnPress } }
+        set { withLock { storedOnPress = newValue } }
+    }
+
+    var onRelease: (@Sendable () -> Void)? {
+        get { withLock { storedOnRelease } }
+        set { withLock { storedOnRelease = newValue } }
+    }
+
+    /// - Returns: `false` if the global monitor couldn't be installed.
     @discardableResult
     func start() -> Bool {
         stop()
 
-        let mask = (1 << CGEventType.flagsChanged.rawValue)
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(mask),
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-
-                // CGEvent isn't Sendable, so pull out the plain values before crossing into
-                // actor-isolated code. The tap was added to the main run loop, so this
-                // callback genuinely does run on the main thread.
-                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-                let flags = event.flags
-                let consume = MainActor.assumeIsolated {
-                    monitor.handle(type: type, keyCode: keyCode, flags: flags)
-                }
-                return consume ? nil : Unmanaged.passUnretained(event)
-            },
-            userInfo: refcon
-        ) else {
-            Log.hotkey.error("tapCreate failed — Accessibility permission missing?")
+        let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handle(keyCode: Int64(event.keyCode))
+        }
+        guard let global else {
+            Log.hotkey.error("global keyboard monitor unavailable; enable Accessibility for Murmur YouTube")
             return false
         }
 
-        self.tap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        let key = self.key
+        withLock {
+            isPressed = CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key.keyCode))
+        }
+
+        // Global monitors exclude events sent to this app, so observe its own window too.
+        let local = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handle(keyCode: Int64(event.keyCode))
+            return event
+        }
+
+        withLock {
+            globalMonitor = global
+            localMonitor = local
+        }
 
         Log.hotkey.info("listening for \(self.key.displayName)")
         return true
     }
 
     func stop() {
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
+        let monitors = withLock { () -> (Any?, Any?) in
+            let monitors = (globalMonitor, localMonitor)
+            globalMonitor = nil
+            localMonitor = nil
+            isPressed = false
+            return monitors
         }
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+
+        if let globalMonitor = monitors.0 {
+            NSEvent.removeMonitor(globalMonitor)
         }
-        tap = nil
-        runLoopSource = nil
-        isPressed = false
+        if let localMonitor = monitors.1 {
+            NSEvent.removeMonitor(localMonitor)
+        }
     }
 
-    // MARK: - Tap callback
+    // MARK: - Event monitor callback
 
-    /// - Returns: `true` if the event should be swallowed rather than passed along.
-    private func handle(type: CGEventType, keyCode: Int64, flags: CGEventFlags) -> Bool {
-        // The system disables a tap that runs too slowly or is interrupted; re-arm it.
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return false
+    private func handle(keyCode: Int64) {
+        let action: (@Sendable () -> Void)?
+
+        lock.lock()
+        guard keyCode == storedKey.keyCode else {
+            lock.unlock()
+            return
         }
 
-        guard type == .flagsChanged, keyCode == key.keyCode else { return false }
-
-        let nowPressed = flags.contains(key.flag)
-        guard nowPressed != isPressed else { return false }
+        // A flags-changed event has no down/up field. Its keycode identifies the configured
+        // physical key, so alternate the state for each matching event. Initialize from HID
+        // state when starting so a key held during activation does not create a false press.
+        let nowPressed = !isPressed
         isPressed = nowPressed
+        action = nowPressed ? storedOnPress : storedOnRelease
+        lock.unlock()
 
-        if nowPressed { onPress?() } else { onRelease?() }
+        if nowPressed {
+            Log.hotkey.info("push-to-talk press received")
+        } else {
+            Log.hotkey.info("push-to-talk release received")
+        }
+        action?()
+    }
 
-        return key.shouldConsumeEvent
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
     }
 }

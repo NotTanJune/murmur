@@ -1,0 +1,114 @@
+# Murmur starter dictionary
+#
+# Terms bias speech recognition toward spellings used in this project and related work.
+# Correction pairs rewrite distinctive transcription errors after recognition.
+# This file is copied into a user's dictionary only on first launch.
+
+# Projects and assistants
+Murmur YouTube
+Wispr Flow
+Claude Code
+Codex
+ChatGPT
+OpenAI
+Anthropic
+Kelpie
+Finance Agent
+Final Round
+locator
+Mac Mouse Fix
+BetterDisplay
+
+# Apple development and speech
+Swift
+SwiftUI
+Xcode
+macOS
+iOS
+AppKit
+Apple Silicon
+Instruments
+TestFlight
+Xcode Cloud
+Foundation Models
+SpeechAnalyzer
+SpeechTranscriber
+Parakeet
+FluidAudio
+Core ML
+Neural Engine
+
+# Web, data, and services
+Supabase
+PostgreSQL
+Vercel
+Next.js
+React
+TypeScript
+PostHog
+RevenueCat
+Groq
+APNs
+
+# Additional engineering vocabulary
+Sentry
+Git
+GitHub
+GitHub Actions
+Rust
+Cargo
+Bun
+uv
+yarn
+Docker
+Cloudflare
+Heroku
+Google
+Gmail
+WidgetKit
+WatchConnectivity
+App Intents
+NotebookLM
+YouTube
+Finder
+Ghostty
+MX Master
+LG UltraGear
+MemPalace
+Cymbal
+TinyFish
+C#
+.NET
+JSON
+OAuth
+Postgres
+
+# Common transcription corrections
+cloud code -> Claude Code
+clawed code -> Claude Code
+whisper flow -> Wispr Flow
+vercell -> Vercel
+super base -> Supabase
+post hog -> PostHog
+revenue cat -> RevenueCat
+swift ui -> SwiftUI
+next js -> Next.js
+next dot js -> Next.js
+type script -> TypeScript
+c sharp -> C#
+dot net -> .NET
+fluid audio -> FluidAudio
+speech analyzer -> SpeechAnalyzer
+speech transcriber -> SpeechTranscriber
+core ml -> Core ML
+better display -> BetterDisplay
+mac mouse fix -> Mac Mouse Fix
+final round -> Final Round
+finance agent -> Finance Agent
+notebook lm -> NotebookLM
+cloud flare -> Cloudflare
+widget kit -> WidgetKit
+watch connectivity -> WatchConnectivity
+app intents -> App Intents
+mac os -> macOS
+sherpa onyx -> sherpa-onnx

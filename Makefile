@@ -21,6 +21,7 @@ STAGE    := $(HOME)/Library/Caches/MurmurYouTubeBuild
 APPNAME  := Murmur YouTube.app
 BUNDLE   := $(STAGE)/$(APPNAME)
 CONTENTS := $(BUNDLE)/Contents
+DEFAULT_DICTIONARY := Resources/default-dictionary.txt
 
 ## TCC keys the Accessibility grant to the code signature, so an ad-hoc signature — which
 ## changes on every build — makes the user re-grant after every `make`. Signing with a
@@ -28,6 +29,10 @@ CONTENTS := $(BUNDLE)/Contents
 ## ad-hoc ("-") on a machine without the cert.
 SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
              | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)".*/\1/')
+ifeq ($(strip $(SIGN_ID)),)
+SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
+             | grep "Apple Development" | head -1 | sed -E 's/.*"(.*)".*/\1/')
+endif
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
@@ -54,6 +59,7 @@ app: build
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
+	@cp "$(DEFAULT_DICTIONARY)" "$(CONTENTS)/Resources/default-dictionary.txt"
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.

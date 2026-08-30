@@ -88,13 +88,27 @@ final class DictionaryStore {
     // MARK: - Persistence
 
     private func load() {
-        guard let text = try? String(contentsOf: Self.fileURL, encoding: .utf8) else {
+        if FileManager.default.fileExists(atPath: Self.fileURL.path) {
+            guard let text = try? String(contentsOf: Self.fileURL, encoding: .utf8) else {
+                entries = []
+                revision += 1
+                return
+            }
+            entries = Self.parse(text)
+            revision += 1
+            return
+        }
+
+        entries = Self.parse(Self.bundledDefaultText ?? "")
+        guard !entries.isEmpty else {
             entries = []
             revision += 1
             return
         }
-        entries = Self.parse(text)
-        revision += 1
+
+        // Install starter entries once. An existing file, including an intentionally empty
+        // one, always wins so a user's dictionary is never repopulated behind their back.
+        save()
     }
 
     static func parse(_ text: String) -> [DictionaryEntry] {
@@ -143,6 +157,13 @@ final class DictionaryStore {
         # Edit this file directly if you like; the app picks up changes immediately.
 
         """
+
+    private static var bundledDefaultText: String? {
+        guard let url = Bundle.main.url(forResource: "default-dictionary", withExtension: "txt") else {
+            return nil
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
 
     // MARK: - External edits
 

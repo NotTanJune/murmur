@@ -55,13 +55,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // property belongs to the panel, not to the activation policy.
         NSApp.setActivationPolicy(.regular)
 
+        // Seed the personal dictionary at launch rather than waiting for the Dictionary
+        // panel or the first completed dictation to touch its lazy singleton.
+        _ = DictionaryStore.shared
+
         hud = HUDPanel(controller: controller)
 
-        if !controller.activate() {
+        let hasAccessibility = Permissions.hasAccessibility
+        Log.app.info("privacy grant: Accessibility=\(hasAccessibility, privacy: .public)")
+        let hotkeyArmed = hasAccessibility && controller.activate()
+        if !hasAccessibility {
             Permissions.promptForAccessibility()
-            // The tap can only be created once the user grants Accessibility, and there's
-            // no notification for that — poll until it takes.
+        }
+        if !hotkeyArmed {
+            // Permission changes have no notification we can observe here, so poll until the
+            // grant is present and the global monitor can be armed.
             retryActivation()
+        }
+        if Permissions.hasMicrophone {
+            controller.prepareAudio()
         }
 
         // Write the dashboard up front so the menu item always opens something, even
@@ -79,6 +91,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        let willUseApple = Settings.shared.compareMode || Settings.shared.engine == .apple
+        if willUseApple {
+            Task.detached(priority: .utility) {
+                await AppleSpeechEngine.prewarm()
+            }
+        }
+
         // Every `make install` relaunches the app and drops its windows. Restoring the
         // window when it was open last time keeps it from vanishing on each rebuild.
         if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
@@ -89,7 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
-        Log.app.info("Murmur YouTube ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+        if hotkeyArmed {
+            Log.app.info("Murmur YouTube ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+        } else {
+            Log.app.error("Murmur YouTube ready — waiting for Accessibility before arming the hotkey")
+        }
     }
 
     /// `murmuryt://clear` and `murmuryt://show`, used by the legacy HTML dashboard and
@@ -143,11 +166,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func retryActivation() {
         Task { @MainActor in
-            while !Permissions.hasAccessibility {
+            while !Task.isCancelled {
+                if Permissions.hasAccessibility, controller.activate() {
+                    controller.prepareAudio()
+                    Log.app.info("Accessibility granted — hotkey armed")
+                    return
+                }
                 try? await Task.sleep(for: .seconds(1))
             }
-            controller.activate()
-            Log.app.info("Accessibility granted — hotkey armed")
         }
     }
 }
