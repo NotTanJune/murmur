@@ -18,6 +18,36 @@ final class AudioCapture: @unchecked Sendable {
     private nonisolated(unsafe) var outputFormat: AVAudioFormat?
     private var isRunning = false
 
+    /// The microphone this engine records from (`MicrophonePolicy`), never the system default.
+    private(set) var pinnedDevice: AudioInputDevice?
+    /// When the pin was last applied. Pinning itself can make the engine post a
+    /// configuration change; one that arrives right after is ours, not a real route change.
+    private var lastPinnedAt = Date.distantPast
+    /// A device was connected or removed mid-capture; re-pick once capture stops.
+    private var needsRepin = false
+    private var isObservingDevices = false
+    /// Diagnostics only: record from this device instead of the policy's choice.
+    var forcedDevice: AudioInputDevice?
+    /// Main thread: a microphone was connected or removed while capture runs. The owner
+    /// stops capture when it can; `stop()` then re-picks the device.
+    var onRepinNeeded: (() -> Void)?
+    /// Main thread, with the device now in use (nil when neither microphone is available).
+    var onDeviceChange: ((AudioInputDevice?) -> Void)?
+
+    enum CaptureError: LocalizedError {
+        case noMicrophone
+        case pinFailed(OSStatus)
+
+        var errorDescription: String? {
+            switch self {
+            case .noMicrophone:
+                "No microphone available: connect the HyperX SoloCast or open the MacBook's lid."
+            case .pinFailed(let status):
+                "Couldn't select the microphone (Core Audio error \(status))."
+            }
+        }
+    }
+
     /// Called on the audio thread with each converted buffer.
     private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
     /// Called on the audio thread with a 0…1 RMS level, for the HUD waveform.
@@ -35,6 +65,11 @@ final class AudioCapture: @unchecked Sendable {
     func prepare() {
         guard !isRunning else { return }
         observeConfigurationChanges()
+        observeDevices()
+        do { try ensurePinned() } catch {
+            Log.audio.error("\(error.localizedDescription, privacy: .public)")
+            return
+        }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { return }
@@ -50,6 +85,8 @@ final class AudioCapture: @unchecked Sendable {
     ) throws {
         guard !isRunning else { return }
         observeConfigurationChanges()
+        observeDevices()
+        try ensurePinned()
 
         self.onBuffer = onBuffer
         self.onLevel = onLevel
@@ -86,8 +123,13 @@ final class AudioCapture: @unchecked Sendable {
     /// caller may retry against a fresh engine.
     private func startEngine(requestedAt: Date, firstBuffer: OneShot, levelGate: LevelGate) throws {
         guard let outputFormat else { return }
+        // Never fall through to the system default input: no allowed microphone, no capture.
+        guard pinnedDevice != nil else { throw CaptureError.noMicrophone }
         let input = engine.inputNode
         let nativeFormat = input.outputFormat(forBus: 0)
+        Log.audio.info(
+            "start on \(self.pinnedDevice?.name ?? "?", privacy: .public): node out \(nativeFormat, privacy: .public) · node in \(input.inputFormat(forBus: 0), privacy: .public)"
+        )
 
         converterInputFormat = nativeFormat
         converter = nativeFormat == outputFormat
@@ -122,12 +164,94 @@ final class AudioCapture: @unchecked Sendable {
         Log.audio.info("capture started — native \(nativeFormat.sampleRate)Hz → engine \(outputFormat.sampleRate)Hz")
     }
 
-    /// Drops the current engine for a new one that reads the input device afresh.
+    /// Drops the current engine for a new one that reads the input device afresh, pinned to
+    /// the microphone the policy picks now.
     private func rebuildEngine() {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         engine = AVAudioEngine()
+        pinnedDevice = nil
         observeConfigurationChanges(reset: true)
+        do { try ensurePinned() } catch {
+            Log.audio.error("\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Points the engine's input at the policy's microphone if it isn't already. A fresh
+    /// engine is used when switching, since a prepared one keeps its old device's format.
+    private func ensurePinned() throws {
+        guard let device = forcedDevice ?? MicrophonePolicy.current() else {
+            if pinnedDevice != nil { onDeviceChange?(nil) }
+            pinnedDevice = nil
+            throw CaptureError.noMicrophone
+        }
+        guard device != pinnedDevice else { return }
+        if pinnedDevice != nil {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            engine = AVAudioEngine()
+            observeConfigurationChanges(reset: true)
+        }
+        guard let unit = engine.inputNode.audioUnit else { throw CaptureError.pinFailed(-1) }
+        var id = device.id
+        let status = AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else { throw CaptureError.pinFailed(status) }
+
+        // The node's device side now runs at the pinned mic's rate (the SoloCast is 48 kHz),
+        // but its app side keeps the format from before the switch (44.1 kHz here). The input
+        // node can't resample, so that mismatch fails `engine.start()` with -10868. Match
+        // the app side to the hardware; `AudioCapture`'s converter takes it to 16 kHz.
+        let hardware = engine.inputNode.inputFormat(forBus: 0)
+        if hardware.sampleRate > 0,
+           let client = AVAudioFormat(
+               commonFormat: .pcmFormatFloat32,
+               sampleRate: hardware.sampleRate,
+               channels: hardware.channelCount,
+               interleaved: false
+           ) {
+            var description = client.streamDescription.pointee
+            let formatStatus = AudioUnitSetProperty(
+                unit,
+                kAudioUnitProperty_StreamFormat,
+                kAudioUnitScope_Output,
+                1,
+                &description,
+                UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+            )
+            guard formatStatus == noErr else { throw CaptureError.pinFailed(formatStatus) }
+        }
+
+        pinnedDevice = device
+        lastPinnedAt = Date()
+        Log.audio.info("microphone pinned: \(device.name, privacy: .public)")
+        onDeviceChange?(device)
+    }
+
+    /// Re-picks the microphone when one is connected or removed. Mid-capture the switch
+    /// waits for the hold to end; if the device in use vanished, the configuration-change
+    /// path below already moves capture to the fallback.
+    private func observeDevices() {
+        guard !isObservingDevices else { return }
+        isObservingDevices = true
+        MicrophonePolicy.observeDeviceChanges { [weak self] in
+            guard let self else { return }
+            guard MicrophonePolicy.current() != self.pinnedDevice else { return }
+            if self.isRunning {
+                self.needsRepin = true
+                self.onRepinNeeded?()
+            } else {
+                Log.audio.info("microphone set changed while idle — re-pinning")
+                self.rebuildEngine()
+                self.engine.prepare()
+            }
+        }
     }
 
     /// AVAudioEngine posts this when the input or output route changes (device swap, sample
@@ -149,6 +273,9 @@ final class AudioCapture: @unchecked Sendable {
             guard let self else { return }
             if self.isRunning {
                 self.restartAfterRouteChange()
+            } else if Date().timeIntervalSince(self.lastPinnedAt) < 1 {
+                // Selecting the device reconfigured the engine; nothing to rebuild.
+                return
             } else {
                 Log.audio.info("audio configuration changed while idle — rebuilding engine")
                 self.rebuildEngine()
@@ -184,6 +311,11 @@ final class AudioCapture: @unchecked Sendable {
         onLevel = nil
         onInterruption = nil
         Log.audio.info("capture stopped")
+        if needsRepin {
+            needsRepin = false
+            rebuildEngine()
+            engine.prepare()
+        }
     }
 
     // MARK: - Audio thread

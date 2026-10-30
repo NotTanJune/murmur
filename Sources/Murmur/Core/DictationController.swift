@@ -116,9 +116,17 @@ final class DictationController {
     private(set) var transcript = ""
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
+    /// The microphone capture is pinned to, for display. Nil when neither allowed one is
+    /// available.
+    private(set) var microphoneName: String?
 
     private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
+    /// Sends captured audio to the hold in progress, or to the pre-roll between holds.
+    private let router = CaptureRouter()
+    /// The format key capture is running with, or nil while the microphone is closed. With
+    /// the always-open option this stays set between holds.
+    private var captureKey: String?
     /// Loaded once, so the start tick plays the instant the key goes down rather than after
     /// a file load. It plays at the press, not when the microphone is confirmed open: a
     /// tick that trails the press by the mic's startup time makes people start talking
@@ -190,8 +198,112 @@ final class DictationController {
     /// Prepares AVAudioEngine's graph while idle. This does not start microphone I/O.
     func prepareAudio() {
         guard Permissions.hasMicrophone else { return }
+        capture.onDeviceChange = { [weak self] device in
+            Task { @MainActor in self?.microphoneName = device?.name }
+        }
+        capture.onRepinNeeded = { [weak self] in
+            Task { @MainActor in self?.repinWhenIdle() }
+        }
         capture.prepare()
+        observeMicSettings()
         prefetchInputFormat()
+        syncOpenMicrophone()
+    }
+
+    // MARK: - Always-open microphone
+
+    /// The format key the next hold would capture with.
+    private var currentFormatKey: String {
+        Settings.shared.compareMode ? "compare" : Settings.shared.engine.rawValue
+    }
+
+    /// Between holds, keeps the microphone open (or closed) to match the setting, in the
+    /// format the selected engine wants. A hold in progress owns capture; its release
+    /// calls this again.
+    func syncOpenMicrophone() {
+        guard current == nil else { return }
+        guard Settings.shared.alwaysOpenMic, Permissions.hasMicrophone else {
+            if captureKey != nil {
+                capture.stop()
+                captureKey = nil
+                Log.audio.info("microphone closed between holds")
+            }
+            return
+        }
+        let key = currentFormatKey
+        guard captureKey != key else { return }
+        guard let format = inputFormats[key] else {
+            prefetchInputFormat()
+            return
+        }
+        if captureKey != nil { capture.stop() }
+        captureKey = nil
+        router.detach()
+        do {
+            try startCapture(format: format)
+            captureKey = key
+            Log.audio.info("microphone kept open between holds (\(key, privacy: .public))")
+        } catch {
+            Log.audio.error("couldn't keep the microphone open: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func startCapture(format: AVAudioFormat) throws {
+        let router = router
+        try capture.start(
+            outputFormat: format,
+            onBuffer: { router.route($0) },
+            onLevel: { router.level($0) },
+            onInterruption: { [weak self] in
+                Task { @MainActor in self?.captureDied() }
+            }
+        )
+    }
+
+    /// Ends a hold's use of the microphone. With the always-open option it keeps running
+    /// for the next press; otherwise it closes.
+    private func releaseCapture() {
+        router.detach()
+        if Settings.shared.alwaysOpenMic {
+            syncOpenMicrophone()
+        } else if captureKey != nil {
+            capture.stop()
+            captureKey = nil
+        }
+    }
+
+    /// A route change the capture couldn't survive. A hold in progress finishes with what it
+    /// recorded; an idle open microphone is reopened on whatever device is now allowed.
+    private func captureDied() {
+        captureKey = nil
+        if let utterance = current {
+            captureInterrupted(utterance)
+        } else {
+            syncOpenMicrophone()
+        }
+    }
+
+    /// A microphone was connected or removed while capture is running. Between holds,
+    /// reopen on the newly allowed device now; during a hold, the release handles it.
+    private func repinWhenIdle() {
+        guard current == nil, captureKey != nil else { return }
+        capture.stop()
+        captureKey = nil
+        syncOpenMicrophone()
+    }
+
+    /// Re-syncs the open microphone when the option, engine or compare mode changes.
+    private func observeMicSettings() {
+        withObservationTracking {
+            _ = Settings.shared.alwaysOpenMic
+            _ = Settings.shared.engine
+            _ = Settings.shared.compareMode
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.syncOpenMicrophone()
+                self?.observeMicSettings()
+            }
+        }
     }
 
     /// Works out the selected engine's input format ahead of time, so even the first press
@@ -204,6 +316,7 @@ final class DictationController {
             let owner: any TranscriptionEngine = comparing ? AppleSpeechEngine() : await self.makeEngine()
             guard self.inputFormats[key] == nil, let format = await owner.preferredInputFormat() else { return }
             self.inputFormats[key] = format
+            self.syncOpenMicrophone()
         }
     }
 
@@ -278,7 +391,7 @@ final class DictationController {
         // before the mic even began to start. Anything else falls back to the task below.
         if Permissions.hasMicrophone, let format = inputFormats[formatKey] {
             do {
-                try openCapture(for: utterance, format: format)
+                try openCapture(for: utterance, format: format, key: formatKey)
             } catch {
                 Log.audio.error("capture failed at press, retrying in startup: \(error.localizedDescription)")
             }
@@ -344,7 +457,7 @@ final class DictationController {
                     utterance.engine = nil
                     return
                 }
-                try openCapture(for: utterance, format: format)
+                try openCapture(for: utterance, format: format, key: formatKey)
             }
             guard let audioStream = utterance.audioStream else { return }
 
@@ -400,31 +513,36 @@ final class DictationController {
     /// loading, analyzer startup and the previous hold's transcription can take long enough
     /// to lose the beginning of a short utterance, so the stream buffers capture-order audio
     /// until the engine drains it.
-    private func openCapture(for utterance: Utterance, format: AVAudioFormat) throws {
+    private func openCapture(for utterance: Utterance, format: AVAudioFormat, key: String) throws {
         let (audioStream, audioContinuation) = AsyncStream<AudioChunk>.makeStream(
             bufferingPolicy: .bufferingOldest(2_048)
         )
-        let captureStartedAt = Date()
-        try capture.start(
-            outputFormat: format,
-            onBuffer: { chunk in
-                audioContinuation.yield(chunk)
-            },
-            onLevel: { [weak self] level in
-                Task { @MainActor in
-                    guard let self, self.current === utterance else { return }
-                    self.updateLevel(level)
-                }
-            },
-            onInterruption: { [weak self] in
-                Task { @MainActor in self?.captureInterrupted(utterance) }
+        let openedAt = Date()
+        // Attach first: with the microphone already open this is the whole job, and the
+        // hold starts with the pre-roll from just before the press.
+        router.attach(audioContinuation) { [weak self] level in
+            Task { @MainActor in
+                guard let self, self.current === utterance else { return }
+                self.updateLevel(level)
             }
-        )
+        }
+        let wasOpen = captureKey == key
+        if !wasOpen {
+            if captureKey != nil { capture.stop() }
+            captureKey = nil
+            do {
+                try startCapture(format: format)
+            } catch {
+                router.detach()
+                throw error
+            }
+            captureKey = key
+        }
         utterance.audioStream = audioStream
         utterance.audioContinuation = audioContinuation
         utterance.captureOpened = true
         Log.performance.info(
-            "capture opened \(Date().timeIntervalSince(utterance.holdStarted), format: .fixed(precision: 3))s after press (start call \(Date().timeIntervalSince(captureStartedAt), format: .fixed(precision: 3))s)"
+            "capture \(wasOpen ? "attached to open mic" : "opened", privacy: .public) \(Date().timeIntervalSince(utterance.holdStarted), format: .fixed(precision: 3))s after press (call \(Date().timeIntervalSince(openedAt), format: .fixed(precision: 3))s)"
         )
         if current === utterance, state == .starting {
             state = .listening
@@ -435,7 +553,7 @@ final class DictationController {
         guard let utterance = current else { return }
         current = nil
         utterance.releasedAt = Date()
-        capture.stop()
+        releaseCapture()
         level = 0
         state = .finishing
         if utterance.isComparing { comparisonInFlight = true }
@@ -543,7 +661,9 @@ final class DictationController {
             abandon(utterance)
         }
         for tail in tails.values { tail.cancel() }
+        router.detach()
         capture.stop()
+        captureKey = nil
         state = .idle
         transcript = ""
         level = 0
@@ -670,7 +790,7 @@ final class DictationController {
         utterance.isAborted = true
         if current === utterance {
             current = nil
-            capture.stop()
+            releaseCapture()
             level = 0
         }
         utterance.audioContinuation?.finish()

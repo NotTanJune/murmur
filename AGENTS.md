@@ -294,6 +294,25 @@ command line can't compile MLX's Metal kernels, and copies every SwiftPM resourc
 missing generated bundle traps in `Bundle.module`. `Murmur --cleanup-check` verifies the
 installed bundle end to end without a microphone.
 
+Capture never uses the system default input. `MicrophonePolicy` picks the HyperX SoloCast
+when connected, otherwise the built-in mic, and nothing else (no Bluetooth, iPhone or other
+USB devices; no allowed mic means recording refuses rather than falling back).
+`AudioCapture` pins it with `kAudioOutputUnitProperty_CurrentDevice` on the input node's
+AUHAL, then **must** set the node's output-scope stream format to the device's hardware rate:
+after a switch the client side keeps the previous rate (44.1 kHz vs the SoloCast's 48 kHz),
+the input node can't resample, and `engine.start()` fails with -10868. Devices plugged or
+unplugged re-pin while idle, or after the current hold ends. `Murmur --mic-benchmark <file>
+[seconds]` measures what an always-open mic would cost; on the M2 it was about 3–3.5% of one
+core in `coreaudiod` plus `usbaudiod`, under 1% in Murmur, and about 1 MB of memory.
+
+`Settings.alwaysOpenMic` (default on) keeps capture running between holds. `CaptureRouter`
+sends audio to the attached hold, or between holds into a pre-roll capped at 0.3 s, and a
+press attaches with that pre-roll first, so the hold includes the moment before the key
+landed. Nothing is stored beyond that in-memory buffer. The controller tracks the running
+format as `captureKey`; a release detaches and `syncOpenMicrophone()` keeps, restarts or
+closes capture to match the setting, engine and compare mode (observed with
+`withObservationTracking`). Off, the mic opens at the press as before.
+
 `AppStorage` imports dictionary/history once without deleting originals or replacing
 existing destination files. Its two legacy names are intentional compatibility references.
 New runs preserve `processSeconds` and add optional `deliverySeconds`, measured through

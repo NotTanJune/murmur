@@ -117,6 +117,12 @@ final class Settings {
         didSet { defaults.set(cleanupProfile.rawValue, forKey: Keys.cleanupProfile) }
     }
 
+    /// Keep the microphone open between holds, so a press starts instantly and includes the
+    /// moment just before it. macOS shows its microphone indicator the whole time.
+    var alwaysOpenMic: Bool {
+        didSet { defaults.set(alwaysOpenMic, forKey: Keys.alwaysOpenMic) }
+    }
+
     /// Play a short tick when capture starts and stops.
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
@@ -148,6 +154,7 @@ final class Settings {
         static let cleanupProfile = "cleanupProfile"
         static let compareMode = "compareMode"
         static let appearance = "appearance"
+        static let alwaysOpenMic = "alwaysOpenMic"
     }
 
     /// Internal rather than private so tests can migrate a throwaway defaults suite.
@@ -165,5 +172,6 @@ final class Settings {
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
+        alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
     }
 }

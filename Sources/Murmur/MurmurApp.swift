@@ -66,6 +66,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Diagnostic: run S1-mini from the installed bundle on fixed samples, print, and quit.
         // Exercises the real model folder and the bundled GPU kernels without a microphone.
+        if let index = CommandLine.arguments.firstIndex(of: "--mic-benchmark"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let output = CommandLine.arguments[index + 1]
+            let window = CommandLine.arguments.indices.contains(index + 2)
+                ? Double(CommandLine.arguments[index + 2]) : nil
+            Task { @MainActor in
+                exit(await MicBenchmark.run(outputPath: output, window: window) ? EXIT_SUCCESS : EXIT_FAILURE)
+            }
+            return
+        }
         if CommandLine.arguments.contains("--cleanup-check") {
             Task { @MainActor in exit(await CleanupCheck.run() ? EXIT_SUCCESS : EXIT_FAILURE) }
             return

@@ -135,7 +135,10 @@ struct Note: View {
 struct BrutalButtonStyle: ButtonStyle {
     var isSelected = false
     var fill: Color = DS.Color.card
+    /// Shorter key, for row actions.
     var compact = false
+    /// Full height, tighter sides, for rows of keys that share a crowded line.
+    var dense = false
 
     func makeBody(configuration: Configuration) -> some View {
         KeyBody(
@@ -143,7 +146,8 @@ struct BrutalButtonStyle: ButtonStyle {
             isSunk: isSelected || configuration.isPressed,
             isSelected: isSelected,
             fill: fill,
-            compact: compact
+            compact: compact,
+            dense: dense
         )
     }
 
@@ -153,6 +157,7 @@ struct BrutalButtonStyle: ButtonStyle {
         let isSelected: Bool
         let fill: Color
         let compact: Bool
+        let dense: Bool
 
         @Environment(\.isEnabled) private var isEnabled
 
@@ -162,7 +167,11 @@ struct BrutalButtonStyle: ButtonStyle {
             label
                 .font(DS.Font.control)
                 .foregroundStyle(isSelected ? DS.Color.onAccent : DS.Color.ink)
-                .padding(.horizontal, compact ? DS.Space.snug : DS.Space.base)
+                // A key's label never wraps: a squeezed row would otherwise break one word
+                // across two lines inside its cap.
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, compact || dense ? DS.Space.snug : DS.Space.base)
                 .frame(minHeight: compact ? DS.Control.heightSmall : DS.Control.height)
                 .background {
                     ZStack {
@@ -190,6 +199,7 @@ struct ChoiceKeys<Option: Hashable>: View {
     @Binding var selection: Option
     let title: (Option) -> String
     var help: ((Option) -> String)?
+    var dense = false
 
     var body: some View {
         HStack(spacing: DS.Space.snug) {
@@ -204,7 +214,7 @@ struct ChoiceKeys<Option: Hashable>: View {
                         Text(title(option))
                     }
                 }
-                .buttonStyle(BrutalButtonStyle(isSelected: isSelected))
+                .buttonStyle(BrutalButtonStyle(isSelected: isSelected, dense: dense))
                 .help(help?(option) ?? "")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }

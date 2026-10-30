@@ -30,6 +30,27 @@ struct SettingsPanel: View {
                         + "regardless of what's focused.")
                 }
 
+                BrutalCard(title: "Microphone") {
+                    Text(controller.microphoneName ?? "None available")
+                        .font(DS.Font.bodyEmphasis)
+                        .foregroundStyle(DS.Color.ink)
+                    Note(text: "Always the HyperX SoloCast when it's connected, otherwise the MacBook's "
+                        + "built-in mic. Never a Bluetooth headset or the system default.")
+                    Toggle(isOn: $settings.alwaysOpenMic) {
+                        Text("Keep microphone open")
+                            .font(DS.Font.bodyEmphasis)
+                            .foregroundStyle(DS.Color.ink)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(DS.Color.accent)
+                    Note(text: settings.alwaysOpenMic
+                        ? "Recording starts the instant you press, including the moment just before it. "
+                            + "Only the last 0.3 s is held, in memory. macOS shows its mic indicator the whole time; "
+                            + "measured cost about 3% of one CPU core."
+                        : "The mic opens when you press, which takes about 0.1 s (longer on the first press), "
+                            + "so a word spoken right at the press can be clipped.")
+                }
+
                 BrutalCard(title: "Appearance") {
                     ChoiceKeys(
                         options: AppearanceChoice.allCases,

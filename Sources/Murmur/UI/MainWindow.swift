@@ -207,12 +207,13 @@ private struct TransportDock: View {
                             get: { section },
                             set: { candidate in withAnimation(DS.Motion.panel) { section = candidate } }
                         ),
-                        title: \.title
+                        title: \.title,
+                        dense: true
                     )
                     Spacer(minLength: DS.Space.snug)
                     if settings.cleanupEnabled, settings.cleanupEngine.usesProfiles {
                         Eyebrow(text: "Profile")
-                        ProfileKeys()
+                        ProfileKeys(dense: true)
                     }
                 }
             }
