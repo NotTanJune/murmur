@@ -241,8 +241,9 @@ Parakeet EOU at 160 ms and Nemotron at 560 ms minimum, not the Nemotron 160 ms o
 shown in some indexed documentation. Use `.cpuAndNeuralEngine` for the int8 Nemotron
 encoder; the generic factory otherwise supplies a `.all` configuration.
 
-Streaming models are loaded explicitly from Settings or the menu bar and retained for
-the process lifetime. The adapter serializes load, reset, feed, and finish so actor
+Streaming models (Parakeet EOU, Nemotron) are loaded explicitly from Settings or the menu
+bar and retained for the process lifetime; unlike Bark and S1-mini they are not released on
+idle. The adapter serializes load, reset, feed, and finish so actor
 reentrancy cannot reset a decoder during inference. Release drains queued audio and
 flushes the final buffer; partial snapshots are never substituted for final text.
 The old comparison mode still compares Apple and Parakeet batch, not the streaming options;
@@ -254,12 +255,13 @@ revision and verifies size and SHA-256 per file before publishing the folder. Ba
 components are loaded with `MLModel.load` directly, **not** `AsrModels.load(from:)`: on a
 load failure FluidAudio purges the folder and re-downloads stock v3 into it, which would
 silently replace Bark with NVIDIA's weights. Keep the ANE `Encoder.mlmodelc`; the repo's
-`Encoder_lut3` GPU build measured about 2× slower on an M2. Like the streaming models, Bark
-gates recording until loaded, and it auto-loads at launch when already on disk.
+`Encoder_lut3` GPU build measured about 2× slower on an M2. Bark gates recording only
+while it isn't on disk (a download is needed); once installed it is `.sleeping` until a press
+wakes it (see `ModelResidency` below).
 
-Parakeet v3 is gated the same way as Bark: `requiresPreparedModel` covers `.parakeet`,
-and `StreamingModelPreparation.loadIfInstalled` loads any on-disk model at launch and when
-the engine is picked, without ever starting a download on its own.
+Parakeet v3 is gated the same way as Bark: `requiresPreparedModel` covers `.parakeet`.
+`StreamingModelPreparation.loadIfInstalled` loads an on-disk model when the engine is picked,
+and at launch only when `Settings.idleUnload` is "never"; it never starts a download.
 
 Holds are pipelined. Each one is an `Utterance` owning its engine, tasks and transcript, so
 a press while the previous hold is still finishing starts capture at once. The new hold's
@@ -279,7 +281,7 @@ nothing is typed or filed when focus is an `AXSecureTextField`.
 Cleanup has three engines (`CleanupEngine`): the rule pass, S1-mini by Superwhisper, and
 Apple Intelligence; the old `smartCleanup` bool migrates to Apple Intelligence. S1-mini runs
 through `MLXLMCommon` directly, **not** the FoundationModels `MLXLanguageModel` adapter: the
-adapter measured the same speed but can't hold a prompt cache, and `S1MiniEngine` caches each
+adapter measured the same speed but can't hold a prompt cache, and `S1MiniRuntime` caches each
 profile's 69-token prefix (system prompt plus control line), which saved 40–60 ms per
 utterance with token-identical output. Keep the system prompt verbatim and the control lines
 inside the trained values; the model card warns it hallucinates otherwise, which is why
@@ -287,8 +289,9 @@ inside the trained values; the model card warns it hallucinates otherwise, which
 `S1MiniModelStore` pins commit `88f6b158` (the repo has no `v1` tag despite its card),
 verifies size and SHA-256, converts BF16 to 4-bit affine g64 in-app (measured bit-identical
 to `mlx_lm.convert`) and deletes the original. The cleanup guard exempts numerals and a short
-list of colloquial expansions for S1-mini only. Cleanup never gates recording: an unloaded
-model falls back to the rule pass. `make app` builds with `xcodebuild` because SwiftPM's
+list of colloquial expansions for S1-mini only. Cleanup never gates recording. A cleanup that
+arrives while S1-mini is still loading waits for it (`S1MiniEngine.waitUntilReady`); if the
+helper fails or isn't installed, it falls back to the rule pass. `make app` builds with `xcodebuild` because SwiftPM's
 command line can't compile MLX's Metal kernels, and copies every SwiftPM resource bundle into
 `Contents/Resources`; a missing `mlx-swift_Cmlx.bundle` fails at the first GPU call, and a
 missing generated bundle traps in `Bundle.module`. `Murmur --cleanup-check` verifies the
@@ -305,7 +308,10 @@ unplugged re-pin while idle, or after the current hold ends. `Murmur --mic-bench
 [seconds]` measures what an always-open mic would cost; on the M2 it was about 3–3.5% of one
 core in `coreaudiod` plus `usbaudiod`, under 1% in Murmur, and about 1 MB of memory.
 
-`Settings.alwaysOpenMic` (default on) keeps capture running between holds. `CaptureRouter`
+`Settings.alwaysOpenMic` (default on) keeps capture running between holds. In `beginDictation`
+the attach (`openCapture`) must stay the first thing after the utterance is created: the
+start sound and `ModelResidency.wake` ran before it once and delayed it by up to 0.67 s,
+past the pre-roll, which clipped the start of speech. `CaptureRouter`
 sends audio to the attached hold, or between holds into a pre-roll capped at 0.3 s, and a
 press attaches with that pre-roll first, so the hold includes the moment before the key
 landed. Nothing is stored beyond that in-memory buffer. The controller tracks the running

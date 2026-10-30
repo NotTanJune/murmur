@@ -383,23 +383,14 @@ final class DictationController {
         state = .starting
         transcript = ""
 
-        if Settings.shared.soundEnabled, let startSound {
-            startSound.stop()
-            startSound.play()
-        }
-        // Models released while idle start loading now, alongside recording.
-        if !comparing {
-            ModelResidency.shared.wake(
-                engine: choice,
-                cleanup: Settings.shared.cleanupEnabled ? utterance.cleanupEngine : nil
-            )
-        }
         let formatKey = comparing ? "compare" : choice.rawValue
 
-        // Open the microphone right here, in the key-down handler, whenever the format is
-        // already known (every press after the first for an engine). Going through the
-        // startup task first cost ~65 ms of permission checks, engine setup and scheduling
-        // before the mic even began to start. Anything else falls back to the task below.
+        // Attach to the microphone before anything else. With the mic kept open the hold
+        // starts from a 0.3 s pre-roll, so every millisecond spent before this line comes
+        // out of that margin; the sound and the model wake below measured up to 0.67 s
+        // when they ran first. With the mic closed, this opens it right here in the key-down
+        // handler whenever the format is already known (every press after the first for an
+        // engine); anything else falls back to the startup task below.
         if Permissions.hasMicrophone, let format = inputFormats[formatKey] {
             do {
                 try openCapture(for: utterance, format: format, key: formatKey)
@@ -408,8 +399,25 @@ final class DictationController {
             }
         }
 
+        let afterCapture = Date()
+        if Settings.shared.soundEnabled, let startSound {
+            startSound.stop()
+            startSound.play()
+        }
+        let afterSound = Date()
+        // Models released while idle start loading now, alongside recording.
+        if !comparing {
+            ModelResidency.shared.wake(
+                engine: choice,
+                cleanup: Settings.shared.cleanupEnabled ? utterance.cleanupEngine : nil
+            )
+        }
+        Log.performance.info(
+            "press work after capture: sound \(afterSound.timeIntervalSince(afterCapture), format: .fixed(precision: 3))s, model wake \(Date().timeIntervalSince(afterSound), format: .fixed(precision: 3))s"
+        )
+
         // Load the cleanup model while the user is still talking, not after release.
-        // S1-mini needs nothing here: it stays resident once loaded.
+        // S1-mini is woken above by `ModelResidency`.
         if !comparing, formatter == nil, Settings.shared.cleanupEnabled,
            utterance.cleanupEngine == .appleIntelligence {
             FoundationModelFormatter.prewarm()
