@@ -12,6 +12,8 @@ final class S1MiniPreparation {
 
     enum State: Equatable {
         case unloaded
+        /// Installed but not in memory. Loads at the next press, alongside recording.
+        case sleeping
         case downloading
         case converting
         case loading
@@ -21,13 +23,14 @@ final class S1MiniPreparation {
         var isBusy: Bool {
             switch self {
             case .downloading, .converting, .loading: true
-            case .unloaded, .ready, .failed: false
+            case .unloaded, .sleeping, .ready, .failed: false
             }
         }
 
         var message: String {
             switch self {
             case .unloaded: "Not loaded. Until it is, cleanup uses the basic rules."
+            case .sleeping: "Installed, not in memory. Loads when you press the key."
             case .downloading: "Downloading 1.5 GB and checking it. Leave the app open."
             case .converting: "Converting to 4-bit on this Mac."
             case .loading: "Loading onto the GPU."
@@ -37,13 +40,30 @@ final class S1MiniPreparation {
         }
     }
 
-    private(set) var state: State = .unloaded
+    private(set) var state: State
     private let load: @Sendable (@escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws -> Void
 
-    init(load: @escaping @Sendable (@escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws -> Void = { phase in
-        try await S1MiniEngine.shared.load(phase: phase)
-    }) {
+    init(
+        isInstalled: Bool = S1MiniModelStore.isInstalled,
+        load: @escaping @Sendable (@escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws -> Void = { phase in
+            try await S1MiniEngine.shared.load(phase: phase)
+        }
+    ) {
+        state = isInstalled ? .sleeping : .unloaded
         self.load = load
+    }
+
+    /// At the press: start loading if the model was released to save memory.
+    func wake() {
+        guard state == .sleeping else { return }
+        start()
+    }
+
+    /// After idle: free the model's GPU memory.
+    func release() async {
+        guard state == .ready else { return }
+        await S1MiniEngine.shared.unload()
+        state = .sleeping
     }
 
     /// Loads only when the converted model is already on disk, so nothing downloads without
@@ -72,6 +92,7 @@ final class S1MiniPreparation {
                     }
                 }
                 state = .ready
+                ModelResidency.shared.loaded()
             } catch {
                 state = .failed(error.localizedDescription)
                 Log.speech.error("S1-mini load failed: \(error.localizedDescription, privacy: .public)")

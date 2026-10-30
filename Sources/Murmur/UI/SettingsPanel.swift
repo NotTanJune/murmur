@@ -59,6 +59,25 @@ struct SettingsPanel: View {
                     )
                 }
 
+                BrutalCard(title: "Memory") {
+                    Eyebrow(text: "Free models after")
+                    ChoiceKeys(
+                        options: IdleUnload.allCases,
+                        selection: Binding(
+                            get: { settings.idleUnload },
+                            set: { choice in
+                                settings.idleUnload = choice
+                                ModelResidency.shared.scheduleRelease()
+                            }
+                        ),
+                        title: \.displayName
+                    )
+                    Note(text: settings.idleUnload == .never
+                        ? "Bark and S1-mini stay in memory (about 600 MB) for instant cleanup every time."
+                        : "Bark and S1-mini leave memory after this long without dictating and reload at "
+                            + "your next press, while you speak. Idle, Murmur holds well under 100 MB.")
+                }
+
                 BrutalCard(title: "Model") {
                     Picker("Transcription engine", selection: $settings.engine) {
                         ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in

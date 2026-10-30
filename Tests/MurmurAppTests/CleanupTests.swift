@@ -107,9 +107,17 @@ struct CleanupTests {
     @Test("Load state: nothing starts when not installed; success and failure are reported")
     @MainActor
     func preparation() async {
-        let idle = S1MiniPreparation(load: { _ in Issue.record("must not load") })
+        let idle = S1MiniPreparation(isInstalled: false, load: { _ in Issue.record("must not load") })
         #expect(idle.loadIfInstalled(isInstalled: false) == nil)
         #expect(idle.state == .unloaded)
+        idle.wake()
+        #expect(idle.state == .unloaded)
+
+        // Installed but released: not in memory until a press wakes it.
+        let sleeping = S1MiniPreparation(isInstalled: true, load: { _ in })
+        #expect(sleeping.state == .sleeping)
+        sleeping.wake()
+        #expect(sleeping.state == .loading)
 
         let ok = S1MiniPreparation(load: { phase in phase(.downloading); phase(.converting); phase(nil) })
         await ok.start()?.value

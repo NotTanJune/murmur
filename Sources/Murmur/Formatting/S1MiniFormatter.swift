@@ -14,6 +14,14 @@ struct S1MiniFormatter: TextFormatter {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
 
+        // After an idle unload the model reloads at the press, in parallel with speaking. A
+        // short hold can end before that finishes; wait for it rather than silently giving
+        // this utterance the rule pass. The generation budget starts after.
+        guard await engine.waitUntilReady() else {
+            Log.speech.info("S1-mini not loaded — using rule-based cleanup")
+            return await fallback.format(trimmed)
+        }
+
         // Generation runs at about 165 tokens/s on an M2: a 135-word paragraph took 1.2 s.
         // The budget grows with length so long dictation isn't cut off at a fixed limit.
         let words = trimmed.split(whereSeparator: \.isWhitespace).count

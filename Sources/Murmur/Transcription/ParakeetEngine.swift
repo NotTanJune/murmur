@@ -166,6 +166,17 @@ actor ParakeetModels {
 
     var isLoaded: Bool { loaded != nil }
 
+    /// Releases the Core ML models so their Neural Engine and CPU memory go back to the
+    /// system. Leaves a load in flight alone; the next `manager()` reloads from disk, which
+    /// takes well under a second once the Neural Engine compile is cached.
+    func unload() async {
+        guard let manager = loaded else { return }
+        loaded = nil
+        loadTask = nil
+        await manager.cleanup()
+        Log.speech.info("\(self.source.label, privacy: .public): unloaded to free memory")
+    }
+
     /// Loads once; concurrent callers await the same task rather than racing to download.
     func manager() async throws -> AsrManager {
         if let loaded { return loaded }

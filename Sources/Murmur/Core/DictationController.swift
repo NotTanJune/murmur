@@ -173,6 +173,10 @@ final class DictationController {
         self.formatter = formatter
         self.makeEngine = makeEngine
         self.models = models
+        ModelResidency.shared.isBusy = { [weak self] in
+            guard let self else { return false }
+            return self.current != nil || !self.tails.isEmpty
+        }
     }
 
     // MARK: - Lifecycle
@@ -382,6 +386,13 @@ final class DictationController {
         if Settings.shared.soundEnabled, let startSound {
             startSound.stop()
             startSound.play()
+        }
+        // Models released while idle start loading now, alongside recording.
+        if !comparing {
+            ModelResidency.shared.wake(
+                engine: choice,
+                cleanup: Settings.shared.cleanupEnabled ? utterance.cleanupEngine : nil
+            )
         }
         let formatKey = comparing ? "compare" : choice.rawValue
 
@@ -780,6 +791,7 @@ final class DictationController {
     /// An error message keeps the display until its own timer clears it.
     private func settle() {
         guard current == nil else { return }
+        if tails.isEmpty { ModelResidency.shared.idle() }
         if case .error = state { return }
         state = tails.isEmpty ? .idle : .finishing
         if tails.isEmpty { transcript = "" }

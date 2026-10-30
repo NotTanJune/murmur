@@ -313,6 +313,18 @@ format as `captureKey`; a release detaches and `syncOpenMicrophone()` keeps, res
 closes capture to match the setting, engine and compare mode (observed with
 `withObservationTracking`). Off, the mic opens at the press as before.
 
+Models are resident only while used (`ModelResidency`). Nothing loads at launch (unless
+`Settings.idleUnload` is "never"); a press wakes Bark and S1-mini in parallel with recording,
+and after the idle timeout both are released. Installed models never gate recording, only
+ones that would need a download. **S1-mini runs in a helper process**: the same executable
+with `--s1-server` (`main.swift` branches before SwiftUI starts), speaking line-delimited JSON
+over stdin/stdout (`S1MiniServer`, `S1MiniEngine` is the client, `S1MiniRuntime` is the MLX
+code). Releasing it in-process left 40–100 MB of fragmented heap that grew with every load;
+ending the helper returns all of it. Measured on an M2: app at rest about 52–74 MB, helper
+start about 1.4 s, cleanup about 100 ms, Bark reload 0.2–0.5 s.
+`Murmur --residency-check <file>` measures this. Builds and tests are CPU-heavy on the
+user's Mac: batch edits and run them niced with few jobs.
+
 `AppStorage` imports dictionary/history once without deleting originals or replacing
 existing destination files. Its two legacy names are intentional compatibility references.
 New runs preserve `processSeconds` and add optional `deliverySeconds`, measured through

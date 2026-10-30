@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-@main
+/// Started from `main.swift`, which first diverts helper invocations.
 struct MurmurApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -66,6 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Diagnostic: run S1-mini from the installed bundle on fixed samples, print, and quit.
         // Exercises the real model folder and the bundled GPU kernels without a microphone.
+        if let index = CommandLine.arguments.firstIndex(of: "--residency-check"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let output = CommandLine.arguments[index + 1]
+            Task { @MainActor in exit(await ResidencyCheck.run(outputPath: output) ? EXIT_SUCCESS : EXIT_FAILURE) }
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--mic-benchmark"),
            CommandLine.arguments.indices.contains(index + 1) {
             let output = CommandLine.arguments[index + 1]
@@ -119,12 +125,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Parakeet and Bark are gated behind an explicit load, but once their files are on
-        // disk loading needs no network, so do it now rather than make the user click Load
-        // after every launch. Core ML caches the Neural Engine compile, so this is seconds.
-        StreamingModelPreparation.shared.loadIfInstalled(Settings.shared.engine)
-        if Settings.shared.cleanupEngine == .s1Mini {
-            S1MiniPreparation.shared.loadIfInstalled()
+        // Installed models stay on disk until the first press loads them (`ModelResidency`),
+        // so an idle Murmur holds almost no memory. Only "never release" preloads, since
+        // that choice says memory is no concern.
+        if Settings.shared.idleUnload == .never {
+            StreamingModelPreparation.shared.loadIfInstalled(Settings.shared.engine)
+            if Settings.shared.cleanupEngine == .s1Mini {
+                S1MiniPreparation.shared.loadIfInstalled()
+            }
         }
 
         let willUseApple = Settings.shared.compareMode || Settings.shared.engine == .apple

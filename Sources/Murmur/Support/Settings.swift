@@ -83,6 +83,32 @@ enum AppearanceChoice: String, CaseIterable {
     }
 }
 
+/// How long the models stay in memory after the last dictation.
+enum IdleUnload: String, CaseIterable {
+    case oneMinute
+    case fiveMinutes
+    case fifteenMinutes
+    case never
+
+    var displayName: String {
+        switch self {
+        case .oneMinute: "1 min"
+        case .fiveMinutes: "5 min"
+        case .fifteenMinutes: "15 min"
+        case .never: "Never"
+        }
+    }
+
+    var delay: Duration? {
+        switch self {
+        case .oneMinute: .seconds(60)
+        case .fiveMinutes: .seconds(5 * 60)
+        case .fifteenMinutes: .seconds(15 * 60)
+        case .never: nil
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class Settings {
@@ -123,6 +149,11 @@ final class Settings {
         didSet { defaults.set(alwaysOpenMic, forKey: Keys.alwaysOpenMic) }
     }
 
+    /// Release Bark and S1-mini after this long without a dictation.
+    var idleUnload: IdleUnload {
+        didSet { defaults.set(idleUnload.rawValue, forKey: Keys.idleUnload) }
+    }
+
     /// Play a short tick when capture starts and stops.
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
@@ -155,6 +186,7 @@ final class Settings {
         static let compareMode = "compareMode"
         static let appearance = "appearance"
         static let alwaysOpenMic = "alwaysOpenMic"
+        static let idleUnload = "idleUnload"
     }
 
     /// Internal rather than private so tests can migrate a throwaway defaults suite.
@@ -173,5 +205,6 @@ final class Settings {
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
         alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
+        idleUnload = IdleUnload(rawValue: defaults.string(forKey: Keys.idleUnload) ?? "") ?? .fiveMinutes
     }
 }

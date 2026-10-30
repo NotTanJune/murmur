@@ -7,7 +7,7 @@ import Testing
 struct RecordingReadinessTests {
     @Test("Unloaded downloadable models block recording, but Apple does not")
     func unloadedModels() {
-        let models = StreamingModelPreparation(prepare: { _ in })
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in })
         #expect(models.recordingBlocker(for: .parakeetEOU) != nil)
         #expect(models.recordingBlocker(for: .nemotron) != nil)
         #expect(models.recordingBlocker(for: .barkClean) != nil)
@@ -17,7 +17,7 @@ struct RecordingReadinessTests {
 
     @Test("An explicit successful load removes the recording blocker")
     func readyModels() async throws {
-        let models = StreamingModelPreparation(prepare: { _ in })
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in })
         let task = try #require(models.load(.parakeetEOU))
         #expect(models.recordingBlocker(for: .parakeetEOU) != nil)
         await task.value
@@ -27,7 +27,7 @@ struct RecordingReadinessTests {
 
     @Test("Auto-load never starts a download for a model that is not on disk")
     func autoLoadSkipsMissingModels() {
-        let models = StreamingModelPreparation(prepare: { _ in
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in
             Issue.record("Auto-load must not prepare a model that is not installed")
         })
         #expect(models.loadIfInstalled(.apple) == nil)
@@ -38,7 +38,7 @@ struct RecordingReadinessTests {
 
     @Test("Failed loads keep recording blocked and expose the load error")
     func failedModel() async throws {
-        let models = StreamingModelPreparation(prepare: { _ in throw LoadFailure() })
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in throw LoadFailure() })
         let task = try #require(models.load(.nemotron))
         await task.value
         let blocker = try #require(models.recordingBlocker(for: .nemotron))
@@ -57,7 +57,7 @@ struct RecordingReadinessTests {
         }
         settings.engine = choice
         settings.compareMode = false
-        let models = StreamingModelPreparation(prepare: { _ in
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in
             Issue.record("A blocked press must not load a model")
         })
         let controller = DictationController(makeEngine: {
@@ -88,7 +88,7 @@ struct RecordingReadinessTests {
         settings.engine = .nemotron
         settings.compareMode = false
         let preparation = RetryingPreparation()
-        let models = StreamingModelPreparation(prepare: { _ in try await preparation.prepare() })
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in try await preparation.prepare() })
         let controller = DictationController(models: models)
         controller.startButtonRecording()
         controller.stopButtonRecording()
@@ -118,7 +118,7 @@ struct RecordingReadinessTests {
         }
         settings.engine = .parakeetEOU
         settings.compareMode = false
-        let models = StreamingModelPreparation(prepare: { _ in })
+        let models = StreamingModelPreparation(isInstalled: { _ in false }, prepare: { _ in })
         let controller = DictationController(models: models)
         controller.startButtonRecording()
         controller.stopButtonRecording()
@@ -146,4 +146,27 @@ private actor RetryingPreparation {
 
 private struct LoadFailure: LocalizedError {
     var errorDescription: String? { "Download unavailable" }
+}
+
+@MainActor
+@Suite struct ModelResidencyTests {
+    @Test("An installed model released to save memory never blocks recording, and a press loads it")
+    func sleepingModelsDoNotBlock() async {
+        let models = StreamingModelPreparation(isInstalled: { $0 == .barkClean }, prepare: { _ in })
+        #expect(models.state(for: .barkClean) == .sleeping)
+        #expect(models.recordingBlocker(for: .barkClean) == nil)
+        // Not installed still blocks: that one would need a download.
+        #expect(models.recordingBlocker(for: .parakeet) != nil)
+
+        models.wake(.barkClean)
+        #expect(models.state(for: .barkClean) == .loading)
+        #expect(models.recordingBlocker(for: .barkClean) == nil)
+    }
+
+    @Test("Idle release choices map to the right delays")
+    func idleDelays() {
+        #expect(IdleUnload.oneMinute.delay == .seconds(60))
+        #expect(IdleUnload.fiveMinutes.delay == .seconds(300))
+        #expect(IdleUnload.never.delay == nil)
+    }
 }

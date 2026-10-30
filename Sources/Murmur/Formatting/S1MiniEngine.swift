@@ -1,187 +1,165 @@
 import Foundation
-import MLX
-import MLXHuggingFace
-import MLXLLM
-import MLXLMCommon
-import MLXNN
-import Tokenizers
 
-/// S1-mini by Superwhisper, resident on the GPU through MLX.
+/// The app's handle on S1-mini, which runs in a helper process (`S1MiniServer`).
 ///
-/// Called through `MLXLMCommon` directly rather than the FoundationModels `MLXLanguageModel`
-/// adapter: the adapter measured the same speed but has no prompt cache. Every request starts
-/// with the same system prompt and one of four control lines (69 tokens), so each profile's
-/// prefix is run through the model once at load and its KV cache copied per request. That
-/// measured 40–60 ms faster per utterance on an M2, with token-identical output.
-///
-/// Requests are serialized. Holds are pipelined, so two cleanups can arrive together, and
-/// one model's GPU work shouldn't interleave with another's.
+/// `load` starts the helper (the same executable with `--s1-server`) and waits until it
+/// reports ready; `unload` ends it, which returns all of its memory to the system. Nothing
+/// MLX ever runs in the app process itself.
 actor S1MiniEngine {
     static let shared = S1MiniEngine()
 
-    /// Required verbatim: the model was trained on this exact wording.
-    static let systemPrompt = "You are a text normalizer for speech-to-text transcripts. The input begins "
-        + "with a control line specifying the styling, structure, and context settings; "
-        + "clean the transcript to match those settings and output only the cleaned text."
+    private var process: Process?
+    private var input: FileHandle?
+    private var reader: Task<Void, Never>?
+    private var isReady = false
+    private var loading: Task<Void, Error>?
+    private var startup: CheckedContinuation<Void, Error>?
+    private var onPhase: (@Sendable (S1MiniModelStore.Phase?) -> Void)?
+    private var pending: [Int: CheckedContinuation<String, Error>] = [:]
+    private var nextID = 0
 
-    /// The model card recommends single passes under about 1,000 tokens.
-    static let maxInputTokens = 900
+    var isLoaded: Bool { isReady }
 
-    private var container: ModelContainer?
-    private var prefixes: [CleanupProfile: PromptPrefix] = [:]
-    private var tail: Task<Void, Never>?
+    /// Waits for a load in progress. True when the helper is ready to clean.
+    func waitUntilReady() async -> Bool {
+        if isReady { return true }
+        if let loading { _ = try? await loading.value }
+        return isReady
+    }
 
-    var isLoaded: Bool { container != nil }
-
-    /// Installs if needed, loads, compiles the GPU kernels with one throwaway request, and
-    /// caches every profile's prefix. Idempotent.
+    /// Starts the helper, which installs the model if needed and loads it. Concurrent
+    /// callers share one start.
     func load(phase: @escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws {
-        guard container == nil else { return }
-        // MLX otherwise keeps freed GPU buffers for reuse without bound. This app is resident
-        // all day, so cap the reuse pool; generation measured no slower with it.
-        Memory.cacheLimit = 64 << 20
-
-        let directory = try await S1MiniModelStore.ensureInstalled(phase: { phase($0) }) { source, destination in
-            try await Self.convert(source: source, destination: destination)
-        }
-        phase(nil)
-
-        let started = Date()
-        let container = try await loadModelContainer(from: directory, using: #huggingFaceTokenizerLoader())
-        _ = try await Self.generate(container, prefix: nil, profile: .general, text: "warm up")
-        var prefixes: [CleanupProfile: PromptPrefix] = [:]
-        for profile in CleanupProfile.allCases {
-            prefixes[profile] = try await Self.makePrefix(container, profile: profile)
-        }
-        self.prefixes = prefixes
-        self.container = container
-        Log.speech.info("S1-mini: ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 2))s")
+        if isReady { return }
+        if let loading { return try await loading.value }
+        let task = Task { try await self.launch(phase: phase) }
+        loading = task
+        defer { loading = nil }
+        try await task.value
     }
 
-    /// Cleans one transcript. Throws if the model isn't loaded or the input is too long for
-    /// one pass; the formatter falls back to the rule pass either way.
+    /// Ends the helper and with it every byte S1-mini held.
+    func unload() {
+        guard loading == nil, let process else { return }
+        try? input?.close()
+        process.terminate()
+        Log.speech.info("S1-mini: helper stopped to free memory")
+    }
+
+    /// Cleans one transcript. Throws if the helper isn't ready; the formatter falls back to
+    /// the rule pass.
     func clean(_ text: String, profile: CleanupProfile) async throws -> String {
-        guard let container else { throw S1MiniError.notLoaded }
-        let prefix = prefixes[profile]
-        let previous = tail
-        let work = Task {
-            await previous?.value
-            try Task.checkCancellation()
-            return try await Self.generate(container, prefix: prefix, profile: profile, text: text)
+        guard isReady, let input else { throw S1MiniError.notLoaded }
+        nextID += 1
+        let id = nextID
+        guard var line = try? JSONEncoder().encode(S1MiniMessage(profile: profile.rawValue, id: id, text: text)) else {
+            throw S1MiniError.notLoaded
         }
-        tail = Task { _ = try? await work.value }
+        line.append(0x0A)
         return try await withTaskCancellationHandler {
-            try await work.value
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                pending[id] = continuation
+                do {
+                    try input.write(contentsOf: line)
+                } catch {
+                    pending.removeValue(forKey: id)?.resume(throwing: error)
+                }
+            }
         } onCancel: {
-            work.cancel()
+            Task { await self.abandon(id) }
         }
     }
 
-    // MARK: - Model work
+    // MARK: - Helper process
 
-    /// The fixed part of a request with its KV cache. The caches are only ever copied, never
-    /// extended, so sharing them across requests is safe.
-    final class PromptPrefix: @unchecked Sendable {
-        let tokens: [Int]
-        let cache: [KVCache]
-
-        init(tokens: [Int], cache: [KVCache]) {
-            self.tokens = tokens
-            self.cache = cache
-        }
-    }
-
-    private static func promptTokens(_ context: ModelContext, profile: CleanupProfile, text: String) async throws -> [Int] {
-        let input = try await context.processor.prepare(input: UserInput(
-            chat: [.system(systemPrompt), .user(profile.controlLine + "\n" + text)],
-            // Qwen3's template thinks by default; S1-mini was trained without it and returns
-            // nothing if it's left on.
-            additionalContext: ["enable_thinking": false]
-        ))
-        return input.text.tokens.asArray(Int.self)
-    }
-
-    /// The shared prefix is the longest run of tokens two renderings agree on when only the
-    /// transcript differs, so it can't split a token that the transcript would merge into.
-    private static func makePrefix(_ container: ModelContainer, profile: CleanupProfile) async throws -> PromptPrefix {
-        try await container.perform { (context: ModelContext) in
-            let a = try await promptTokens(context, profile: profile, text: "alpha")
-            let b = try await promptTokens(context, profile: profile, text: "Zulu")
-            let common = Array(zip(a, b).prefix { $0 == $1 }.map(\.0))
-            let cache = try context.model.newCache(parameters: GenerateParameters(maxTokens: 1, temperature: 0))
-            let logits = context.model(MLXArray(common)[.newAxis, 0...], cache: cache)
-            eval(logits)
-            eval(cache)
-            return PromptPrefix(tokens: common, cache: cache)
-        }
-    }
-
-    static func generate(
-        _ container: ModelContainer,
-        prefix: PromptPrefix?,
-        profile: CleanupProfile,
-        text: String
-    ) async throws -> String {
-        try await container.perform { (context: ModelContext) in
-            let all = try await promptTokens(context, profile: profile, text: text)
-            var feed = all
-            var cache: [KVCache]?
-            if let prefix, all.count > prefix.tokens.count, all.starts(with: prefix.tokens) {
-                feed = Array(all.dropFirst(prefix.tokens.count))
-                cache = prefix.cache.map { $0.copy() }
-            }
-            let transcriptTokens = all.count - (prefix?.tokens.count ?? 0)
-            guard transcriptTokens <= maxInputTokens else { throw S1MiniError.tooLong(transcriptTokens) }
-
-            // Greedy, as the card prescribes; output length tracks input, so cap it there.
-            let parameters = GenerateParameters(
-                maxTokens: Int(Double(transcriptTokens) * 1.3) + 32,
-                temperature: 0
-            )
-            let input = LMInput(tokens: MLXArray(feed))
-            let iterator = try TokenIterator(input: input, model: context.model, cache: cache, parameters: parameters)
-            var output: [Int] = []
-            _ = MLXLMCommon.generate(input: input, context: context, iterator: iterator) { (token: Int) in
-                output.append(token)
-                return Task.isCancelled ? .stop : .more
-            }
-            try Task.checkCancellation()
-            return context.tokenizer.decode(tokenIds: output, skipSpecialTokens: true)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    /// Quantizes the BF16 source to 4-bit and writes it in the layout MLX loads, with the
-    /// quantization block added to config.json.
-    static func convert(source: URL, destination: URL) async throws {
+    private func launch(phase: @escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws {
+        guard let executable = Bundle.main.executableURL else { throw S1MiniError.helperUnavailable }
         let started = Date()
-        let container = try await loadModelContainer(from: source, using: #huggingFaceTokenizerLoader())
-        try await container.perform { (context: ModelContext) in
-            quantize(model: context.model, groupSize: 64, bits: 4, mode: .affine)
-            let weights = Dictionary(uniqueKeysWithValues: context.model.parameters().flattened())
-            eval(Array(weights.values))
-            try save(
-                arrays: weights,
-                metadata: ["format": "mlx"],
-                url: destination.appendingPathComponent("model.safetensors")
-            )
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["--s1-server"]
+        let toHelper = Pipe()
+        let fromHelper = Pipe()
+        process.standardInput = toHelper
+        process.standardOutput = fromHelper
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+
+        self.process = process
+        input = toHelper.fileHandleForWriting
+        onPhase = phase
+        let output = fromHelper.fileHandleForReading
+        reader = Task.detached { [weak self] in
+            do {
+                for try await line in output.bytes.lines {
+                    await self?.receive(line)
+                }
+            } catch {}
+            await self?.helperExited()
         }
-        let config = try Data(contentsOf: source.appendingPathComponent("config.json"))
-        try S1MiniModelStore.quantizedConfig(from: config)
-            .write(to: destination.appendingPathComponent("config.json"))
-        Memory.clearCache()
-        Log.speech.info("S1-mini: converted to 4-bit in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            startup = continuation
+        }
+        Log.speech.info(
+            "S1-mini: helper ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 2))s (pid \(process.processIdentifier))"
+        )
+    }
+
+    private func receive(_ line: String) {
+        guard let message = try? JSONDecoder().decode(S1MiniMessage.self, from: Data(line.utf8)) else { return }
+        if let id = message.id {
+            guard let continuation = pending.removeValue(forKey: id) else { return }
+            if let text = message.text {
+                continuation.resume(returning: text)
+            } else {
+                continuation.resume(throwing: S1MiniError.helper(message.error ?? "no reply"))
+            }
+        } else if let phase = message.phase {
+            onPhase?(phase == "downloading" ? .downloading : phase == "converting" ? .converting : nil)
+        } else if message.ready == true {
+            isReady = true
+            startup?.resume()
+            startup = nil
+        } else if let fatal = message.fatal {
+            startup?.resume(throwing: S1MiniError.helper(fatal))
+            startup = nil
+        }
+    }
+
+    private func abandon(_ id: Int) {
+        pending.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// The helper exited: stopped on idle, crashed, or failed to start. Everything waiting on
+    /// it fails over to the rule pass; the next press starts a fresh one.
+    private func helperExited() {
+        isReady = false
+        process = nil
+        input = nil
+        reader = nil
+        onPhase = nil
+        startup?.resume(throwing: S1MiniError.helper("the helper exited during startup"))
+        startup = nil
+        for continuation in pending.values {
+            continuation.resume(throwing: S1MiniError.helper("the helper exited"))
+        }
+        pending.removeAll()
     }
 }
 
 enum S1MiniError: LocalizedError {
     case notLoaded
     case tooLong(Int)
+    case helperUnavailable
+    case helper(String)
 
     var errorDescription: String? {
         switch self {
         case .notLoaded: "S1-mini is not loaded"
         case .tooLong(let tokens): "transcript is \(tokens) tokens, over S1-mini's single-pass limit"
+        case .helperUnavailable: "couldn't find the app executable to start the S1-mini helper"
+        case .helper(let message): message
         }
     }
 }
