@@ -16,6 +16,7 @@ whatever had focus. Two independent implementations:
 | Language | Swift 6 | C# / .NET 10 |
 | UI | SwiftUI | Avalonia |
 | Speech | Apple `SpeechAnalyzer`, or Parakeet via FluidAudio | Parakeet via sherpa-onnx |
+| Cleanup | Rules, S1-mini via MLX, or Apple Intelligence | Dictionary corrections only |
 | Location | repo root | `windows/` |
 
 **The macOS app works and is in daily use.**
@@ -77,27 +78,48 @@ as one ranking.
 asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
 down once already.
 
-**Mutating `@State` inside a `Canvas` draw closure floods the log and corrupts state.** The
-VU meter keeps its needle physics in a plain reference type the view merely holds, which is
-invisible to SwiftUI's state graph. Don't "clean that up" into `@State`.
+**Never mutate `@State` inside a `Canvas` draw closure.** It floods the log and corrupts
+state. The old VU meter hit this; the current `LevelMeter` avoids `Canvas` entirely and
+`PaperBackground`'s `Canvas` draws without touching state. Keep it that way.
 
 ---
 
 ## Design system
 
-`Sources/MurmurYouTube/UI/DesignSystem.swift` defines every colour, size, radius, duration
-and material token. **Views must not contain literal values.** If a component needs a number
-that isn't a token, add the token rather than inlining it.
+`Sources/Murmur/UI/DesignSystem.swift` defines every colour, size, radius, duration
+and material token; `Components.swift` builds the shared pieces from them. **Views must not
+contain literal values.** If a component needs a number that isn't a token, add the token
+rather than inlining it.
 
-The direction is 1980s field recorders — Sony TC-D5, Marantz PMD, Nakamichi, Braun. Silver
-face in light appearance, black face in dark. Two rules that are not negotiable:
+The direction is **Liquid Glass over neo-brutalism**, in two layers with one job each:
 
-- **Red means recording.** Nothing else in the app is red.
-- **Amber and green are instrumentation only** — level meters, never UI chrome.
+- **Glass is the control layer:** the main window's transport dock and the listening HUD.
+  It uses `.glassEffect` with a thin ink outline (`outlinedGlass()`), and content scrolls
+  beneath it, which is what makes it read as glass.
+- **Brutalism is the content layer:** transcripts, dictionary entries, settings cards. Flat
+  opaque fills, a 2 pt ink border, and a hard ink slab offset down-right with no blur
+  (`brutalSurface()`). Heavy SF Pro type and uppercase eyebrows.
 
-Explicitly ruled out: neon, vaporwave, synthwave, purple/pink gradients, glowing text, chrome
-lettering, grid horizons. There are **no gradients anywhere**; depth comes from flat panels,
-hairline bevels and procedurally-drawn brushed grain.
+Rules that are not negotiable:
+
+- **Red means recording.** The record button, lamp, level meter and HUD bars. Nothing else.
+- **Yellow means selected.** Every "this one is on" state uses `BrutalButtonStyle(isSelected:)`
+  or `ChoiceKeys`: yellow fill, sunk into its shadow, and a check glyph, so selection reads
+  without color. Don't invent a second selection treatment.
+- **No gradients and no soft shadows.** The only blur is the system's glass material.
+- Choices with a handful of options are `ChoiceKeys`, not menus, so the active one is visible
+  without opening anything. Long lists (the transcription engine) stay system pickers.
+
+Settings is a tab of the main window (`SettingsPanel`), not a SwiftUI `Settings` scene.
+`MainNavigation.shared` owns the selected tab; ⌘, (which replaces the `.appSettings`
+command), the dock's gear, the recording notice and the menu bar all call
+`MainNavigation.shared.show(.settings)`. Appearance (`Settings.appearance`: system, light,
+dark) is applied app-wide through `NSApp.appearance` from `MurmurApp.init`, before any window
+exists, so every window and the HUD switch together.
+
+The main window hides its title bar. The paper strip over the traffic lights is sized from
+the dock's measured position (`onGeometryChange`), not from the safe area, which the hidden
+title bar reported inconsistently. `DashboardHTML` still uses its own older styling.
 
 ---
 
@@ -112,7 +134,7 @@ shows as **on** while the app is untrusted. The `Makefile` auto-detects a Develo
 If a grant does get wedged, reset that one row — never toggle, and never omit the bundle ID:
 
 ```bash
-tccutil reset Accessibility ai.pivotstudio.murmur-youtube
+tccutil reset Accessibility ai.pivotstudio.murmur
 ```
 
 A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
@@ -204,3 +226,77 @@ On Windows, nobody has yet held the key and spoken. Specifically unverified:
 Everything those feed into is behind an interface and tested with fakes. The bindings
 themselves are not. **First real-hardware run should start with `--selftest`, then a single
 short dictation into Notepad.**
+
+## Murmur streaming options and verification
+
+The macOS product, executable, and source target are `Murmur`; the bundle ID is
+`ai.pivotstudio.murmur`. Build output lives in `~/Library/Caches/MurmurBuild`.
+`make` defaults to release, `make build CONFIG=debug` opts into debug, and `make test`
+runs tests with the same external scratch directory. The app regression target is added
+on macOS 26 and newer; it exercises the streaming adapter, settings choices, migration,
+and timing decoding without downloading recognition models.
+
+FluidAudio remains at the resolved 0.15.6 version. Its actual streaming API supports
+Parakeet EOU at 160 ms and Nemotron at 560 ms minimum, not the Nemotron 160 ms option
+shown in some indexed documentation. Use `.cpuAndNeuralEngine` for the int8 Nemotron
+encoder; the generic factory otherwise supplies a `.all` configuration.
+
+Streaming models are loaded explicitly from Settings or the menu bar and retained for
+the process lifetime. The adapter serializes load, reset, feed, and finish so actor
+reentrancy cannot reset a decoder during inference. Release drains queued audio and
+flushes the final buffer; partial snapshots are never substituted for final text.
+The old comparison mode still compares Apple and Parakeet batch, not the streaming options;
+it adds Bark 3.0 Clean only when that model is already loaded.
+
+Bark 3.0 Clean (`SpeechEngineChoice.barkClean`) reuses `ParakeetEngine` with
+`ParakeetModels.barkClean`. `BarkModelStore` pins `FluidInference/bark-3.0-coreml` to one
+revision and verifies size and SHA-256 per file before publishing the folder. Bark's
+components are loaded with `MLModel.load` directly, **not** `AsrModels.load(from:)`: on a
+load failure FluidAudio purges the folder and re-downloads stock v3 into it, which would
+silently replace Bark with NVIDIA's weights. Keep the ANE `Encoder.mlmodelc`; the repo's
+`Encoder_lut3` GPU build measured about 2× slower on an M2. Like the streaming models, Bark
+gates recording until loaded, and it auto-loads at launch when already on disk.
+
+Parakeet v3 is gated the same way as Bark: `requiresPreparedModel` covers `.parakeet`,
+and `StreamingModelPreparation.loadIfInstalled` loads any on-disk model at launch and when
+the engine is picked, without ever starting a download on its own.
+
+Holds are pipelined. Each one is an `Utterance` owning its engine, tasks and transcript, so
+a press while the previous hold is still finishing starts capture at once. The new hold's
+`engine.start()` waits on `engineIdle` (the shared streaming sessions and Parakeet's one
+model must not overlap), and delivery waits on `deliveryTail` so text lands in the order
+spoken. Compare mode does not overlap. `HotkeyMonitor` takes down/up from the event's
+device-dependent modifier bit, never by alternating, and a watchdog polls
+`CGEventSource.keyState` to release a hold whose key-up was missed; it only trusts that
+reading after seeing the key down once. `RunLog` does all file I/O and dashboard rendering
+on one serial queue and publishes snapshots to `RunStore`; keep it off the main actor.
+History expires: unsaved runs older than `RunLog.retention` (30 days) are pruned on every
+history change, at launch and hourly. `DictationRun.isSaved` (the row's Save chip) exempts
+a run; lines written before the field existed decode as unsaved.
+The paste fallback marks the transcript transient/concealed for clipboard managers, and
+nothing is typed or filed when focus is an `AXSecureTextField`.
+
+Cleanup has three engines (`CleanupEngine`): the rule pass, S1-mini by Superwhisper, and
+Apple Intelligence; the old `smartCleanup` bool migrates to Apple Intelligence. S1-mini runs
+through `MLXLMCommon` directly, **not** the FoundationModels `MLXLanguageModel` adapter: the
+adapter measured the same speed but can't hold a prompt cache, and `S1MiniEngine` caches each
+profile's 69-token prefix (system prompt plus control line), which saved 40–60 ms per
+utterance with token-identical output. Keep the system prompt verbatim and the control lines
+inside the trained values; the model card warns it hallucinates otherwise, which is why
+`CleanupProfile` is a closed enum. `enable_thinking` must be false or it returns nothing.
+`S1MiniModelStore` pins commit `88f6b158` (the repo has no `v1` tag despite its card),
+verifies size and SHA-256, converts BF16 to 4-bit affine g64 in-app (measured bit-identical
+to `mlx_lm.convert`) and deletes the original. The cleanup guard exempts numerals and a short
+list of colloquial expansions for S1-mini only. Cleanup never gates recording: an unloaded
+model falls back to the rule pass. `make app` builds with `xcodebuild` because SwiftPM's
+command line can't compile MLX's Metal kernels, and copies every SwiftPM resource bundle into
+`Contents/Resources`; a missing `mlx-swift_Cmlx.bundle` fails at the first GPU call, and a
+missing generated bundle traps in `Bundle.module`. `Murmur --cleanup-check` verifies the
+installed bundle end to end without a microphone.
+
+`AppStorage` imports dictionary/history once without deleting originals or replacing
+existing destination files. Its two legacy names are intentional compatibility references.
+New runs preserve `processSeconds` and add optional `deliverySeconds`, measured through
+AX insertion or posting the paste event, not the target app's rendering. The history UI
+uses delivery timing when available. Clipboard restoration remains delayed and conditional
+on the pasteboard generation; the fixed pre-paste delay is removed.

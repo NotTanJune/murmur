@@ -1,0 +1,11 @@
+import OSLog
+
+enum Log {
+    static let audio = Logger(subsystem: "ai.pivotstudio.murmur", category: "audio")
+    static let speech = Logger(subsystem: "ai.pivotstudio.murmur", category: "speech")
+    static let performance = Logger(subsystem: "ai.pivotstudio.murmur", category: "performance")
+    static let performanceSignposter = OSSignposter(logger: performance)
+    static let hotkey = Logger(subsystem: "ai.pivotstudio.murmur", category: "hotkey")
+    static let inject = Logger(subsystem: "ai.pivotstudio.murmur", category: "inject")
+    static let app = Logger(subsystem: "ai.pivotstudio.murmur", category: "app")
+}

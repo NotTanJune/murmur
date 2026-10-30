@@ -1,10 +1,9 @@
-# Murmur YouTube
+# Murmur
 
 Push-to-talk dictation for macOS. Hold a key, talk, release — cleaned-up text lands in
 whatever text field has focus. A Wispr Flow-shaped app, built native and fully on-device.
 
-**Status:** working skeleton. Builds, launches, arms the hotkey, transcribes, injects.
-Branding and the LLM cleanup tier are the next passes.
+**Status:** working. Builds, launches, arms the hotkey, transcribes, cleans up, injects.
 
 ---
 
@@ -13,10 +12,10 @@ Branding and the LLM cleanup tier are the next passes.
 This app is built to run alongside other dictation tools without colliding with them, which
 is not automatic on macOS and is worth understanding before changing anything:
 
-- **Bundle ID `ai.pivotstudio.murmur-youtube`** — TCC keys Accessibility and Microphone
+- **Bundle ID `ai.pivotstudio.murmur`** — TCC keys Accessibility and Microphone
   grants to the bundle ID, so granting or revoking a permission here has no effect on any
   other app, and vice versa.
-- **Executable `MurmurYouTube`** — distinct enough that `pkill -x MurmurYouTube` cannot
+- **Executable `Murmur`** — distinct enough that `pkill -x Murmur` cannot
   match a differently-named binary. The `Makefile` only ever targets `$(EXEC)`.
 - **Hotkey is configurable** (Right ⌥ / fn / Right ⌘) precisely because another tool may
   already own the key you'd reach for first. The global monitor inspects only its own keycode
@@ -40,11 +39,11 @@ Then grant two permissions. Neither is optional, and neither can be requested si
 | **Accessibility** | System Settings ▸ Privacy & Security ▸ Accessibility | Global key monitoring and the AX text insert |
 | **Microphone** | Prompted on first dictation | Audio capture |
 
-Restart Murmur YouTube after granting Accessibility. Then hold **Right ⌥** and talk.
+Restart Murmur after granting Accessibility. Then hold **Right ⌥** and talk.
 
 On first launch, Murmur copies the tracked starter vocabulary from
 `Resources/default-dictionary.txt` into
-`~/Library/Application Support/MurmurYouTube/dictionary.txt`. Existing dictionaries,
+`~/Library/Application Support/Murmur/dictionary.txt`. Existing dictionaries,
 including empty ones, are never replaced. Edit entries in the Dictionary panel or choose
 **Reveal Dictionary File** from the app menu.
 
@@ -58,14 +57,14 @@ reported untrusted, and flipping it changes nothing because the stale row is the
 The `Makefile` therefore signs with a stable Developer ID or Apple Development identity
 (auto-detected via `security find-identity`, falling back to ad-hoc). A stable identity keeps
 the local Accessibility requirement consistent across rebuilds. If the app reports that its
-global keyboard monitor is unavailable, enable Murmur YouTube in Accessibility, then quit and
+global keyboard monitor is unavailable, enable Murmur in Accessibility, then quit and
 reopen it.
 
 If a grant ever does get wedged, reset that one row and re-add — never toggle:
 
 ```bash
-tccutil reset Accessibility ai.pivotstudio.murmur-youtube
-tccutil reset Microphone   ai.pivotstudio.murmur-youtube
+tccutil reset Accessibility ai.pivotstudio.murmur
+tccutil reset Microphone   ai.pivotstudio.murmur
 ```
 
 Always pass the bundle ID. A bare `tccutil reset Accessibility` wipes **every** app on the
@@ -77,6 +76,34 @@ list and will otherwise show the row you just deleted.
 > corrupt its signature. `make install` puts the running copy in `/Applications`.
 
 Other targets: `make app` (bundle only), `make run` (run in place), `make clean`.
+
+`make app` builds with `xcodebuild`, not `swift build`: S1-mini runs on MLX, and SwiftPM's
+command line can't compile MLX's Metal kernels. `make build` and `make test` still use
+SwiftPM and are fine for everything that doesn't touch the GPU.
+
+## Cleanup
+
+Settings → Cleanup picks the pass that runs between transcription and typing:
+
+| Engine | What it does |
+|---|---|
+| Basic rules | Strips fillers, fixes spacing and punctuation. Instant, no model. |
+| S1-mini by Superwhisper | 0.6B normalizer on the GPU via MLX. Applies spoken corrections, writes numbers/dates/emails, follows the profile. |
+| Apple Intelligence | Apple's on-device model, when Apple Intelligence is ready on the Mac. |
+
+S1-mini takes a **profile** (General, Email, Message, Notes), chosen from the main window,
+Settings or the menu bar; it applies to the next hold. Load S1-mini once from Settings: it
+downloads Superwhisper's 1.5 GB original, verifies it, converts it to a 331 MB 4-bit build on
+the Mac and deletes the original. On an M2 a typical sentence cleans in about 0.2 s.
+
+Check it from the installed bundle without a microphone:
+
+```bash
+/Applications/Murmur.app/Contents/MacOS/Murmur --cleanup-check
+```
+
+S1-mini is Apache 2.0 with an extra term: it must be called "S1-mini" by "Superwhisper".
+Its LICENSE and NOTICE are kept beside the converted weights.
 
 ---
 
@@ -124,8 +151,8 @@ two components most likely to change can change without touching anything else.
 ### Layout
 
 ```
-Sources/MurmurYouTube/
-├── MurmurYouTubeApp.swift              @main, AppDelegate, MenuBarExtra
+Sources/Murmur/
+├── MurmurApp.swift              @main, AppDelegate, MenuBarExtra
 ├── Core/
 │   ├── DictationController.swift   state machine, wires everything
 │   ├── HotkeyMonitor.swift         NSEvent global/local monitors on .flagsChanged
@@ -138,42 +165,83 @@ Sources/MurmurYouTube/
 │   └── TextFormatter.swift         protocol + RuleBasedFormatter
 ├── UI/
 │   ├── HUDPanel.swift              non-activating floating panel
-│   └── HUDView.swift               compact amber waveform, Brand palette
+│   └── HUDView.swift               outlined glass capsule, red waveform
 └── Support/
     ├── Settings.swift, Permissions.swift, Log.swift
 ```
 
 ---
 
-## Speech engine
+## Speech engines
 
-Default is Apple's **`SpeechAnalyzer` / `SpeechTranscriber`**, new in macOS 26: no
-dependency, no bundled model, no cloud path, real streaming with `.volatileResults` so
-text appears while you're still talking. The OS downloads and manages model assets, so the
-first run for a locale may pause on `AssetInstallationRequest`.
+Choose the engine in **Settings > Model** or the menu bar's **Engine** picker.
+Apple remains the default. Turn off **Compare Apple vs Parakeet batch** to use the selected engine for dictation.
 
-The intended upgrade is **Parakeet v3** via FluidAudio (CoreML on the Neural Engine) —
-measurably better English WER, ~110× realtime, ~66 MB resident. Implementing
-`TranscriptionEngine` is the entire cost of switching; `DictationController` doesn't
-change.
+| Option | Processing | Model setup |
+|---|---|---|
+| Apple (streaming) | Recognizes while you speak; finalizes on release | OS-managed assets |
+| Parakeet (batch) | Transcribes the recording after release | Existing Parakeet TDT v3 model |
+| Bark 3.0 Clean (batch) | Parakeet v3 fine-tune that drops fillers, false starts and repeats; transcribes after release | Select it, then choose **Load model (downloads if needed)** |
+| Parakeet EOU (streaming) | Cache-aware 120M model, 160 ms chunks | Select it, then choose **Load model (downloads if needed)** |
+| Nemotron (streaming) | Cache-aware 0.6B model, 560 ms chunks | Select it, then choose **Load model (downloads if needed)** |
 
-| | Apple SpeechTranscriber | Parakeet v3 (FluidAudio) | Whisper large-v3 (WhisperKit) |
-|---|---|---|---|
-| Dependency | none | SwiftPM | SwiftPM |
-| Model download | OS-managed | ~600 MB | ~1.5 GB |
-| English accuracy | good | best | good |
-| Languages | many | 25 | 99 |
-| Latency | low | ~80 ms | 200–500 ms |
+The two new streaming options use the existing FluidAudio 0.15.6 dependency and run locally on Apple Silicon.
+Their first load downloads CoreML models from Hugging Face into FluidAudio's model cache. Audio is not uploaded.
+Load status and failures appear in Settings and the menu. Models stay loaded between recordings; after relaunch,
+use the load action again to load them from the disk cache. Loading both models retains both in memory.
+
+If the selected streaming model is not ready, pressing Record or the hotkey leaves recording idle without
+starting microphone capture or flashing the waveform. A persistent notice in the main window and menu
+explains the model state and offers **Open Model Settings**. The notice updates during loading or failure
+and disappears when the model is ready. Recording never starts a download or switches engines automatically.
+
+Audio is processed in capture order while recording. Release drains queued audio and flushes the model's remaining
+buffer before inserting the final transcript. Partial results are never substituted for the final result.
+Chunk duration is not a guarantee of release-to-text latency or accuracy. Compare these options with your own speech.
+
+### Bark 3.0 Clean
+
+[Underdog Bark 3.0 Clean](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Clean) (Conway Research, CC-BY-4.0,
+derived from NVIDIA Parakeet TDT 0.6B v3 and Moondream parakeet-ultra) runs through the same FluidAudio batch path as
+Parakeet. The Core ML build comes from `FluidInference/bark-3.0-coreml`, pinned to one revision. Murmur downloads only
+the Neural Engine encoder (about 450 MB in total) into `~/Library/Application Support/Murmur/Models/`, checks every
+file's size and SHA-256, and moves the folder into place only after all files pass. The upstream `NOTICE` is kept
+beside the weights.
+
+The first load compiles the encoder for the Neural Engine, which took about 80 s on an M2. Core ML caches that
+compile, so later launches load in under a second and Murmur loads the model automatically at launch when it is on
+disk. Measured on an M2 with warm models: a 4.2 s clip in about 0.1 s and a 20.9 s clip in about 0.2 to 0.3 s.
+The GPU encoder in the same repo was about 2× slower per utterance on that machine and spent about 8 s on its first
+inference after every launch, so it is not used.
+
+Bark writes `<unk>` where its training text had a quotation mark; Murmur removes it. When the model is loaded,
+compare mode adds a Bark row beside Apple and Parakeet.
+
+The end-to-end test is opt-in because it downloads the model:
+`MURMUR_BARK_AUDIO=/path/to/16k-mono-float32.raw make test`.
+
+New history rows show release-to-AX-insertion or release-to-paste-event timing, while retaining recognition and
+cleanup timing separately in `runs.jsonl`. The target application's rendering time is not measured.
+Legacy rows and the existing batch comparison retain their original timings.
+
+## Build and verification
+
+```bash
+make test                 # dictionary contract and macOS 26 app regression tests
+make build CONFIG=release # optimized executable, outside the workspace
+make install              # release app bundle, stable signing, /Applications/Murmur.app
+```
+
+The app's bundle ID is `ai.pivotstudio.murmur`. Grant permissions to the renamed app.
+On first launch, Murmur imports the old app's dictionary, history, and missing preferences without replacing
+existing Murmur data. Original files remain untouched; history import is one-time so clearing history does not
+restore old entries on the next launch. The legacy names remain only in the compatibility importer.
 
 ---
 
 ## Not built yet
 
-1. **LLM cleanup tier.** `RuleBasedFormatter` strips fillers, fixes spacing, capitalizes
-   sentences and adds terminal punctuation — genuinely useful, entirely deterministic. The
-   real win is a second `TextFormatter` backed by Apple's on-device Foundation Models
-   (macOS 26) for tone, list formatting, and honoring spoken corrections, with Claude as an
-   optional higher-quality tier.
+1. **Cleanup while speaking** and picking the profile from the focused app.
 2. **Command Mode.** Select text, hold a second hotkey, say "make this more formal."
    Needs AX read of `kAXSelectedTextAttribute` plus an LLM round-trip.
 3. **Branding.** `Brand` in `HUDView.swift` is a two-color placeholder gradient. App icon,
@@ -189,7 +257,7 @@ change.
 
 Driven with a synthetic Right ⌥ hold (`scratchpad/ptt/ptt2.swift` posts `flagsChanged`
 events) and confirmed via `/usr/bin/log show --predicate 'subsystem ==
-"ai.pivotstudio.murmur-youtube"'`:
+"ai.pivotstudio.murmur"'`:
 
 - Builds clean under Swift 6 strict concurrency.
 - Signs with Developer ID; grants survive rebuild + reinstall.

@@ -22,3 +22,6 @@ artifacts/
 models/
 *.onnx
 *.nemo
+
+# Written by xcodebuild when `make app` builds the package.
+.swiftpm/

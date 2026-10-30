@@ -1,0 +1,149 @@
+import Foundation
+import Testing
+@testable import Murmur
+
+@MainActor
+@Suite(.serialized)
+struct RecordingReadinessTests {
+    @Test("Unloaded downloadable models block recording, but Apple does not")
+    func unloadedModels() {
+        let models = StreamingModelPreparation(prepare: { _ in })
+        #expect(models.recordingBlocker(for: .parakeetEOU) != nil)
+        #expect(models.recordingBlocker(for: .nemotron) != nil)
+        #expect(models.recordingBlocker(for: .barkClean) != nil)
+        #expect(models.recordingBlocker(for: .parakeet) != nil)
+        #expect(models.recordingBlocker(for: .apple) == nil)
+    }
+
+    @Test("An explicit successful load removes the recording blocker")
+    func readyModels() async throws {
+        let models = StreamingModelPreparation(prepare: { _ in })
+        let task = try #require(models.load(.parakeetEOU))
+        #expect(models.recordingBlocker(for: .parakeetEOU) != nil)
+        await task.value
+        #expect(models.recordingBlocker(for: .parakeetEOU) == nil)
+        #expect(models.recordingBlocker(for: .nemotron) != nil)
+    }
+
+    @Test("Auto-load never starts a download for a model that is not on disk")
+    func autoLoadSkipsMissingModels() {
+        let models = StreamingModelPreparation(prepare: { _ in
+            Issue.record("Auto-load must not prepare a model that is not installed")
+        })
+        #expect(models.loadIfInstalled(.apple) == nil)
+        #expect(models.loadIfInstalled(.parakeetEOU) == nil)
+        #expect(models.loadIfInstalled(.nemotron) == nil)
+        #expect(models.state(for: .parakeetEOU) == .unloaded)
+    }
+
+    @Test("Failed loads keep recording blocked and expose the load error")
+    func failedModel() async throws {
+        let models = StreamingModelPreparation(prepare: { _ in throw LoadFailure() })
+        let task = try #require(models.load(.nemotron))
+        await task.value
+        let blocker = try #require(models.recordingBlocker(for: .nemotron))
+        #expect(blocker.contains("Download unavailable"))
+    }
+
+    @Test("A blocked press never enters recording and the explanation survives release",
+          arguments: [SpeechEngineChoice.parakeetEOU, .nemotron, .parakeet, .barkClean])
+    func blockedPress(choice: SpeechEngineChoice) async {
+        let settings = Settings.shared
+        let previousEngine = settings.engine
+        let previousCompareMode = settings.compareMode
+        defer {
+            settings.engine = previousEngine
+            settings.compareMode = previousCompareMode
+        }
+        settings.engine = choice
+        settings.compareMode = false
+        let models = StreamingModelPreparation(prepare: { _ in
+            Issue.record("A blocked press must not load a model")
+        })
+        let controller = DictationController(makeEngine: {
+            Issue.record("A blocked press must not create a recording engine")
+            return AppleSpeechEngine()
+        }, models: models)
+        controller.startButtonRecording()
+        #expect(controller.state == .idle)
+        #expect(!controller.state.isActive)
+        #expect(controller.recordingNotice == models.recordingBlocker(for: choice))
+        controller.stopButtonRecording()
+        await Task.yield()
+        #expect(controller.recordingNotice != nil)
+        #expect(controller.state == .idle)
+        #expect(models.state(for: choice) == .unloaded)
+        #expect(settings.engine == choice)
+    }
+
+    @Test("The recording notice tracks explicit load, failure, retry, and readiness")
+    func noticeTracksPreparation() async throws {
+        let settings = Settings.shared
+        let previousEngine = settings.engine
+        let previousCompareMode = settings.compareMode
+        defer {
+            settings.engine = previousEngine
+            settings.compareMode = previousCompareMode
+        }
+        settings.engine = .nemotron
+        settings.compareMode = false
+        let preparation = RetryingPreparation()
+        let models = StreamingModelPreparation(prepare: { _ in try await preparation.prepare() })
+        let controller = DictationController(models: models)
+        controller.startButtonRecording()
+        controller.stopButtonRecording()
+
+        let firstLoad = try #require(models.load(.nemotron))
+        #expect(controller.recordingNotice?.contains("Downloading or loading") == true)
+        #expect(models.load(.nemotron) == nil)
+        await firstLoad.value
+        #expect(controller.recordingNotice?.contains("Download unavailable") == true)
+
+        let retry = try #require(models.load(.nemotron))
+        #expect(controller.recordingNotice?.contains("Downloading or loading") == true)
+        await retry.value
+        #expect(controller.recordingNotice == nil)
+        #expect(models.load(.nemotron) == nil)
+        #expect(controller.state == .idle)
+    }
+
+    @Test("The recording notice does not follow unrelated engines or compare mode")
+    func noticeFollowsSelection() {
+        let settings = Settings.shared
+        let previousEngine = settings.engine
+        let previousCompareMode = settings.compareMode
+        defer {
+            settings.engine = previousEngine
+            settings.compareMode = previousCompareMode
+        }
+        settings.engine = .parakeetEOU
+        settings.compareMode = false
+        let models = StreamingModelPreparation(prepare: { _ in })
+        let controller = DictationController(models: models)
+        controller.startButtonRecording()
+        controller.stopButtonRecording()
+        #expect(controller.recordingNotice != nil)
+
+        settings.engine = .apple
+        #expect(controller.recordingNotice == nil)
+        settings.engine = .nemotron
+        #expect(controller.recordingNotice == nil)
+        settings.engine = .parakeetEOU
+        #expect(controller.recordingNotice != nil)
+        settings.compareMode = true
+        #expect(controller.recordingNotice == nil)
+    }
+}
+
+private actor RetryingPreparation {
+    private var attempts = 0
+
+    func prepare() throws {
+        attempts += 1
+        if attempts == 1 { throw LoadFailure() }
+    }
+}
+
+private struct LoadFailure: LocalizedError {
+    var errorDescription: String? { "Download unavailable" }
+}

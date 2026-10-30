@@ -5,7 +5,7 @@
 # This file is copied into a user's dictionary only on first launch.
 
 # Projects and assistants
-Murmur YouTube
+Murmur
 Wispr Flow
 Claude Code
 Codex
