@@ -325,13 +325,16 @@ Parakeet load at launch and are never released**: they cost about 30 MB resident
 reload risks Core ML recompiling the encoder for the Neural Engine, which happened on
 2026-10-31 after macOS dropped `~/Library/Caches/ai.pivotstudio.murmur/com.apple.e5rt.e5bundlecache`
 and took 157 s at 100% CPU in `ANECompilerService` (the code's "about a minute" is
-optimistic). Copying that cache folder back by hand did not avoid the recompile, so don't try
-to preserve it. While a batch model is `.loading`, a press is not blocked: `beginDictation`
+optimistic). `CompileCacheGuard.ensure()` (first thing at launch, before any model load) keeps the real
+folder at `~/Library/Application Support/Murmur/Models/ane-cache` and makes the Caches path a
+symlink to it; a purge removes only the link, which the next launch recreates. Measured
+loads through the link: 0.3–0.5 s, same as direct, and a deleted link was repaired with no
+recompile. It also deletes `*.tmp.<pid>_*.bundle` folders (400 MB each) that killed
+compiles leave behind, when their pid is gone. While a batch model is `.loading`, a press is not blocked: `beginDictation`
 sets `Utterance.standIn = .apple`, the hold runs on Apple's transcriber with its own input
 format, the history row reads "Apple (streaming) · Bark 3.0 Clean (batch) preparing", and
 the dock shows a highlighted tag. Only a model that would need a download blocks recording.
-Killed compiles leave 400 MB `*.tmp.<pid>_*.bundle` folders in that cache; macOS doesn't
-clean them. **S1-mini runs in a helper process**: the same executable
+ **S1-mini runs in a helper process**: the same executable
 with `--s1-server` (`main.swift` branches before SwiftUI starts), speaking line-delimited JSON
 over stdin/stdout (`S1MiniServer`, `S1MiniEngine` is the client, `S1MiniRuntime` is the MLX
 code). Releasing it in-process left 40–100 MB of fragmented heap that grew with every load;

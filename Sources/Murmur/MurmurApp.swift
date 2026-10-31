@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // its Neural Engine compile cache the recompile runs here rather than inside a
         // dictation (Apple's transcriber stands in until it's ready). S1-mini, the 500 MB
         // one, waits for the first press unless memory is no concern.
+        CompileCacheGuard.ensure()
         StreamingModelPreparation.shared.loadIfInstalled(Settings.shared.engine)
         if Settings.shared.idleUnload == .never, Settings.shared.cleanupEngine == .s1Mini {
             S1MiniPreparation.shared.loadIfInstalled()
