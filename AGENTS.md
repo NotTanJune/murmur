@@ -308,6 +308,13 @@ unplugged re-pin while idle, or after the current hold ends. `Murmur --mic-bench
 [seconds]` measures what an always-open mic would cost; on the M2 it was about 3–3.5% of one
 core in `coreaudiod` plus `usbaudiod`, under 1% in Murmur, and about 1 MB of memory.
 
+`AVAudioEngineConfigurationChange` while capturing restarts the **same** engine
+(`restartAfterRouteChange`); it rebuilds only when the pinned device is no longer the allowed
+one or the restart throws. A rebuild re-pins, and the pin posts its own configuration change,
+which looped every 2.4 s for 278 restarts on 2026-10-31 after a Bluetooth headset changed
+state. A loop breaker (more than 6 restarts in 30 s) stops capture and reports an
+interruption instead.
+
 `Settings.alwaysOpenMic` (default on) keeps capture running between holds. In `beginDictation`
 the attach (`openCapture`) must stay the first thing after the utterance is created: the
 start sound and `ModelResidency.wake` ran before it once and delayed it by up to 0.67 s,

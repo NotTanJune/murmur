@@ -283,11 +283,43 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
-    /// Moves a live capture onto a fresh engine. The callbacks and output format carry over,
-    /// so the speech engine keeps receiving the same format; only the converter is rebuilt.
+    /// Brings a live capture back after `AVAudioEngineConfigurationChange` stopped the engine.
+    ///
+    /// Restarts the *same* engine first. Rebuilding one re-pins the microphone, and that
+    /// pin posts a configuration change of its own, which stopped the new engine and
+    /// restarted the cycle every 2.4 s (278 times on 2026-10-31 after a Bluetooth headset
+    /// changed state). Only when the pinned device is no longer the allowed one, or the
+    /// restart fails, is the engine rebuilt on the fallback. A loop breaker stops capture
+    /// outright if restarts keep coming, so a bad day costs one interruption, not a hot loop.
+    private var restartTimes: [Date] = []
+    private static let restartLimit = 6
+    private static let restartWindow: TimeInterval = 30
+
     private func restartAfterRouteChange() {
         guard !engine.isRunning else { return }
-        Log.audio.notice("audio route changed during capture — restarting on the new device")
+        let now = Date()
+        restartTimes = restartTimes.filter { now.timeIntervalSince($0) < Self.restartWindow } + [now]
+        if restartTimes.count > Self.restartLimit {
+            Log.audio.error("capture restarted \(self.restartTimes.count) times in \(Int(Self.restartWindow)) s — giving up")
+            restartTimes.removeAll()
+            let interrupted = onInterruption
+            stop()
+            interrupted?()
+            return
+        }
+
+        if let pinnedDevice, pinnedDevice == MicrophonePolicy.current() {
+            do {
+                engine.prepare()
+                try engine.start()
+                Log.audio.notice("audio configuration changed during capture — restarted on \(pinnedDevice.name, privacy: .public)")
+                return
+            } catch {
+                Log.audio.notice("restart on \(pinnedDevice.name, privacy: .public) failed (\(error.localizedDescription)); rebuilding")
+            }
+        } else {
+            Log.audio.notice("audio route changed during capture — moving to the allowed device")
+        }
         rebuildEngine()
         do {
             try startEngine(requestedAt: Date(), firstBuffer: OneShot(), levelGate: LevelGate())
