@@ -18,7 +18,7 @@ final class StreamingModelPreparation {
             switch self {
             case .unloaded: "Model not loaded. The first load requires an internet download."
             case .sleeping: "Installed, not in memory. Loads when you press the key."
-            case .loading: "Downloading or loading model. Leave the app open; audio is not uploaded."
+            case .loading: "Preparing. After a macOS update or a cache purge this compiles for the Neural Engine, which can take a few minutes; dictations use Apple's transcriber until it's done."
             case .ready: "Model ready. Hold the key to record."
             case .failed(let message): "Model load failed: \(message)"
             }
@@ -72,15 +72,11 @@ final class StreamingModelPreparation {
         load(choice)
     }
 
-    /// After idle: release the Bark and Parakeet models. The streaming engines keep theirs;
-    /// they aren't installed through this app and would need a download to come back.
-    func release() async {
-        for choice in [SpeechEngineChoice.parakeet, .barkClean] where states[choice] == .ready {
-            let models: ParakeetModels = choice == .barkClean ? .barkClean : .shared
-            await models.unload()
-            states[choice] = isInstalled(choice) ? .sleeping : .unloaded
-        }
-    }
+    /// After idle: nothing. Bark and Parakeet cost about 30 MB resident, and reloading them
+    /// risks a multi-minute Neural Engine recompile whenever macOS has purged the compile
+    /// cache, so they stay loaded for the life of the process (`ModelResidency` only
+    /// releases S1-mini). `ParakeetModels.unload()` remains for diagnostics.
+    func release() async {}
 
     /// Starts loading when the model is already on disk. Used at launch and when the engine
     /// is picked, so an installed model is ready without a separate click and nothing is

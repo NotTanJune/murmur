@@ -143,6 +143,7 @@ private struct TransportDock: View {
     @Binding var section: MainWindow.Section
 
     @State private var settings = Settings.shared
+    @State private var models = StreamingModelPreparation.shared
     @State private var elapsed: TimeInterval = 0
     @State private var startedAt: Date?
 
@@ -178,7 +179,13 @@ private struct TransportDock: View {
                     Spacer(minLength: DS.Space.snug)
 
                     VStack(alignment: .trailing, spacing: DS.Space.tight) {
-                        Tag(text: settings.compareMode ? "Compare mode" : settings.engine.displayName)
+                        if !settings.compareMode, settings.engine.requiresPreparedModel,
+                           models.state(for: settings.engine) == .loading {
+                            Tag(text: "\(settings.engine.displayName) preparing · using Apple", isHighlighted: true)
+                                .help(models.state(for: settings.engine).message)
+                        } else {
+                            Tag(text: settings.compareMode ? "Compare mode" : settings.engine.displayName)
+                        }
                         if settings.cleanupEnabled, !settings.compareMode {
                             Tag(text: settings.cleanupEngine.displayName)
                         }

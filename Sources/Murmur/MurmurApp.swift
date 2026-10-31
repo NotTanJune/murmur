@@ -125,14 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Installed models stay on disk until the first press loads them (`ModelResidency`),
-        // so an idle Murmur holds almost no memory. Only "never release" preloads, since
-        // that choice says memory is no concern.
-        if Settings.shared.idleUnload == .never {
-            StreamingModelPreparation.shared.loadIfInstalled(Settings.shared.engine)
-            if Settings.shared.cleanupEngine == .s1Mini {
-                S1MiniPreparation.shared.loadIfInstalled()
-            }
+        // The speech model loads now, in the background: it's small, and if macOS purged
+        // its Neural Engine compile cache the recompile runs here rather than inside a
+        // dictation (Apple's transcriber stands in until it's ready). S1-mini, the 500 MB
+        // one, waits for the first press unless memory is no concern.
+        StreamingModelPreparation.shared.loadIfInstalled(Settings.shared.engine)
+        if Settings.shared.idleUnload == .never, Settings.shared.cleanupEngine == .s1Mini {
+            S1MiniPreparation.shared.loadIfInstalled()
         }
 
         let willUseApple = Settings.shared.compareMode || Settings.shared.engine == .apple

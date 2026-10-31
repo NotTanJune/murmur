@@ -94,13 +94,13 @@ struct RecordingReadinessTests {
         controller.stopButtonRecording()
 
         let firstLoad = try #require(models.load(.nemotron))
-        #expect(controller.recordingNotice?.contains("Downloading or loading") == true)
+        #expect(controller.recordingNotice?.contains("Preparing") == true)
         #expect(models.load(.nemotron) == nil)
         await firstLoad.value
         #expect(controller.recordingNotice?.contains("Download unavailable") == true)
 
         let retry = try #require(models.load(.nemotron))
-        #expect(controller.recordingNotice?.contains("Downloading or loading") == true)
+        #expect(controller.recordingNotice?.contains("Preparing") == true)
         await retry.value
         #expect(controller.recordingNotice == nil)
         #expect(models.load(.nemotron) == nil)
@@ -163,10 +163,48 @@ private struct LoadFailure: LocalizedError {
         #expect(models.recordingBlocker(for: .barkClean) == nil)
     }
 
+    @Test("An installed model still preparing never holds the dictation: Apple stands in")
+    func appleStandsInWhilePreparing() async {
+        let settings = Settings.shared
+        let previousEngine = settings.engine
+        let previousCompareMode = settings.compareMode
+        defer {
+            settings.engine = previousEngine
+            settings.compareMode = previousCompareMode
+        }
+        settings.engine = .barkClean
+        settings.compareMode = false
+        let models = StreamingModelPreparation(isInstalled: { _ in true }, prepare: { _ in
+            try await Task.sleep(for: .seconds(60))    // a long Neural Engine compile
+        })
+        models.wake(.barkClean)
+        #expect(models.state(for: .barkClean) == .loading)
+        // The configured engine may legitimately be built after the hold (the open-mic
+        // path prefetches its input format on release); during the hold it must not be.
+        let holding = Holding()
+        let controller = DictationController(makeEngine: {
+            if await holding.value { Issue.record("the stand-in must bypass the configured engine") }
+            return AppleSpeechEngine()
+        }, models: models)
+        await holding.set(true)
+        controller.startButtonRecording()
+        #expect(controller.state.isActive)
+        #expect(controller.recordingNotice == nil)
+        await Task.yield()
+        await holding.set(false)
+        controller.stopButtonRecording()
+        controller.deactivate()
+    }
+
     @Test("Idle release choices map to the right delays")
     func idleDelays() {
         #expect(IdleUnload.oneMinute.delay == .seconds(60))
         #expect(IdleUnload.fiveMinutes.delay == .seconds(300))
         #expect(IdleUnload.never.delay == nil)
     }
+}
+
+private actor Holding {
+    var value = false
+    func set(_ new: Bool) { value = new }
 }

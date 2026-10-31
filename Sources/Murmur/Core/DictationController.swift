@@ -14,13 +14,18 @@ import Observation
 func engineForCurrentSetting() async -> any TranscriptionEngine {
     await MainActor.run {
         let choice: SpeechEngineChoice = Settings.shared.compareMode ? .apple : Settings.shared.engine
-        return switch choice {
-        case .apple: AppleSpeechEngine()
-        case .parakeet: ParakeetEngine()
-        case .barkClean: ParakeetEngine(models: .barkClean)
-        case .parakeetEOU: StreamingEngines.parakeetEOU
-        case .nemotron: StreamingEngines.nemotron
-        }
+        return engine(for: choice)
+    }
+}
+
+@MainActor
+func engine(for choice: SpeechEngineChoice) -> any TranscriptionEngine {
+    switch choice {
+    case .apple: AppleSpeechEngine()
+    case .parakeet: ParakeetEngine()
+    case .barkClean: ParakeetEngine(models: .barkClean)
+    case .parakeetEOU: StreamingEngines.parakeetEOU
+    case .nemotron: StreamingEngines.nemotron
     }
 }
 
@@ -33,6 +38,9 @@ private final class Utterance {
     let holdStarted = Date()
     var releasedAt: Date?
     let engineName: String
+    /// Apple's transcriber standing in while the selected batch model is still preparing
+    /// (its Neural Engine compile can take minutes after a cache purge). Nil otherwise.
+    let standIn: SpeechEngineChoice?
     let isComparing: Bool
     /// Captured at press, so changing either mid-hold applies to the next hold, not this one.
     let cleanupEngine: CleanupEngine
@@ -62,11 +70,13 @@ private final class Utterance {
 
     init(
         engineName: String,
+        standIn: SpeechEngineChoice? = nil,
         isComparing: Bool,
         cleanupEngine: CleanupEngine = .rules,
         cleanupProfile: CleanupProfile = .general
     ) {
         self.engineName = engineName
+        self.standIn = standIn
         self.isComparing = isComparing
         self.cleanupEngine = cleanupEngine
         self.cleanupProfile = cleanupProfile
@@ -373,8 +383,14 @@ final class DictationController {
         blockedEngine = nil
 
         let comparing = Settings.shared.compareMode
+        // An installed batch model that isn't in memory yet must not hold the dictation:
+        // after a cache purge its Neural Engine compile takes minutes. Apple's transcriber
+        // takes this hold and the row says so; the model keeps loading in the background.
+        let standIn: SpeechEngineChoice? =
+            !comparing && choice.requiresPreparedModel && models.state(for: choice) != .ready ? .apple : nil
         let utterance = Utterance(
-            engineName: comparing ? "Comparing…" : choice.displayName,
+            engineName: comparing ? "Comparing…" : standIn.map { "\($0.displayName) · \(choice.displayName) preparing" } ?? choice.displayName,
+            standIn: standIn,
             isComparing: comparing,
             cleanupEngine: Settings.shared.cleanupEngine,
             cleanupProfile: Settings.shared.cleanupProfile
@@ -383,7 +399,7 @@ final class DictationController {
         state = .starting
         transcript = ""
 
-        let formatKey = comparing ? "compare" : choice.rawValue
+        let formatKey = comparing ? "compare" : (standIn ?? choice).rawValue
 
         // Attach to the microphone before anything else. With the mic kept open the hold
         // starts from a 0.3 s pre-roll, so every millisecond spent before this line comes
@@ -443,7 +459,11 @@ final class DictationController {
                 return
             }
 
-            let engine = await makeEngine()
+            let engine: any TranscriptionEngine = if let standIn = utterance.standIn {
+                Murmur.engine(for: standIn)
+            } else {
+                await makeEngine()
+            }
             utterance.engine = engine
 
             // Compare mode captures in *Apple's* format, not a format of our choosing.

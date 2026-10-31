@@ -256,12 +256,12 @@ components are loaded with `MLModel.load` directly, **not** `AsrModels.load(from
 load failure FluidAudio purges the folder and re-downloads stock v3 into it, which would
 silently replace Bark with NVIDIA's weights. Keep the ANE `Encoder.mlmodelc`; the repo's
 `Encoder_lut3` GPU build measured about 2× slower on an M2. Bark gates recording only
-while it isn't on disk (a download is needed); once installed it is `.sleeping` until a press
-wakes it (see `ModelResidency` below).
+while it isn't on disk (a download is needed); once installed it loads at launch and Apple's
+transcriber stands in until it's ready (see `ModelResidency` below).
 
 Parakeet v3 is gated the same way as Bark: `requiresPreparedModel` covers `.parakeet`.
-`StreamingModelPreparation.loadIfInstalled` loads an on-disk model when the engine is picked,
-and at launch only when `Settings.idleUnload` is "never"; it never starts a download.
+`StreamingModelPreparation.loadIfInstalled` loads an on-disk model at launch and when the
+engine is picked; it never starts a download.
 
 Holds are pipelined. Each one is an `Utterance` owning its engine, tasks and transcript, so
 a press while the previous hold is still finishing starts capture at once. The new hold's
@@ -319,10 +319,19 @@ format as `captureKey`; a release detaches and `syncOpenMicrophone()` keeps, res
 closes capture to match the setting, engine and compare mode (observed with
 `withObservationTracking`). Off, the mic opens at the press as before.
 
-Models are resident only while used (`ModelResidency`). Nothing loads at launch (unless
-`Settings.idleUnload` is "never"); a press wakes Bark and S1-mini in parallel with recording,
-and after the idle timeout both are released. Installed models never gate recording, only
-ones that would need a download. **S1-mini runs in a helper process**: the same executable
+S1-mini is resident only while used (`ModelResidency`): it waits for the first press
+(unless `Settings.idleUnload` is "never") and is released after the idle timeout. **Bark and
+Parakeet load at launch and are never released**: they cost about 30 MB resident, and every
+reload risks Core ML recompiling the encoder for the Neural Engine, which happened on
+2026-10-31 after macOS dropped `~/Library/Caches/ai.pivotstudio.murmur/com.apple.e5rt.e5bundlecache`
+and took 157 s at 100% CPU in `ANECompilerService` (the code's "about a minute" is
+optimistic). Copying that cache folder back by hand did not avoid the recompile, so don't try
+to preserve it. While a batch model is `.loading`, a press is not blocked: `beginDictation`
+sets `Utterance.standIn = .apple`, the hold runs on Apple's transcriber with its own input
+format, the history row reads "Apple (streaming) · Bark 3.0 Clean (batch) preparing", and
+the dock shows a highlighted tag. Only a model that would need a download blocks recording.
+Killed compiles leave 400 MB `*.tmp.<pid>_*.bundle` folders in that cache; macOS doesn't
+clean them. **S1-mini runs in a helper process**: the same executable
 with `--s1-server` (`main.swift` branches before SwiftUI starts), speaking line-delimited JSON
 over stdin/stdout (`S1MiniServer`, `S1MiniEngine` is the client, `S1MiniRuntime` is the MLX
 code). Releasing it in-process left 40–100 MB of fragmented heap that grew with every load;

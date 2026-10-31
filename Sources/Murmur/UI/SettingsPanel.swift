@@ -73,9 +73,9 @@ struct SettingsPanel: View {
                         title: \.displayName
                     )
                     Note(text: settings.idleUnload == .never
-                        ? "Bark and S1-mini stay in memory (about 600 MB) for instant cleanup every time."
-                        : "Bark and S1-mini leave memory after this long without dictating and reload at "
-                            + "your next press, while you speak. Idle, Murmur holds well under 100 MB.")
+                        ? "S1-mini stays in memory (about 500 MB) for instant cleanup every time."
+                        : "S1-mini leaves memory after this long without dictating and reloads at your "
+                            + "next press, while you speak. The speech model stays loaded; it's small.")
                 }
 
                 BrutalCard(title: "Model") {
