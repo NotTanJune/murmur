@@ -1,11 +1,9 @@
 {
   "$comment": [
-    "Shared behavioural contract for the dictionary correction pass.",
+    "Behavioural contract for the dictionary correction pass.",
     "",
-    "The macOS app (Swift) and the Windows app (C#) implement this logic independently.",
-    "Independent implementations drift. This file is the thing that stops them: both must",
-    "run every case below and produce exactly the stated output. A change to correction",
-    "semantics starts here, not in either implementation.",
+    "The corrector must run every case below and produce exactly the stated output. A change",
+    "to correction semantics starts here, not in the implementation.",
     "",
     "Rules under test:",
     "  1. Whole matches only  - a rule must never bite into a longer word.",

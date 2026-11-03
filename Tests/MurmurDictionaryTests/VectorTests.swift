@@ -3,11 +3,10 @@ import Testing
 
 @testable import MurmurDictionary
 
-/// Runs the shared behavioural contract in `shared/dictionary-test-vectors.json`.
+/// Runs the behavioural contract in `dictionary-test-vectors.json` (next to this file).
 ///
-/// The Windows app reimplements this logic in C# and runs the identical file. That's the
-/// only thing keeping two independent implementations honest — there's no shared binary, and
-/// no Windows machine to check against by hand.
+/// A change to correction behaviour starts in that file: add or change the case, watch it
+/// fail, then change the corrector.
 struct VectorTests {
     struct Vectors: Decodable {
         let version: Int
@@ -50,7 +49,7 @@ struct VectorTests {
         return try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
     }
 
-    @Test("every shared vector produces the contracted output")
+    @Test("every vector produces the contracted output")
     func vectors() throws {
         let vectors = try Self.load()
         #expect(vectors.cases.isEmpty == false)

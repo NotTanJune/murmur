@@ -16,9 +16,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.3.0")),
     ],
     targets: [
-        // The dictionary is its own target so it can be tested directly, and because its
-        // behaviour is a cross-platform contract: the Windows app reimplements this logic in
-        // C#, and both sides run the same vectors in shared/dictionary-test-vectors.json.
+        // The dictionary is its own target so it can be tested directly against the vectors
+        // in Tests/MurmurDictionaryTests/dictionary-test-vectors.json, without the app.
         .target(
             name: "MurmurDictionary",
             path: "Sources/MurmurDictionary",
