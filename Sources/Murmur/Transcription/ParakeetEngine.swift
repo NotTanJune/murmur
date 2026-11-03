@@ -130,17 +130,27 @@ actor ParakeetModels {
         case parakeetV3
         /// Underdog Bark 3.0 Clean, fetched and verified by `BarkModelStore`.
         case barkClean
+        /// Bark Clean with the stock decoder pair regardless of the Settings choice. Compare
+        /// mode uses it beside a fine-tuned `barkClean`.
+        case barkCleanStock
+        /// Bark Clean with a fine-tuned decoder and joint from `CustomDecoderSlot`, by slot name.
+        case barkCleanCustom(String)
 
         var label: String {
             switch self {
             case .parakeetV3: "Parakeet"
             case .barkClean: "Bark Clean"
+            case .barkCleanStock: "Bark Clean (stock)"
+            case .barkCleanCustom: "Bark Clean (fine-tuned)"
             }
         }
     }
 
     static let shared = ParakeetModels(source: .parakeetV3)
     static let barkClean = ParakeetModels(source: .barkClean)
+    static let stockBarkClean = ParakeetModels(source: .barkCleanStock)
+
+    static func custom(_ name: String) -> ParakeetModels { ParakeetModels(source: .barkCleanCustom(name)) }
 
     let source: Source
 
@@ -162,7 +172,10 @@ actor ParakeetModels {
     }
 
     private var loaded: AsrManager?
-    private var loadTask: Task<AsrManager, Error>?
+    /// The `AsrModels` behind `loaded`, kept so the incremental engine can wrap the same
+    /// weights in a `SlidingWindowAsrManager` without loading anything again.
+    private var models: AsrModels?
+    private var loadTask: Task<(AsrManager, AsrModels), Error>?
 
     var isLoaded: Bool { loaded != nil }
 
@@ -172,34 +185,57 @@ actor ParakeetModels {
     func unload() async {
         guard let manager = loaded else { return }
         loaded = nil
+        models = nil
         loadTask = nil
         await manager.cleanup()
         Log.speech.info("\(self.source.label, privacy: .public): unloaded to free memory")
     }
 
+    /// The decoder choice changed: drop the loaded pair and load the selected one. The
+    /// encoder file is unchanged, so this is a sub-second reload with no recompile.
+    func reload() async throws {
+        // Never start a download from a settings change; the model loads when it is installed.
+        guard BarkModelStore.isDownloaded else { return }
+        await unload()
+        _ = try await manager()
+    }
+
+    /// The loaded `AsrModels`, loading them first if needed (same single load as `manager()`).
+    func loadedModels() async throws -> AsrModels {
+        _ = try await manager()
+        guard let models else { throw TranscriptionError.notRunning }
+        return models
+    }
+
     /// Loads once; concurrent callers await the same task rather than racing to download.
     func manager() async throws -> AsrManager {
         if let loaded { return loaded }
-        if let loadTask { return try await loadTask.value }
+        if let loadTask { return try await loadTask.value.0 }
 
         let source = source
-        let task = Task<AsrManager, Error> {
+        // Read before the load task: Settings is main-actor, and a switch expression can't
+        // hold the multi-statement hop.
+        let selectedDecoder = await MainActor.run { Settings.shared.barkDecoder }
+        let task = Task<(AsrManager, AsrModels), Error> {
             let started = Date()
             let models = switch source {
             case .parakeetV3: try await Self.loadParakeetV3()
-            case .barkClean: try await Self.loadBarkClean()
+            case .barkClean: try await Self.loadBarkClean(slot: selectedDecoder)
+            case .barkCleanStock: try await Self.loadBarkClean(slot: .stock)
+            case .barkCleanCustom(let name): try await Self.loadBarkClean(slot: .custom(name))
             }
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             await Self.warmUp(manager, label: source.label)
             Log.speech.info("\(source.label, privacy: .public): ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
-            return manager
+            return (manager, models)
         }
         loadTask = task
 
         do {
-            let manager = try await task.value
+            let (manager, models) = try await task.value
             loaded = manager
+            self.models = models
             return manager
         } catch {
             // Don't cache a failed load — a transient download error shouldn't wedge the
@@ -225,23 +261,35 @@ actor ParakeetModels {
     /// purges the folder and re-downloads **NVIDIA's** v3 into it. Pointed at Bark's folder
     /// that would silently swap the model. Loading by hand keeps every byte the verified
     /// pinned download, and an error surfaces as an error.
-    private static func loadBarkClean() async throws -> AsrModels {
+    ///
+    /// Only the decoder and joint come from `slot`; the preprocessor and encoder always come
+    /// from the verified stock folder, so a swap never triggers a Neural Engine recompile.
+    private static func loadBarkClean(slot: BarkDecoderChoice) async throws -> AsrModels {
         let directory = try await BarkModelStore.ensureDownloaded()
+        let pair: URL
+        switch slot {
+        case .stock:
+            pair = directory
+        case .custom(let name):
+            pair = CustomDecoderSlot.directory(for: name)
+            try CustomDecoderSlot.verify(pair, baseRevision: BarkModelStore.revision)
+            Log.speech.info("Bark Clean: using fine-tuned decoder \(name, privacy: .public)")
+        }
         Log.speech.info("Bark Clean: loading models (the first load compiles for the Neural Engine, about a minute)")
 
-        func load(_ name: String, _ units: MLComputeUnits) async throws -> MLModel {
+        func load(_ name: String, from folder: URL, _ units: MLComputeUnits) async throws -> MLModel {
             let configuration = MLModelConfiguration()
             configuration.computeUnits = units
             return try await MLModel.load(
-                contentsOf: directory.appendingPathComponent(name), configuration: configuration)
+                contentsOf: folder.appendingPathComponent(name), configuration: configuration)
         }
 
         // Same placement as FluidAudio's v3 defaults: the mel front-end is all CPU ops, and
         // everything else stays off the GPU.
-        let preprocessor = try await load("Preprocessor.mlmodelc", .cpuOnly)
-        let encoder = try await load("Encoder.mlmodelc", .cpuAndNeuralEngine)
-        let decoder = try await load("Decoder.mlmodelc", .cpuAndNeuralEngine)
-        let joint = try await load("JointDecisionv3.mlmodelc", .cpuAndNeuralEngine)
+        let preprocessor = try await load("Preprocessor.mlmodelc", from: directory, .cpuOnly)
+        let encoder = try await load("Encoder.mlmodelc", from: directory, .cpuAndNeuralEngine)
+        let decoder = try await load("Decoder.mlmodelc", from: pair, .cpuAndNeuralEngine)
+        let joint = try await load("JointDecisionv3.mlmodelc", from: pair, .cpuAndNeuralEngine)
 
         let data = try Data(contentsOf: directory.appendingPathComponent("parakeet_vocab.json"))
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: String] else {

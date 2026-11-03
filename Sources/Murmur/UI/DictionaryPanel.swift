@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// Both entry kinds live in one list rather than separate tabs — they're two shapes of the
 /// same idea and you want to see everything you've taught it at once. The kind is carried by
-/// a silkscreen tag on each row.
+/// a tag on each row.
 struct DictionaryPanel: View {
     @State private var store = DictionaryStore.shared
     @State private var query = ""
@@ -16,20 +16,23 @@ struct DictionaryPanel: View {
     private var entries: [DictionaryEntry] { store.filtered(by: query) }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: DS.Space.base) {
-                header
+        PageScroll(title: "Dictionary") {
+            header
 
-                if entries.isEmpty {
-                    EmptyPanel(
-                        label: store.entries.isEmpty ? "Dictionary empty" : "No matches",
-                        detail: store.entries.isEmpty
-                            ? "Add words it keeps getting wrong."
-                            : "Try a different search."
-                    )
-                    .padding(.top, DS.Space.wide)
-                } else {
-                    ForEach(entries) { entry in
+            if entries.isEmpty {
+                EmptyPanel(
+                    label: store.entries.isEmpty ? "Teach it your words." : "No matches",
+                    highlight: store.entries.isEmpty ? "words" : nil,
+                    detail: store.entries.isEmpty
+                        ? "Add words it keeps getting wrong."
+                        : "Try a different search."
+                )
+                .padding(.top, DS.Space.wide)
+            } else {
+                // Lazy row by row; see `cardSegment`.
+                let rows = entries
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { position, entry in
                         DictionaryRow(
                             entry: entry,
                             onEdit: { editing = entry },
@@ -40,15 +43,11 @@ struct DictionaryPanel: View {
                             },
                             onDelete: { store.delete(entry) }
                         )
+                        .cardSegment(isFirst: position == 0, isLast: position == rows.count - 1)
                     }
                 }
             }
-            .padding(.horizontal, DS.Space.roomy)
-            .padding(.top, DS.Space.snug)
-            .padding(.bottom, DS.Space.wide)
-            .padding(.trailing, DS.Brutal.lift)
         }
-        .scrollEdgeEffectStyle(.hard, for: .top)
         .sheet(isPresented: $isAdding) {
             DictionaryEditor(entry: nil) { store.add($0) }
         }
@@ -61,26 +60,26 @@ struct DictionaryPanel: View {
     /// outside the UI — which is only true if you can find it.
     private var header: some View {
         HStack(spacing: DS.Space.base) {
-            SearchField(text: $query, placeholder: "Search dictionary")
             Eyebrow(text: "\(store.entries.count) entries")
                 .fixedSize()
+            Spacer()
+            SearchToggle(text: $query, placeholder: "Search dictionary")
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
             } label: {
                 Image(systemName: "folder")
-                    .font(.system(size: DS.Icon.regular, weight: .bold))
+                    .font(.system(size: DS.Icon.regular, weight: .semibold))
             }
-            .buttonStyle(BrutalButtonStyle())
+            .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
             .help("Reveal \(DictionaryStore.fileURL.path)")
             .accessibilityLabel("Reveal dictionary file")
             Button { isAdding = true } label: {
                 Label("Add", systemImage: "plus")
                     .labelStyle(.titleAndIcon)
             }
-            .buttonStyle(BrutalButtonStyle(fill: DS.Color.card))
+            .buttonStyle(FlowButtonStyle(kind: .primary, compact: true))
             .keyboardShortcut("n", modifiers: .command)
         }
-        .padding(.bottom, DS.Space.snug)
     }
 }
 
@@ -104,7 +103,7 @@ private struct DictionaryRow: View {
                     .foregroundStyle(DS.Color.inkSecondary)
                     .strikethrough(true, color: DS.Color.inkTertiary)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: DS.Icon.small, weight: .bold))
+                    .font(.system(size: DS.Icon.small, weight: .semibold))
                     .foregroundStyle(DS.Color.inkSecondary)
             }
 
@@ -116,22 +115,22 @@ private struct DictionaryRow: View {
 
             if isHovering {
                 Button("Edit", action: onEdit)
-                    .buttonStyle(BrutalButtonStyle(compact: true))
+                    .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
                 Button(action: onDelete) {
                     Image(systemName: "trash")
-                        .font(.system(size: DS.Icon.regular, weight: .bold))
+                        .font(.system(size: DS.Icon.regular, weight: .semibold))
                 }
-                .buttonStyle(BrutalButtonStyle(compact: true))
+                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
                 .accessibilityLabel("Delete")
             }
-            // On is yellow and sunk, like every other "on" state in the app.
+            // On is cream, ink-stroked and checked, like every other "on" state in the app.
             Button(entry.isEnabled ? "On" : "Off", action: onToggle)
-                .buttonStyle(BrutalButtonStyle(isSelected: entry.isEnabled, compact: true))
+                .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: entry.isEnabled, compact: true))
                 .help(entry.isEnabled ? "Turn this entry off" : "Turn this entry on")
         }
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
-        .brutalSurface(isHovering ? DS.Color.cardHover : DS.Color.card, radius: DS.Radius.control, lift: DS.Brutal.liftSmall)
+        .background(isHovering ? DS.Color.cardHover : Color.clear)
         .opacity(entry.isEnabled ? 1 : 0.6)
         .onHover { isHovering = $0 }
     }
@@ -176,7 +175,7 @@ private struct DictionaryEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.roomy) {
             Text(entry == nil ? "New entry" : "Edit entry")
-                .font(DS.Font.display)
+                .font(DS.Font.title)
                 .foregroundStyle(DS.Color.ink)
 
             kindPicker
@@ -195,38 +194,36 @@ private struct DictionaryEditor: View {
             ForEach(warnings) { warning in
                 HStack(alignment: .top, spacing: DS.Space.snug) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: DS.Icon.regular, weight: .bold))
-                        .foregroundStyle(DS.Color.onAccent)
+                        .font(.system(size: DS.Icon.regular, weight: .semibold))
+                        .foregroundStyle(DS.Color.onSelected)
                     Text(warning.message)
                         .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.onAccent)
+                        .foregroundStyle(DS.Color.onSelected)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(DS.Space.base)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .brutalSurface(DS.Color.accent, radius: DS.Radius.control, lift: DS.Brutal.liftSmall)
+                .cardSurface(DS.Color.selected, radius: DS.Radius.control)
             }
 
             HStack(spacing: DS.Space.snug) {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(BrutalButtonStyle())
+                    .buttonStyle(FlowButtonStyle(kind: .secondary))
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard isValid else { return }
                     onSave(draft)
                     dismiss()
                 }
-                .buttonStyle(BrutalButtonStyle())
+                .buttonStyle(FlowButtonStyle(kind: .primary))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValid)
             }
-            .padding(.trailing, DS.Brutal.liftSmall)
-            .padding(.bottom, DS.Brutal.liftSmall)
         }
         .padding(DS.Space.panel)
         .frame(width: DS.Window.editorWidth)
-        .background(PaperBackground())
+        .background(DS.Color.pane)
     }
 
     private var kindPicker: some View {
@@ -241,6 +238,6 @@ private struct DictionaryEditor: View {
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        BrutalTextField(label: label, text: text, prompt: prompt)
+        FlowTextField(label: label, text: text, prompt: prompt)
     }
 }

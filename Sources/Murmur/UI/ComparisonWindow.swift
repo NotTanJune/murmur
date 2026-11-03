@@ -60,10 +60,9 @@ struct ComparisonWindow: View {
                 }
             }
             .padding(DS.Space.wide)
-            .padding(.trailing, DS.Brutal.lift)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(PaperBackground().ignoresSafeArea())
+        .background(DS.Color.pane.ignoresSafeArea())
         .frame(minWidth: DS.Window.comparisonMinWidth, minHeight: DS.Window.comparisonMinHeight)
     }
 
@@ -71,14 +70,14 @@ struct ComparisonWindow: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: DS.Space.tight) {
                 Text("Engine comparison")
-                    .font(DS.Font.display)
+                    .font(DS.Font.title)
                     .foregroundStyle(DS.Color.ink)
                 Eyebrow(text: "\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")")
             }
             Spacer()
             if !store.runs.isEmpty {
                 Button("Clear") { RunLog.clear() }
-                    .buttonStyle(BrutalButtonStyle())
+                    .buttonStyle(FlowButtonStyle(kind: .secondary))
             }
         }
     }
@@ -109,7 +108,7 @@ struct ComparisonWindow: View {
             Spacer()
         }
         .padding(DS.Space.roomy)
-        .outlinedGlass()
+        .cardSurface()
     }
 
     private func statusLine(isRecording: Bool) -> String {
@@ -180,9 +179,9 @@ private struct ComparisonCard: View {
                         withAnimation(DS.Motion.panel) { RunLog.deleteGroup(group) }
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: DS.Icon.regular, weight: .bold))
+                            .font(.system(size: DS.Icon.regular, weight: .semibold))
                     }
-                    .buttonStyle(BrutalButtonStyle(compact: true))
+                    .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
                     .help("Delete this comparison")
                     .accessibilityLabel("Delete comparison")
                 }
@@ -203,14 +202,14 @@ private struct ComparisonCard: View {
                 .foregroundStyle(DS.Color.inkSecondary)
             }
 
-            Rectangle().fill(DS.Color.ink).frame(height: DS.Brutal.border)
+            Rectangle().fill(DS.Color.divider).frame(height: DS.Stroke.hairline)
 
             ForEach(Array(ranked.enumerated()), id: \.offset) { index, run in
                 EngineRow(run: run, rank: index + 1, showRank: runs.count > 1)
             }
         }
         .padding(DS.Space.roomy)
-        .brutalSurface()
+        .cardSurface()
     }
 }
 
@@ -262,6 +261,6 @@ private struct SingleCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(DS.Space.roomy)
-        .brutalSurface(radius: DS.Radius.control, lift: DS.Brutal.liftSmall)
+        .cardSurface()
     }
 }

@@ -22,8 +22,12 @@ func engineForCurrentSetting() async -> any TranscriptionEngine {
 func engine(for choice: SpeechEngineChoice) -> any TranscriptionEngine {
     switch choice {
     case .apple: AppleSpeechEngine()
-    case .parakeet: ParakeetEngine()
-    case .barkClean: ParakeetEngine(models: .barkClean)
+    case .parakeet:
+        Settings.shared.transcribeTiming == .whileSpeaking
+            ? IncrementalParakeetEngine(models: .shared) : ParakeetEngine()
+    case .barkClean:
+        Settings.shared.transcribeTiming == .whileSpeaking
+            ? IncrementalParakeetEngine(models: .barkClean) : ParakeetEngine(models: .barkClean)
     case .parakeetEOU: StreamingEngines.parakeetEOU
     case .nemotron: StreamingEngines.nemotron
     }
@@ -64,6 +68,9 @@ private final class Utterance {
 
     /// Latest text from the engine; final once transcription completes.
     var transcript = ""
+    /// Cleans finished sentences while the key is held, when the engine reports a stable
+    /// prefix and the cleanup pass is one worth overlapping. Nil otherwise.
+    var cleanupPipeline: CleanupPipeline?
     /// Compare mode only: the recording, kept so every engine sees identical audio.
     var recorded: [AudioChunk] = []
     var isAborted = false
@@ -209,7 +216,7 @@ final class DictationController {
         cancelDictation()
     }
 
-    /// Prepares AVAudioEngine's graph while idle. This does not start microphone I/O.
+    /// Pins and initializes the capture unit while idle. This does not start microphone I/O.
     func prepareAudio() {
         guard Permissions.hasMicrophone else { return }
         capture.onDeviceChange = { [weak self] device in
@@ -439,6 +446,14 @@ final class DictationController {
             FoundationModelFormatter.prewarm()
         }
 
+        // Clean sentences as they land rather than all of them at release. Only the General
+        // profile: Email and Notes place greetings and bullets from the whole text, and
+        // Message drops the final period, which piecewise cleanup would scatter.
+        if !comparing, Settings.shared.cleanupEnabled, utterance.cleanupEngine != .rules,
+           utterance.cleanupProfile == .general {
+            utterance.cleanupPipeline = CleanupPipeline(formatter: formatter(for: utterance))
+        }
+
         let previousEngine = engineIdle
         let startupInterval = Log.performanceSignposter.beginInterval("dictation startup")
         utterance.startupTask = Task { @MainActor in
@@ -519,11 +534,11 @@ final class DictationController {
             // a task per buffer. Unstructured tasks have no ordering guarantee, so
             // collecting them separately could assemble the replay audio out of order
             // and silently produce word-salad from the comparison.
-            let comparing = utterance.isComparing
+            // Kept for compare mode and for the training recording.
             utterance.feedTask = Task.detached(priority: .userInitiated) {
                 var recording: [AudioChunk] = []
                 for await chunk in audioStream {
-                    if comparing { recording.append(chunk) }
+                    recording.append(chunk)
                     await engine.feed(chunk)
                 }
                 return recording
@@ -533,6 +548,9 @@ final class DictationController {
                 do {
                     for try await chunk in chunks {
                         utterance.transcript = chunk.text
+                        if let stable = chunk.stable, !chunk.isFinal {
+                            utterance.cleanupPipeline?.accept(stable: stable)
+                        }
                         // Earlier holds keep refining their text after release; only show
                         // it while no newer hold owns the display.
                         if self.current === utterance || self.current == nil {
@@ -657,9 +675,17 @@ final class DictationController {
         let raw = utterance.transcript
         guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let cleaned = Settings.shared.cleanupEnabled
-            ? await formatter(for: utterance).format(raw)
-            : raw
+        let cleaned: String
+        if !Settings.shared.cleanupEnabled {
+            cleaned = raw
+        } else if let pipeline = utterance.cleanupPipeline {
+            cleaned = await pipeline.finish(transcript: raw) {
+                await formatter(for: utterance).format(raw)
+            }
+            Log.speech.info("cleanup pipeline: \(pipeline.chunkCount) piece(s) cleaned while held")
+        } else {
+            cleaned = await formatter(for: utterance).format(raw)
+        }
 
         // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
         // only raises the odds of the right word; this is the pass that guarantees it,
@@ -668,7 +694,10 @@ final class DictationController {
         if !corrections.isEmpty {
             Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
         }
-        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            utterance.recorded.removeAll(keepingCapacity: false)
+            return
+        }
         let readyAt = Date()
 
         // Typed in the order spoken, even when this hold resolved before the one before it.
@@ -680,13 +709,17 @@ final class DictationController {
         if TextInjector.focusIsSecureField() {
             Log.inject.notice("focused element is a password field; transcript discarded")
             report("Password field focused. Murmur does not type into password fields.")
+            utterance.recorded.removeAll(keepingCapacity: false)
             return
         }
 
+        // A push-to-talk key the system still thinks is held would turn the target's next
+        // click into a ⌘-click; let it go before the text lands.
+        HotkeyMonitor.releaseIfStuck(Settings.shared.pushToTalkKey)
         let delivered = await TextInjector.insert(output)
         let deliveredAt = delivered ? Date() : nil
         guard !Task.isCancelled else { return }
-        recordRun(utterance, text: output, corrections: corrections, readyAt: readyAt, deliveredAt: deliveredAt)
+        recordRun(utterance, text: output, rawText: raw, corrections: corrections, readyAt: readyAt, deliveredAt: deliveredAt)
         guard delivered else {
             report("Text insertion failed. Check transcription history to copy the result.")
             return
@@ -786,6 +819,7 @@ final class DictationController {
     private func recordRun(
         _ utterance: Utterance,
         text: String,
+        rawText: String,
         corrections: [AppliedCorrection] = [],
         readyAt: Date,
         deliveredAt: Date?
@@ -796,18 +830,20 @@ final class DictationController {
         if let deliverySeconds {
             Log.performance.notice("\(utterance.engineName, privacy: .public): release to text ready \(processSeconds, format: .fixed(precision: 3))s; release to delivery event \(deliverySeconds, format: .fixed(precision: 3))s")
         }
-        RunLog.record(
-            DictationRun(
-                date: releasedAt,
-                engine: utterance.engineName,
-                audioSeconds: releasedAt.timeIntervalSince(utterance.holdStarted),
-                processSeconds: processSeconds,
-                text: text,
-                corrections: corrections.isEmpty ? nil : corrections,
-                deliverySeconds: deliverySeconds,
-                cleanup: utterance.cleanupLabel
-            )
+        let audio = utterance.recorded
+        utterance.recorded.removeAll(keepingCapacity: false)
+        var run = DictationRun(
+            date: releasedAt,
+            engine: utterance.engineName,
+            audioSeconds: releasedAt.timeIntervalSince(utterance.holdStarted),
+            processSeconds: processSeconds,
+            text: text,
+            corrections: corrections.isEmpty ? nil : corrections,
+            deliverySeconds: deliverySeconds,
+            cleanup: utterance.cleanupLabel
         )
+        run.rawText = rawText
+        RunLog.record(run, audio: audio)
     }
 
     /// Light smoothing so the waveform glides instead of strobing at buffer rate.
@@ -828,6 +864,7 @@ final class DictationController {
     /// Stops an utterance and releases everything it holds, without reporting anything.
     private func abandon(_ utterance: Utterance) {
         utterance.isAborted = true
+        utterance.cleanupPipeline?.cancel()
         if current === utterance {
             current = nil
             releaseCapture()

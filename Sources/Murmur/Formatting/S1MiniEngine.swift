@@ -48,11 +48,21 @@ actor S1MiniEngine {
 
     /// Cleans one transcript. Throws if the helper isn't ready; the formatter falls back to
     /// the rule pass.
-    func clean(_ text: String, profile: CleanupProfile) async throws -> String {
+    func clean(
+        _ text: String,
+        profile: CleanupProfile,
+        decoding: S1MiniRuntime.Decoding = .promptLookup
+    ) async throws -> String {
         guard isReady, let input else { throw S1MiniError.notLoaded }
         nextID += 1
         let id = nextID
-        guard var line = try? JSONEncoder().encode(S1MiniMessage(profile: profile.rawValue, id: id, text: text)) else {
+        let request = S1MiniMessage(
+            profile: profile.rawValue,
+            decoding: decoding == .promptLookup ? nil : decoding.rawValue,
+            id: id,
+            text: text
+        )
+        guard var line = try? JSONEncoder().encode(request) else {
             throw S1MiniError.notLoaded
         }
         line.append(0x0A)

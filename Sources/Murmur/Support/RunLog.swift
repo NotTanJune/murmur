@@ -37,6 +37,23 @@ struct DictationRun: Codable, Sendable, Identifiable {
     /// output, and for lines written before this existed.
     var cleanup: String?
 
+    /// The engine's own final transcript, before cleanup and dictionary. Training labels
+    /// are derived from it, never from a cleaned rewrite. Nil for lines written before this.
+    var rawText: String?
+    /// The user's correction of this transcript, typed in history. Nil until edited.
+    var label: String?
+    /// Whether `RecordingStore` holds this run's audio.
+    var hasAudio: Bool = false
+    /// When this run was last included in a training export. Releases its audio to the
+    /// normal retention rule.
+    var exportedAt: Date?
+
+    /// A run that can contribute a training pair: an edit, or at least one dictionary hit.
+    var isLabelled: Bool {
+        if let label, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return !(corrections ?? []).isEmpty
+    }
+
     var realtimeFactor: Double { audioSeconds / max(processSeconds, 0.0001) }
     var characters: Int { text.count }
 
@@ -79,6 +96,10 @@ struct DictationRun: Codable, Sendable, Identifiable {
         corrections = try container.decodeIfPresent([AppliedCorrection].self, forKey: .corrections)
         isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
         cleanup = try container.decodeIfPresent(String.self, forKey: .cleanup)
+        rawText = try container.decodeIfPresent(String.self, forKey: .rawText)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        hasAudio = try container.decodeIfPresent(Bool.self, forKey: .hasAudio) ?? false
+        exportedAt = try container.decodeIfPresent(Date.self, forKey: .exportedAt)
     }
 }
 
@@ -125,10 +146,13 @@ enum RunLog {
         }
     }
 
-    /// The runs `retention` keeps: every saved run, and anything newer than the cutoff.
+    /// The runs `retention` keeps: every saved run, anything newer than the cutoff, and a
+    /// labelled run whose audio has not been exported yet (it is training data in waiting).
     nonisolated static func retained(_ runs: [DictationRun], now: Date) -> [DictationRun] {
         let cutoff = now.addingTimeInterval(-retention)
-        return runs.filter { $0.isSaved || $0.date >= cutoff }
+        return runs.filter {
+            $0.isSaved || $0.date >= cutoff || ($0.isLabelled && $0.hasAudio && $0.exportedAt == nil)
+        }
     }
 
     /// Saves a run past the retention window, or returns it to normal expiry.
@@ -141,6 +165,74 @@ enum RunLog {
                 updated.isSaved = saved
                 return updated
             })
+        }
+    }
+
+    /// Records a finished run and, when recordings are kept, its audio. The FLAC is written
+    /// on the history queue so the key-up path never waits on disk.
+    static func record(_ run: DictationRun, audio: [AudioChunk]) {
+        let keep = Settings.shared.keepRecordings && !audio.isEmpty
+        let store = RecordingStore.shared
+        update { file in
+            var stored = run
+            if keep {
+                do {
+                    try store.write(audio, id: run.id)
+                    stored.hasAudio = store.exists(id: run.id)
+                } catch {
+                    Log.app.error("recording not written: \(error.localizedDescription)")
+                }
+            }
+            file.append([stored])
+        }
+    }
+
+    /// Sets or clears the user's correction of a transcript.
+    static func setLabel(_ label: String?, for run: DictationRun) {
+        let id = run.id
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        update { file in
+            file.rewrite(file.runs.map { stored in
+                guard stored.id == id else { return stored }
+                var updated = stored
+                updated.label = value
+                return updated
+            })
+        }
+    }
+
+    /// Stamps runs that went into an export, which lets their audio expire normally.
+    static func markExported(ids: Set<UUID>, at date: Date = Date()) {
+        update { file in
+            file.rewrite(file.runs.map { stored in
+                guard ids.contains(stored.id) else { return stored }
+                var updated = stored
+                updated.exportedAt = date
+                return updated
+            })
+        }
+    }
+
+    /// Deletes every recording and clears `hasAudio`, for the Settings toggle.
+    static func deleteAllRecordings() {
+        let store = RecordingStore.shared
+        update { file in
+            store.deleteAll()
+            file.rewrite(file.runs.map { stored in
+                var updated = stored
+                updated.hasAudio = false
+                return updated
+            })
+        }
+    }
+
+    /// Deletes the recordings of runs that are leaving history. Pure over its inputs so it
+    /// can be tested with a throwaway store.
+    nonisolated static func removeRecordings(of runs: [DictationRun], except kept: [DictationRun], in store: RecordingStore) {
+        let keptIDs = Set(kept.map(\.id))
+        for run in runs where run.hasAudio && !keptIDs.contains(run.id) {
+            store.delete(id: run.id)
         }
     }
 
@@ -250,11 +342,13 @@ private final class RunFile: @unchecked Sendable {
         // Atomic: a partial write here would lose history that the user didn't ask to delete.
         try? (body.isEmpty ? "" : body + "\n")
             .write(to: Self.url, atomically: true, encoding: .utf8)
+        RunLog.removeRecordings(of: runs, except: kept, in: RecordingStore.shared)
         runs = kept
     }
 
     func clear() {
         try? FileManager.default.removeItem(at: Self.url)
+        RecordingStore.shared.deleteAll()
         runs = []
     }
 

@@ -16,8 +16,8 @@ struct AudioInputDevice: Equatable, Sendable {
 /// it is connected and to the Mac's built-in microphone otherwise — nothing else, ever. In
 /// particular a Bluetooth headset or speaker never becomes the input: opening a Bluetooth
 /// mic drops the headset into low-quality call mode for as long as it stays open, and the
-/// system default follows whatever connected last. The pin applies to Murmur's capture
-/// only; other apps keep the system default.
+/// system default follows whatever connected last. Murmur's capture pins its own unit; with
+/// `Settings.keepSystemInput` on, `SystemInputGuard` also keeps the system default here.
 enum MicrophonePolicy {
     /// External microphones to prefer, by name, in order. First connected match wins.
     static let preferredNames = ["HyperX SoloCast"]
@@ -37,6 +37,48 @@ enum MicrophonePolicy {
     static func current() -> AudioInputDevice? {
         choose(from: inputDevices())
     }
+
+    /// The device the system default input should move to, or nil when it is already the
+    /// allowed one or no allowed microphone is connected. Pure, so the rule is testable.
+    static func correction(forDefault current: AudioDeviceID?, among devices: [AudioInputDevice]) -> AudioInputDevice? {
+        guard let allowed = choose(from: devices), allowed.id != current else { return nil }
+        return allowed
+    }
+
+    /// The system default input device, or nil when there is none.
+    static func defaultInput() -> AudioDeviceID? {
+        var address = defaultInputAddress
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
+        ) == noErr, id != kAudioObjectUnknown else { return nil }
+        return id
+    }
+
+    /// Makes `device` the system default input, the same as picking it in System Settings.
+    static func setDefaultInput(_ device: AudioInputDevice) -> OSStatus {
+        var address = defaultInputAddress
+        var id = device.id
+        return AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &id
+        )
+    }
+
+    /// Calls `onChange` on the main queue whenever the system default input changes.
+    static func observeDefaultInput(_ onChange: @escaping @Sendable () -> Void) {
+        var address = defaultInputAddress
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main
+        ) { _, _ in onChange() }
+    }
+
+    private static let defaultInputAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
 
     /// Every device with at least one input stream.
     static func inputDevices() -> [AudioInputDevice] {

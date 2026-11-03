@@ -10,8 +10,20 @@ struct EngineChoiceTests {
             #expect(choice.showsLiveText)
             #expect(SpeechEngineChoice.allCases.contains(choice))
         }
-        #expect(SpeechEngineChoice(rawValue: "parakeet")?.showsLiveText == false)
-        #expect(SpeechEngineChoice(rawValue: "barkClean")?.showsLiveText == false)
+        #expect(SpeechEngineChoice(rawValue: "parakeet")?.showsLiveText == true)
+        #expect(SpeechEngineChoice(rawValue: "barkClean")?.showsLiveText == true)
+    }
+
+    @Test("Parakeet and Bark are named for how they transcribe; the others always stream")
+    func namesFollowTiming() {
+        #expect(SpeechEngineChoice.barkClean.displayName(timing: .whileSpeaking) == "Bark 3.0 Clean (streaming)")
+        #expect(SpeechEngineChoice.barkClean.displayName(timing: .onRelease) == "Bark 3.0 Clean (batch)")
+        #expect(SpeechEngineChoice.parakeet.displayName(timing: .whileSpeaking) == "Parakeet (streaming)")
+        #expect(SpeechEngineChoice.parakeet.displayName(timing: .onRelease) == "Parakeet (batch)")
+        for timing in TranscribeTiming.allCases {
+            #expect(SpeechEngineChoice.apple.displayName(timing: timing) == "Apple (streaming)")
+            #expect(SpeechEngineChoice.nemotron.displayName(timing: timing) == "Nemotron (streaming)")
+        }
     }
 
     @Test("Only engines with an explicit load step gate recording")
@@ -54,5 +66,19 @@ struct PushToTalkKeyTests {
     func releaseWithTwinHeld() {
         let leftStillHeld = Self.leftOption
         #expect(!PushToTalkKey.rightOption.isDown(in: leftStillHeld))
+    }
+
+    @Test("A repaired key-up clears only that key, keeping a held twin and other modifiers")
+    func releasingFlags() {
+        let shift = CGEventFlags.maskShift.rawValue | 0x02
+        let stuck = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x10 | shift)
+        #expect(PushToTalkKey.rightCommand.releasing(from: stuck).rawValue == shift)
+
+        let bothCommands = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x10 | 0x08)
+        #expect(PushToTalkKey.rightCommand.releasing(from: bothCommands).rawValue == CGEventFlags.maskCommand.rawValue | 0x08)
+
+        let option = CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | 0x40)
+        #expect(PushToTalkKey.rightOption.releasing(from: option).rawValue == 0)
+        #expect(PushToTalkKey.fn.releasing(from: .maskSecondaryFn).rawValue == 0)
     }
 }

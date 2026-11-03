@@ -1,113 +1,149 @@
+import AppKit
 import SwiftUI
 
 /// The design system for Murmur.
 ///
-/// Direction: **Liquid Glass over neo-brutalism.** Two layers, each with one job:
-/// - **Glass is the control layer** — the transport dock, the listening HUD. It floats, it
-///   refracts whatever scrolls beneath it, and it carries a hard ink outline so it still
-///   reads as an object rather than a smudge.
-/// - **Brutalism is the content layer** — transcripts, dictionary entries, settings panels.
-///   Flat opaque cards, thick ink borders, hard offset shadows with no blur, heavy type.
+/// Direction: a calm editorial hub in the manner of Wispr Flow's desktop app. We take the
+/// aesthetic, not the brand. A classical serif (EB Garamond) over a rounded geometric sans
+/// (Figtree), a cream and lavender light theme, a warm near-black dark theme, white cards
+/// with hairline borders, and a sidebar beside an inset content pane.
 ///
 /// The rules that keep this coherent:
-/// - **Red means recording.** Nothing else in the app is red.
-/// - **Yellow means selected.** The chosen key, the saved transcript, the winning engine.
-///   A selected key is also *sunk* — shifted into its shadow — so selection reads without
-///   color, and a check glyph makes it explicit.
-/// - **No gradients, no soft shadows.** Depth is a hard ink slab offset down and right.
-///   The only blur in the app is the system's own glass material.
-/// - Every value a view needs lives here; components never declare their own.
+/// - **Red means recording.** `record` and nothing else; the record button, lamp, level
+///   meter and HUD bars.
+/// - **Cream means selected.** Every "this one is on" state is a `selected` fill, an ink
+///   stroke and a check glyph (`FlowButtonStyle(isSelected:)`, `ChoiceKeys`, `OptionCard`),
+///   so selection reads without colour. Don't invent a second selection treatment.
+/// - **No gradients.** Shadows exist only on floating surfaces (HUD, toasts); cards sit flat
+///   behind a hairline.
+/// - **Serif is for big moments** (stats, empty states). Figtree everywhere else.
+/// - **Every value a view needs lives here**; views and components never declare their own.
+/// - Fonts ship through `ATSApplicationFontsPath` (see Makefile and Info.plist). Each role
+///   checks that its face resolved and falls back to SF, so a broken bundle still renders.
 enum DS {
     // MARK: - Color
 
     enum Color {
-        /// The window background. Warm off-white on light, near-black on dark.
-        static let paper = adaptive(light: 0xF3F0E8, dark: 0x111111)
-        /// The dot grid printed on `paper`. Gives glass something to refract.
-        static let paperDot = adaptive(light: 0xD3CEC2, dark: 0x2A2A2A)
+        /// Sidebar and title-bar area.
+        static let chrome = adaptive(light: 0xF2F1F6, dark: 0x1F1F1F)
+        /// The inset content pane.
+        static let pane = adaptive(light: 0xFBFAF7, dark: 0x1A1A1A)
+        /// The pane's outline.
+        static let paneEdge = adaptive(light: 0x1A1A1A, dark: 0x2B2B2B, lightAlpha: 0.10)
 
-        /// Brutalist cards and controls.
-        static let card = adaptive(light: 0xFFFFFF, dark: 0x1D1D1D)
-        /// A card under the pointer.
-        static let cardHover = adaptive(light: 0xF7F5EF, dark: 0x262626)
-        /// Text fields and other inputs set into a card.
-        static let field = adaptive(light: 0xF3F0E8, dark: 0x141414)
+        /// List cards and settings cards.
+        static let card = adaptive(light: 0xFFFFFF, dark: 0x1A1A1A)
+        /// A row under the pointer.
+        static let cardHover = adaptive(light: 0xF7F6F2, dark: 0x222222)
+        /// Inputs.
+        static let field = adaptive(light: 0xF2F1F6, dark: 0x141414)
+        /// Card borders.
+        static let hairline = adaptive(light: 0x1A1A1A, dark: 0x2A2A2A, lightAlpha: 0.12)
+        /// Row dividers inside a card.
+        static let divider = adaptive(light: 0x1A1A1A, dark: 0x262626, lightAlpha: 0.08)
 
-        /// Borders, hard shadows and primary text. Light on dark, so the slab still shows.
-        static let ink = adaptive(light: 0x111111, dark: 0xF1EDE4)
-        /// Supporting text — timings, counts, notes.
-        static let inkSecondary = adaptive(light: 0x55524C, dark: 0xA8A398)
+        /// The selected sidebar item, and the glyph and text on it.
+        static let navSelected = adaptive(light: 0xF0D7FF, dark: 0x303030)
+        static let navSelectedInk = adaptive(light: 0x4B2A63, dark: 0xEDEDE8)
+
+        /// Primary text and the selected-card border.
+        static let ink = adaptive(light: 0x1A1A1A, dark: 0xEDEDE8)
+        /// Supporting text: times, notes.
+        static let inkSecondary = adaptive(light: 0x666666, dark: 0x8A8A85)
         /// Placeholders, unlit meter segments, disabled glyphs.
-        static let inkTertiary = adaptive(light: 0xB3AEA4, dark: 0x4A4844)
+        static let inkTertiary = adaptive(light: 0xAAAAAA, dark: 0x4F4F4E)
 
-        /// Selection. Same in both appearances; always paired with `onAccent`.
-        static let accent = swatch(0xFFD43B)
-        /// Text and glyphs on `accent`.
-        static let onAccent = swatch(0x111111)
+        /// "This one is on", and the text on it.
+        static let selected = adaptive(light: 0xFFFFEB, dark: 0x2E2C22)
+        static let onSelected = adaptive(light: 0x1A1A1A, dark: 0xEDEDE8)
 
-        /// The record state — the only red in the app.
-        static let record = swatch(0xE5322D)
+        /// The primary button, and the text on it.
+        static let primary = adaptive(light: 0x1A1A1A, dark: 0xEDEDE8)
+        static let onPrimary = adaptive(light: 0xFFFFFF, dark: 0x1A1A1A)
+
+        /// Big serif numbers.
+        static let stat = adaptive(light: 0x034F46, dark: 0x5FB3A3)
+        /// The single accent word in a display line.
+        static let highlight = swatch(0xFFA946)
+
+        /// The record state, the only red in the app.
+        static let record = swatch(0xFF6C4C)
         /// Glyphs on `record`.
         static let onRecord = swatch(0xFFFFFF)
 
+        /// The listening capsule.
+        static let hud = adaptive(light: 0x1A1A1A, dark: 0x2A2A2A)
+        /// Toasts, and the text on them.
+        static let toast = adaptive(light: 0x1A1A1A, dark: 0xEDEDE8)
+        static let onToast = adaptive(light: 0xFFFFFF, dark: 0x1A1A1A)
+        /// The check in a toast.
+        static let success = swatch(0x3DBE8B)
+
+        /// Shadow colour for floating surfaces.
+        static let shadow = adaptive(light: 0x000000, dark: 0x000000, lightAlpha: 0.08, darkAlpha: 0.40)
+
         private static func swatch(_ hex: UInt32) -> SwiftUI.Color { SwiftUI.Color(hex: hex) }
 
-        private static func adaptive(light: UInt32, dark: UInt32) -> SwiftUI.Color {
+        private static func adaptive(
+            light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1
+        ) -> SwiftUI.Color {
             SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                return NSColor(hex: isDark ? dark : light)
+                return NSColor(hex: isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha)
             })
         }
     }
 
-    // MARK: - Brutalism
-
-    enum Brutal {
-        /// Border on cards and controls.
-        static let border: CGFloat = 2
-        /// Border on small tags.
-        static let borderThin: CGFloat = 1.5
-        /// How far a card's hard shadow sits down and right.
-        static let lift: CGFloat = 5
-        /// The same for controls. A pressed or selected control sinks by exactly this much.
-        static let liftSmall: CGFloat = 3
-    }
-
-    // MARK: - Glass
-
-    enum Glass {
-        /// The ink outline around glass. Thinner than a card's border: glass is the lighter layer.
-        static let outline: CGFloat = 1.5
-        /// Outline opacity, so the glass stays the dominant read.
-        static let outlineOpacity: Double = 0.85
-        /// Spacing that lets neighbouring glass shapes merge as they move.
-        static let containerSpacing: CGFloat = 12
-    }
-
     // MARK: - Type
 
-    /// SF Pro at heavy weights. Brutalism is carried by weight and case, not by a novelty face.
+    /// EB Garamond for big moments, Figtree for everything else, SF if either is missing.
     enum Font {
-        static let display = SwiftUI.Font.system(size: 26, weight: .black)
-        static let heading = SwiftUI.Font.system(size: 15, weight: .heavy)
-        /// Uppercase labels. Pair with `eyebrowTracking`; `Eyebrow` does both.
-        static let eyebrow = SwiftUI.Font.system(size: 10, weight: .bold)
-        static let control = SwiftUI.Font.system(size: 12, weight: .bold)
-        static let caption = SwiftUI.Font.system(size: 11, weight: .medium)
-        static let body = SwiftUI.Font.system(size: 13, weight: .regular)
-        static let bodyEmphasis = SwiftUI.Font.system(size: 13, weight: .semibold)
-        /// Timings. Monospaced so digits don't shift.
-        static let counter = SwiftUI.Font.system(size: 12, weight: .bold, design: .monospaced)
-        /// The transport counter.
-        static let counterLarge = SwiftUI.Font.system(size: 22, weight: .heavy, design: .monospaced)
+        /// PostScript names. The font check script in the rework spec resolves every one.
+        enum Face {
+            static let garamond = "EBGaramond-Regular"
+            static let garamondItalic = "EBGaramond-Italic"
+            static let figtree = "Figtree-Regular"
+            static let figtreeMedium = "Figtree-Medium"
+            static let figtreeSemiBold = "Figtree-SemiBold"
+        }
 
-        static let eyebrowTracking: CGFloat = 1.2
+        static let display = custom(Face.garamond, size: 34, fallback: .system(size: 34, weight: .regular, design: .serif))
+        /// The accent word inside a display line.
+        static let displayItalic = custom(Face.garamondItalic, size: 34, fallback: .system(size: 34, weight: .regular, design: .serif).italic())
+        /// The big word count.
+        static let stat = custom(Face.garamond, size: 40, fallback: .system(size: 40, weight: .regular, design: .serif))
+        /// Page titles.
+        static let title = custom(Face.figtreeMedium, size: 26, fallback: .system(size: 26, weight: .medium))
+        static let heading = custom(Face.figtreeSemiBold, size: 15, fallback: .system(size: 15, weight: .semibold))
+        static let body = custom(Face.figtree, size: 14, fallback: .system(size: 14, weight: .regular))
+        static let bodyEmphasis = custom(Face.figtreeMedium, size: 14, fallback: .system(size: 14, weight: .medium))
+        static let control = custom(Face.figtreeMedium, size: 13, fallback: .system(size: 13, weight: .medium))
+        static let caption = custom(Face.figtree, size: 12, fallback: .system(size: 12, weight: .regular))
+        /// Uppercase labels. Pair with `eyebrowTracking`; `Eyebrow` does both.
+        static let eyebrow = custom(Face.figtreeSemiBold, size: 11, fallback: .system(size: 11, weight: .semibold))
+        /// The app name in the sidebar.
+        static let brand = custom(Face.figtreeSemiBold, size: 18, fallback: .system(size: 18, weight: .semibold))
+        /// Timings. Monospaced so digits don't shift.
+        static let counter = SwiftUI.Font.system(size: 12, weight: .semibold, design: .monospaced)
+        /// The transport counter.
+        static let counterLarge = SwiftUI.Font.system(size: 22, weight: .bold, design: .monospaced)
+
+        static let eyebrowTracking: CGFloat = 1.0
+
+        /// Every PostScript name above, for the check script.
+        static let allFaces = [Face.garamond, Face.garamondItalic, Face.figtree, Face.figtreeMedium, Face.figtreeSemiBold]
+
+        private static func custom(_ name: String, size: CGFloat, fallback: SwiftUI.Font) -> SwiftUI.Font {
+            guard let font = NSFont(name: name, size: size) else { return fallback }
+            return SwiftUI.Font(font)
+        }
     }
 
     enum Icon {
         static let small: CGFloat = 9
-        static let regular: CGFloat = 11
+        static let regular: CGFloat = 12
         static let large: CGFloat = 15
+        static let nav: CGFloat = 14
     }
 
     // MARK: - Spacing
@@ -123,30 +159,46 @@ enum DS {
         static let panel: CGFloat = 32
     }
 
-    // MARK: - Radius
+    // MARK: - Shape
 
     enum Radius {
-        static let tag: CGFloat = 5
+        static let tag: CGFloat = 6
         static let control: CGFloat = 8
+        static let nav: CGFloat = 8
         static let card: CGFloat = 12
-        static let dock: CGFloat = 22
+        static let option: CGFloat = 16
+        static let pane: CGFloat = 20
+    }
+
+    enum Stroke {
+        static let hairline: CGFloat = 1
+        static let selected: CGFloat = 1.5
+    }
+
+    enum Shadow {
+        /// Floating surfaces only: HUD, toasts, popovers. Colour is `Color.shadow`.
+        static let floatRadius: CGFloat = 6
+        static let floatY: CGFloat = 2
     }
 
     // MARK: - Sizes
 
     enum Control {
         static let height: CGFloat = 32
-        static let heightSmall: CGFloat = 24
+        static let heightSmall: CGFloat = 26
         static let recordSize: CGFloat = 44
-        static let recordDot: CGFloat = 16
+        static let recordDot: CGFloat = 14
         static let recordStop: CGFloat = 13
-        static let recordStopRadius: CGFloat = 2
+        static let recordStopRadius: CGFloat = 3
         static let lampSize: CGFloat = 8
+        static let iconButton: CGFloat = 28
+        static let navHeight: CGFloat = 34
+        static let searchWidth: CGFloat = 260
     }
 
     enum Meter {
         static let segments = 24
-        static let segmentWidth: CGFloat = 4
+        static let segmentWidth: CGFloat = 3
         static let segmentSpacing: CGFloat = 2
         static let height: CGFloat = 22
         static let segmentRadius: CGFloat = 1
@@ -159,9 +211,16 @@ enum DS {
         static let mainMinHeight: CGFloat = 540
         static let mainDefaultWidth: CGFloat = 940
         static let mainDefaultHeight: CGFloat = 660
-        /// Gap between the hidden title bar's strip and the dock. The system still reserves
-        /// the title bar's height as safe area, so this is the only clearance needed.
-        static let dockTopInset: CGFloat = 8
+        static let sidebarWidth: CGFloat = 220
+        /// Space above the sidebar's first item so it clears the traffic lights.
+        static let trafficLightClearance: CGFloat = 44
+        /// Height of the strip above the pane, where the appearance toggle sits. The pane
+        /// starts below it so its rounded corner shows.
+        static let titleBarHeight: CGFloat = 40
+        /// Widest the pane's content grows; keeps lines readable on a big window.
+        static let contentMaxWidth: CGFloat = 760
+        /// Fixed width of the time column in a transcript row.
+        static let timeColumnWidth: CGFloat = 64
         static let editorWidth: CGFloat = 460
         static let comparisonMinWidth: CGFloat = 600
         static let comparisonMinHeight: CGFloat = 440
@@ -169,21 +228,15 @@ enum DS {
         static let comparisonDefaultHeight: CGFloat = 580
     }
 
-    enum Grid {
-        /// Distance between dots on `paper`.
-        static let pitch: CGFloat = 18
-        static let dot: CGFloat = 1.6
-    }
-
     // MARK: - HUD
 
-    /// The listening capsule. Glass, outlined in ink, with red bars: it only shows while a
-    /// hold is live, and red means recording.
+    /// The listening capsule: a dark pill with a soft shadow and red bars. It only shows
+    /// while a hold is live, and red means recording.
     enum HUD {
         static let width: CGFloat = 148
         static let height: CGFloat = 40
-        /// Room around the capsule inside the panel, so the outline isn't clipped.
-        static let margin: CGFloat = 4
+        /// Room around the capsule inside the panel, so its shadow isn't clipped.
+        static let margin: CGFloat = 16
         /// Distance above the Dock.
         static let dockOffset: CGFloat = 96
 
@@ -208,8 +261,11 @@ enum DS {
     // MARK: - Motion
 
     enum Motion {
-        /// A key sinking into its shadow. Snappy, no bounce: it's a physical stop.
+        /// A control being pressed: a slight scale and fade.
         static let press = Animation.snappy(duration: 0.12)
+        static let pressScale: CGFloat = 0.98
+        static let pressOpacity: Double = 0.85
+        static let disabledOpacity: Double = 0.4
         /// Panel and section changes.
         static let panel = Animation.smooth(duration: 0.22)
         /// The record state coming on.
@@ -235,12 +291,12 @@ private extension SwiftUI.Color {
 }
 
 private extension NSColor {
-    convenience init(hex: UInt32) {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
         self.init(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
             green: CGFloat((hex >> 8) & 0xFF) / 255,
             blue: CGFloat(hex & 0xFF) / 255,
-            alpha: 1
+            alpha: alpha
         )
     }
 }

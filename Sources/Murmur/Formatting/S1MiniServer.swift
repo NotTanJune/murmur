@@ -10,6 +10,9 @@ struct S1MiniMessage: Codable, Sendable {
     var fatal: String?
     // App → helper.
     var profile: String?
+    /// `S1MiniRuntime.Decoding` raw value; nil means the default (prompt lookup). Only the
+    /// cleanup check sends "greedy", to compare the two.
+    var decoding: String?
     // Both: a request and its reply share an id.
     var id: Int?
     var text: String?
@@ -54,8 +57,9 @@ enum S1MiniServer {
                       let id = request.id, let text = request.text,
                       let profile = request.profile.flatMap(CleanupProfile.init(rawValue:))
                 else { continue }
+                let decoding = request.decoding.flatMap(S1MiniRuntime.Decoding.init(rawValue:)) ?? .promptLookup
                 do {
-                    send(S1MiniMessage(id: id, text: try await runtime.clean(text, profile: profile)))
+                    send(S1MiniMessage(id: id, text: try await runtime.clean(text, profile: profile, decoding: decoding)))
                 } catch {
                     send(S1MiniMessage(id: id, error: error.localizedDescription))
                 }

@@ -2,18 +2,16 @@ import MurmurDictionary
 import AppKit
 import SwiftUI
 
-/// The app's main window.
+/// The app's main window: a sidebar on the chrome colour and an inset content pane.
 ///
-/// Two layers: a glass dock pinned to the top holding everything you *operate* (record,
-/// level, counter, section and profile), and brutalist cards beneath it holding everything
-/// you *read*. The cards scroll under the dock, which is what makes the glass visibly glass.
+/// The sidebar holds navigation and everything you *operate* (record, level, counter,
+/// engine and profile); the pane holds everything you *read*. The title bar is hidden, so
+/// the traffic lights sit over the sidebar.
 struct MainWindow: View {
     @Bindable var controller: DictationController
 
     @State private var navigation = MainNavigation.shared
     @Environment(\.openWindow) private var openWindow
-    /// Where the dock's inset begins, in window coordinates.
-    @State private var insetTop: CGFloat = 0
 
     enum Section: String, CaseIterable, Identifiable {
         case transcriptions
@@ -28,10 +26,42 @@ struct MainWindow: View {
             case .settings: "Settings"
             }
         }
+        var symbol: String {
+            switch self {
+            case .transcriptions: "waveform"
+            case .dictionary: "book.closed"
+            case .settings: "gearshape"
+            }
+        }
     }
 
     var body: some View {
-        Group {
+        HStack(spacing: 0) {
+            Sidebar(controller: controller, section: $navigation.section)
+                .frame(width: DS.Window.sidebarWidth)
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    AppearanceToggle()
+                }
+                .padding(.trailing, DS.Space.roomy)
+                .frame(height: DS.Window.titleBarHeight)
+                pane
+            }
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .background(DS.Color.chrome.ignoresSafeArea())
+        .frame(minWidth: DS.Window.mainMinWidth, minHeight: DS.Window.mainMinHeight)
+        .onAppear {
+            navigation.openMainWindow = { [openWindow] in openWindow(id: "main") }
+        }
+    }
+
+    /// The inset content pane: only its top-leading corner is rounded, so it reads as a
+    /// sheet sliding out from under the sidebar.
+    private var pane: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: DS.Radius.pane, style: .continuous)
+        return Group {
             switch navigation.section {
             case .transcriptions: TranscriptionList()
             case .dictionary: DictionaryPanel()
@@ -39,36 +69,9 @@ struct MainWindow: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Paper from the window's top edge down to the dock, so cards disappear under it
-        // rather than scrolling up behind the traffic lights. Beside and under the dock they
-        // stay visible: that's the glass doing its job. Measured rather than derived from the
-        // safe area, which a hidden title bar reports inconsistently. Applied
-        // before the inset so it sits under the dock, which draws its own outline.
-        .overlay(alignment: .top) {
-            PaperBackground()
-                .frame(height: insetTop + DS.Window.dockTopInset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .ignoresSafeArea()
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: DS.Space.base) {
-                TransportDock(controller: controller, section: $navigation.section)
-                if let notice = controller.recordingNotice {
-                    NoticeCard(text: notice)
-                }
-            }
-            .padding(.horizontal, DS.Space.roomy)
-            .padding(.top, DS.Window.dockTopInset)
-            .padding(.bottom, DS.Space.snug)
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: {
-                insetTop = $0
-            }
-        }
-        .background(PaperBackground().ignoresSafeArea())
-        .frame(minWidth: DS.Window.mainMinWidth, minHeight: DS.Window.mainMinHeight)
-        .onAppear {
-            navigation.openMainWindow = { [openWindow] in openWindow(id: "main") }
-        }
+        .background(DS.Color.pane)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(DS.Color.paneEdge, lineWidth: DS.Stroke.hairline) }
     }
 }
 
@@ -92,14 +95,12 @@ final class MainNavigation {
 
     /// The gear: opens Settings, or goes back to the tab you came from if already there.
     func toggleSettings() {
-        withAnimation(DS.Motion.panel) {
-            section = section == .settings ? lastContentSection : .settings
-        }
+        section = section == .settings ? lastContentSection : .settings
     }
 
     /// Switches tab and brings the main window forward, reopening it if it was closed.
     func show(_ section: MainWindow.Section) {
-        withAnimation(DS.Motion.panel) { self.section = section }
+        self.section = section
         // SwiftUI names the window after the scene id, with a suffix; the title is the
         // fallback, as for the comparison window.
         if let window = NSApp.windows.first(where: {
@@ -121,26 +122,86 @@ private struct NoticeCard: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: DS.Space.base) {
+        VStack(alignment: .leading, spacing: DS.Space.snug) {
             Text(text)
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer()
             Button("Open Settings") { MainNavigation.shared.show(.settings) }
-                .buttonStyle(BrutalButtonStyle(compact: true))
+                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
         }
         .padding(DS.Space.base)
-        .brutalSurface(radius: DS.Radius.control, lift: DS.Brutal.liftSmall)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 }
 
-// MARK: - Dock
+// MARK: - Sidebar
 
-/// The glass control layer: transport on top, section and profile below.
-private struct TransportDock: View {
+/// App name, navigation, and the transport below it.
+private struct Sidebar: View {
     @Bindable var controller: DictationController
     @Binding var section: MainWindow.Section
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.snug) {
+            Text("Murmur")
+                .font(DS.Font.brand)
+                .foregroundStyle(DS.Color.ink)
+                .padding(.horizontal, DS.Space.base)
+                .padding(.bottom, DS.Space.base)
+
+            ForEach(MainWindow.Section.allCases) { item in
+                // Not animated: a cross-fade keeps both pages alive for its whole duration.
+                NavItem(item: item, isSelected: section == item) { section = item }
+            }
+
+            Spacer(minLength: DS.Space.roomy)
+
+            if let notice = controller.recordingNotice {
+                NoticeCard(text: notice)
+            }
+            SidebarTransport(controller: controller)
+        }
+        .padding(.top, DS.Window.trafficLightClearance)
+        .padding(.horizontal, DS.Space.base)
+        .padding(.bottom, DS.Space.base)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct NavItem: View {
+    let item: MainWindow.Section
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: DS.Space.base) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: DS.Icon.nav, weight: .medium))
+                    .frame(width: DS.Icon.large)
+                Text(item.title)
+                    .font(DS.Font.bodyEmphasis)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? DS.Color.navSelectedInk : DS.Color.inkSecondary)
+            .padding(.horizontal, DS.Space.base)
+            .frame(height: DS.Control.navHeight)
+            .background(
+                isSelected ? DS.Color.navSelected : Color.clear,
+                in: .rect(cornerRadius: DS.Radius.nav, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.nav, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Record, counter, level, engine and profile, stacked in the sidebar's footer.
+private struct SidebarTransport: View {
+    @Bindable var controller: DictationController
 
     @State private var settings = Settings.shared
     @State private var models = StreamingModelPreparation.shared
@@ -150,83 +211,55 @@ private struct TransportDock: View {
     private var isRecording: Bool { controller.isRecording }
 
     var body: some View {
-        GlassEffectContainer(spacing: DS.Glass.containerSpacing) {
-            VStack(alignment: .leading, spacing: DS.Space.base) {
-                HStack(spacing: DS.Space.roomy) {
-                    RecordButton(isRecording: isRecording) {
-                        if isRecording {
-                            controller.stopButtonRecording()
-                        } else {
-                            controller.startButtonRecording()
-                        }
+        VStack(alignment: .leading, spacing: DS.Space.base) {
+            HStack(spacing: DS.Space.base) {
+                RecordButton(isRecording: isRecording) {
+                    if isRecording {
+                        controller.stopButtonRecording()
+                    } else {
+                        controller.startButtonRecording()
                     }
-
-                    VStack(alignment: .leading, spacing: DS.Space.hair) {
-                        HStack(spacing: DS.Space.tight + DS.Space.hair) {
-                            Lamp(isLit: isRecording)
-                            Eyebrow(
-                                text: isRecording ? "Recording" : "Hold \(settings.pushToTalkKey.displayName)",
-                                color: isRecording ? DS.Color.record : DS.Color.inkSecondary
-                            )
-                        }
-                        Text(counterText)
-                            .font(DS.Font.counterLarge)
-                            .foregroundStyle(DS.Color.ink)
-                    }
-
-                    LevelMeter(level: controller.level, isActive: isRecording)
-
-                    Spacer(minLength: DS.Space.snug)
-
-                    VStack(alignment: .trailing, spacing: DS.Space.tight) {
-                        if !settings.compareMode, settings.engine.requiresPreparedModel,
-                           models.state(for: settings.engine) == .loading {
-                            Tag(text: "\(settings.engine.displayName) preparing · using Apple", isHighlighted: true)
-                                .help(models.state(for: settings.engine).message)
-                        } else {
-                            Tag(text: settings.compareMode ? "Compare mode" : settings.engine.displayName)
-                        }
-                        if settings.cleanupEnabled, !settings.compareMode {
-                            Tag(text: settings.cleanupEngine.displayName)
-                        }
-                    }
-
-                    HStack(spacing: DS.Space.snug) {
-                        AppearanceToggle()
-                        Button {
-                            MainNavigation.shared.toggleSettings()
-                        } label: {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: DS.Icon.large, weight: .bold))
-                        }
-                        .buttonStyle(BrutalButtonStyle(isSelected: section == .settings))
-                        .help(section == .settings ? "Close Settings" : "Settings (⌘,)")
-                        .accessibilityLabel(section == .settings ? "Close Settings" : "Settings")
-                    }
-                    .padding(.trailing, DS.Brutal.liftSmall)
-                    .padding(.bottom, DS.Brutal.liftSmall)
                 }
 
-                HStack(spacing: DS.Space.base) {
-                    ChoiceKeys(
-                        options: MainWindow.Section.allCases,
-                        selection: Binding(
-                            get: { section },
-                            set: { candidate in withAnimation(DS.Motion.panel) { section = candidate } }
-                        ),
-                        title: \.title,
-                        dense: true
-                    )
-                    Spacer(minLength: DS.Space.snug)
-                    if settings.cleanupEnabled, settings.cleanupEngine.usesProfiles {
-                        Eyebrow(text: "Profile")
-                        ProfileKeys(dense: true)
+                VStack(alignment: .leading, spacing: DS.Space.hair) {
+                    HStack(spacing: DS.Space.tight + DS.Space.hair) {
+                        Lamp(isLit: isRecording)
+                        Eyebrow(
+                            text: isRecording ? "Recording" : "Hold \(settings.pushToTalkKey.displayName)",
+                            color: isRecording ? DS.Color.record : DS.Color.inkSecondary
+                        )
                     }
+                    Text(counterText)
+                        .font(DS.Font.counterLarge)
+                        .foregroundStyle(DS.Color.ink)
                 }
             }
-            .padding(DS.Space.roomy)
-            .outlinedGlass()
+
+            LevelMeter(level: controller.level, isActive: isRecording)
+
+            VStack(alignment: .leading, spacing: DS.Space.tight) {
+                if !settings.compareMode, settings.engine.requiresPreparedModel,
+                   models.state(for: settings.engine) == .loading {
+                    Tag(text: "\(settings.engine.displayName) preparing · using Apple", isHighlighted: true)
+                        .help(models.state(for: settings.engine).message)
+                } else {
+                    Tag(text: settings.compareMode ? "Compare mode" : settings.engine.displayName)
+                }
+                if settings.cleanupEnabled, !settings.compareMode {
+                    Tag(text: settings.cleanupEngine.displayName)
+                }
+            }
+
+            if settings.cleanupEnabled, settings.cleanupEngine.usesProfiles {
+                VStack(alignment: .leading, spacing: DS.Space.snug) {
+                    Eyebrow(text: "Profile")
+                    ProfileKeys(dense: true, isVertical: true)
+                }
+            }
         }
+        .padding(DS.Space.base)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
         .onChange(of: controller.isRecording) { _, active in
             startedAt = active ? Date() : nil
             if !active { elapsed = 0 }
@@ -258,11 +291,11 @@ private struct AppearanceToggle: View {
         Button {
             settings.appearance = isDark ? .light : .dark
         } label: {
-            Image(systemName: isDark ? "moon.fill" : "sun.max.fill")
-                .font(.system(size: DS.Icon.large, weight: .bold))
+            Image(systemName: isDark ? "moon" : "sun.max")
+                .font(.system(size: DS.Icon.large, weight: .medium))
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(BrutalButtonStyle())
+        .buttonStyle(FlowButtonStyle(kind: .plain))
         .help(isDark ? "Dark appearance. Click for light." : "Light appearance. Click for dark.")
         .accessibilityLabel(isDark ? "Switch to light appearance" : "Switch to dark appearance")
     }
@@ -270,11 +303,12 @@ private struct AppearanceToggle: View {
 
 // MARK: - Transcriptions
 
-/// Past transcriptions, searchable, each copyable and saveable.
+/// Past transcriptions grouped by day, searchable, each copyable and saveable.
 private struct TranscriptionList: View {
     @State private var store = RunStore.shared
     @State private var query = ""
     @State private var isConfirmingClear = false
+    @State private var toast: String?
 
     private var runs: [DictationRun] {
         let all = store.runs.reversed().map { $0 }
@@ -283,45 +317,88 @@ private struct TranscriptionList: View {
         return all.filter { $0.text.localizedStandardContains(trimmed) }
     }
 
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: DS.Space.roomy) {
-                header
+    /// Newest first, split by calendar day.
+    private var days: [(day: Date, runs: [DictationRun])] {
+        var result: [(day: Date, runs: [DictationRun])] = []
+        for run in runs {
+            let day = Calendar.current.startOfDay(for: run.date)
+            if let last = result.indices.last, result[last].day == day {
+                result[last].runs.append(run)
+            } else {
+                result.append((day, [run]))
+            }
+        }
+        return result
+    }
 
-                if runs.isEmpty {
-                    EmptyPanel(
-                        label: store.runs.isEmpty ? "No recordings yet" : "No matches",
-                        detail: store.runs.isEmpty ? "Hold the key or press Record." : "Try a different search."
-                    )
-                    .padding(.top, DS.Space.wide)
-                } else {
-                    ForEach(runs) { run in
-                        TranscriptionRow(run: run) {
-                            withAnimation(DS.Motion.panel) { RunLog.delete(run) }
-                        } onToggleSave: {
-                            RunLog.setSaved(!run.isSaved, for: run)
+    /// Words delivered across the whole history. Compare-mode groups are skipped: every
+    /// engine transcribed the same speech, so counting each would multiply it.
+    private var totalWords: Int {
+        store.runs.reduce(0) { total, run in
+            guard run.group == nil else { return total }
+            return total + (run.label ?? run.text).split(whereSeparator: \.isWhitespace).count
+        }
+    }
+
+    var body: some View {
+        PageScroll(title: "Welcome back") {
+            if totalWords > 0 {
+                VStack(alignment: .leading, spacing: DS.Space.tight) {
+                    Text("\(totalWords.formatted()) words")
+                        .font(DS.Font.stat)
+                        .foregroundStyle(DS.Color.stat)
+                    Text("dictated with Murmur")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.inkSecondary)
+                }
+            }
+
+            if runs.isEmpty {
+                HStack {
+                    Spacer()
+                    controls
+                }
+                EmptyPanel(
+                    label: store.runs.isEmpty ? "Hold the key and speak." : "No matches",
+                    highlight: store.runs.isEmpty ? "speak" : nil,
+                    detail: store.runs.isEmpty ? "Or press Record in the sidebar." : "Try a different search."
+                )
+                .padding(.top, DS.Space.wide)
+            } else {
+                // Every row is its own lazy item, so only the rows on screen are built; a
+                // day's card is drawn as slices (`cardSegment`) rather than one container.
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(days.enumerated()), id: \.element.day) { index, group in
+                        HStack(spacing: DS.Space.base) {
+                            Eyebrow(text: title(for: group.day))
+                            Spacer()
+                            if index == 0 { controls }
+                        }
+                        .padding(.top, index == 0 ? 0 : DS.Space.wide)
+                        .padding(.bottom, DS.Space.snug)
+
+                        ForEach(Array(group.runs.enumerated()), id: \.element.id) { position, run in
+                            TranscriptionRow(run: run) {
+                                withAnimation(DS.Motion.panel) { RunLog.delete(run) }
+                            } onToggleSave: {
+                                RunLog.setSaved(!run.isSaved, for: run)
+                            } onCopied: {
+                                showToast("Copied")
+                            }
+                            .cardSegment(isFirst: position == 0, isLast: position == group.runs.count - 1)
                         }
                     }
                 }
             }
-            .padding(.horizontal, DS.Space.roomy)
-            .padding(.top, DS.Space.snug)
-            .padding(.bottom, DS.Space.wide)
-            .padding(.trailing, DS.Brutal.lift)
         }
-        .scrollEdgeEffectStyle(.hard, for: .top)
-    }
-
-    private var header: some View {
-        HStack(spacing: DS.Space.base) {
-            SearchField(text: $query, placeholder: "Search transcriptions")
-            Eyebrow(text: "\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")")
-                .fixedSize()
-            Button("Delete all") { isConfirmingClear = true }
-                .buttonStyle(BrutalButtonStyle())
-                .disabled(store.runs.isEmpty)
+        .overlay(alignment: .bottom) {
+            if let toast {
+                Toast(text: toast)
+                    .padding(.bottom, DS.Space.wide)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
-        .padding(.bottom, DS.Brutal.liftSmall)
         // Confirmed, unlike a single row: one row is trivially re-recorded, the whole
         // history is not, and there's no undo.
         .confirmationDialog(
@@ -335,53 +412,142 @@ private struct TranscriptionList: View {
             Text("Saved recordings are deleted too. This can't be undone.")
         }
     }
+
+    private var controls: some View {
+        HStack(spacing: DS.Space.snug) {
+            SearchToggle(text: $query, placeholder: "Search transcriptions")
+            Button("Delete all") { isConfirmingClear = true }
+                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                .disabled(store.runs.isEmpty)
+        }
+    }
+
+    private func title(for day: Date) -> String {
+        if Calendar.current.isDateInToday(day) { return "Today" }
+        if Calendar.current.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func showToast(_ text: String) {
+        withAnimation(DS.Motion.panel) { toast = text }
+        Task {
+            try? await Task.sleep(for: DS.Motion.copiedHold)
+            withAnimation(DS.Motion.panel) { toast = nil }
+        }
+    }
 }
 
 private struct TranscriptionRow: View {
     let run: DictationRun
     let onDelete: () -> Void
     let onToggleSave: () -> Void
+    let onCopied: () -> Void
 
     @State private var didCopy = false
     @State private var isHovering = false
+    @State private var isEditing = false
+    @State private var draft = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.base) {
-            HStack(spacing: DS.Space.snug) {
-                Tag(text: run.engine)
-                if let cleanup = run.cleanup {
-                    Tag(text: cleanup)
+        HStack(alignment: .top, spacing: DS.Space.base) {
+            Text(run.date, style: .time)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .frame(width: DS.Window.timeColumnWidth, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: DS.Space.snug) {
+                if isEditing {
+                    TextField("Corrected transcript", text: $draft, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Color.ink)
+                        .padding(DS.Space.snug)
+                        .background(DS.Color.field, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                                .strokeBorder(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
+                        )
+                        .onSubmit { commitEdit() }
+                        .onExitCommand { isEditing = false }
+                } else {
+                    Text(run.label ?? run.text)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Color.ink)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(String(format: "%.2fs", run.displayedLatency))
-                    .font(DS.Font.counter)
-                    .foregroundStyle(DS.Color.inkSecondary)
-                    .help(run.deliverySeconds == nil
-                        ? "Recognition and cleanup time; insertion was not measured."
-                        : "Release to AX insertion or paste event. Target app rendering is not measured.")
-                Spacer()
-                Text(run.date, style: .time)
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkSecondary)
-                deleteButton
-                    .opacity(isHovering ? 1 : 0)
-                saveButton
-                copyButton
+
+                if let corrections = run.corrections, !corrections.isEmpty {
+                    CorrectionBadges(corrections: corrections)
+                }
+
+                metadata
             }
 
-            Text(run.text)
-                .font(DS.Font.body)
-                .foregroundStyle(DS.Color.ink)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let corrections = run.corrections, !corrections.isEmpty {
-                CorrectionBadges(corrections: corrections)
-            }
+            actions
         }
-        .padding(DS.Space.roomy)
-        .brutalSurface(isHovering ? DS.Color.cardHover : DS.Color.card)
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, DS.Space.base)
+        .background(isHovering ? DS.Color.cardHover : Color.clear)
         .onHover { isHovering = $0 }
+    }
+
+    /// Engine, cleanup and timing on one quiet line.
+    private var metadata: some View {
+        HStack(spacing: DS.Space.snug) {
+            Text(([run.engine] + (run.cleanup.map { [$0] } ?? [])).joined(separator: " · "))
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
+            if run.label != nil {
+                Tag(text: "Labelled", isHighlighted: true)
+            }
+            Text(String(format: "%.2fs", run.displayedLatency))
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Color.inkSecondary)
+                .help(run.deliverySeconds == nil
+                    ? "Recognition and cleanup time; insertion was not measured."
+                    : "Release to AX insertion or paste event. Target app rendering is not measured.")
+        }
+    }
+
+    /// Hidden until the pointer is over the row, except a kept transcription's Save chip,
+    /// so saved reads as saved at a glance.
+    private var actions: some View {
+        HStack(spacing: DS.Space.tight) {
+            copyButton
+            if TrainingLabel.editAllowed(run) {
+                editButton
+            }
+            saveButton
+                .opacity(isHovering || run.isSaved || isEditing ? 1 : 0)
+            deleteButton
+        }
+        .opacity(isHovering || isEditing || run.isSaved ? 1 : 0)
+    }
+
+    private var editButton: some View {
+        Button {
+            if isEditing {
+                commitEdit()
+            } else {
+                draft = run.label ?? run.text
+                isEditing = true
+            }
+        } label: {
+            Image(systemName: isEditing ? "checkmark" : "pencil")
+                .font(.system(size: DS.Icon.regular, weight: .semibold))
+        }
+        .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: isEditing, compact: true, showsCheck: false))
+        .help("Correct what was heard. Corrections train the model on the next export.")
+        .accessibilityLabel(isEditing ? "Done" : "Fix")
+    }
+
+    private func commitEdit() {
+        isEditing = false
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Unchanged text is not a correction; clear any earlier label in that case.
+        RunLog.setLabel(trimmed == run.text ? nil : trimmed, for: run)
     }
 
     private var copyButton: some View {
@@ -389,39 +555,41 @@ private struct TranscriptionRow: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(run.text, forType: .string)
             didCopy = true
+            onCopied()
             Task {
                 try? await Task.sleep(for: DS.Motion.copiedHold)
                 didCopy = false
             }
         } label: {
-            Label(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc")
-                .labelStyle(.titleAndIcon)
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(BrutalButtonStyle(compact: true))
+        .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+        .help("Copy this transcription")
+        .accessibilityLabel(didCopy ? "Copied" : "Copy")
     }
 
-    /// Always visible, unlike delete, so a kept transcription reads as kept at a glance:
-    /// saved is yellow and sunk, like every other "on" state.
     private var saveButton: some View {
         Button(action: onToggleSave) {
-            Label(run.isSaved ? "Saved" : "Save", systemImage: run.isSaved ? "bookmark.fill" : "bookmark")
-                .labelStyle(.titleAndIcon)
+            Image(systemName: run.isSaved ? "bookmark.fill" : "bookmark")
+                .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(BrutalButtonStyle(isSelected: run.isSaved, compact: true))
+        .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: run.isSaved, compact: true, showsCheck: false))
         .help(run.isSaved
             ? "Saved. Click to let this transcription expire after 30 days."
             : "Keep this transcription. Unsaved ones are deleted after 30 days.")
+        .accessibilityLabel(run.isSaved ? "Saved" : "Save")
     }
 
-    /// Appears on hover only, and deletes without a confirmation — a single transcript is
-    /// cheap to redo, and a dialog on every row would make tidying up tedious. The
-    /// irreversible one is "Delete all", which does confirm.
+    /// Deletes without a confirmation: a single transcript is cheap to redo, and a dialog
+    /// on every row would make tidying up tedious. The irreversible one is "Delete all",
+    /// which does confirm.
     private var deleteButton: some View {
         Button(action: onDelete) {
             Image(systemName: "trash")
-                .font(.system(size: DS.Icon.regular, weight: .bold))
+                .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(BrutalButtonStyle(compact: true))
+        .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
         .help("Delete this transcription")
         .accessibilityLabel("Delete")
     }
@@ -441,7 +609,7 @@ private struct CorrectionBadges: View {
                         .strikethrough()
                         .foregroundStyle(DS.Color.inkSecondary)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: DS.Icon.small, weight: .bold))
+                        .font(.system(size: DS.Icon.small, weight: .semibold))
                         .foregroundStyle(DS.Color.inkSecondary)
                     Text(correction.to)
                         .foregroundStyle(DS.Color.ink)
@@ -456,7 +624,7 @@ private struct CorrectionBadges: View {
                 .background(DS.Color.field, in: .rect(cornerRadius: DS.Radius.tag, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.Radius.tag, style: .continuous)
-                        .strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.borderThin)
+                        .strokeBorder(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
                 )
             }
             Spacer()

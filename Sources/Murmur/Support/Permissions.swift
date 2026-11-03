@@ -7,6 +7,10 @@ import Foundation
 /// - **Microphone** — obviously.
 /// - **Accessibility** — for global key monitoring and AX text insertion.
 ///
+/// A third, **Input Monitoring**, is optional: without it `CGEventSource.keyState` reads every
+/// key as up, so `HotkeyMonitor`'s watchdog can't tell when the push-to-talk key really came
+/// up after its release event went missing.
+///
 /// Accessibility has no programmatic request; the OS only shows the prompt, and the user
 /// must toggle it in System Settings. TCC also keys on the code signature, so re-signing the
 /// app resets the grant.
@@ -18,6 +22,22 @@ enum Permissions {
 
     static var hasMicrophone: Bool {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    static var hasInputMonitoring: Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    /// Shows the system Input Monitoring prompt once; later calls only report the state.
+    /// macOS applies a new grant at the next launch.
+    @discardableResult
+    static func requestInputMonitoring() -> Bool {
+        CGRequestListenEventAccess()
+    }
+
+    static func openInputMonitoringSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+        NSWorkspace.shared.open(url)
     }
 
     /// Shows the system Accessibility prompt if the app isn't yet trusted.

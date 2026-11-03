@@ -19,6 +19,10 @@ struct TranscriptionChunk: Sendable {
     let text: String
     /// `true` once the engine has committed everything it will emit for this session.
     let isFinal: Bool
+    /// The leading part of `text` the engine will not revise, for engines that know it
+    /// (the incremental Parakeet engine: every window already decoded). Nil when the engine
+    /// makes no such promise. Cleanup runs on this while the key is still held.
+    var stable: String? = nil
 }
 
 /// The seam that keeps Murmur engine-agnostic.

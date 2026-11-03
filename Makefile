@@ -84,6 +84,9 @@ app: xcbuild
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@cp "$(DEFAULT_DICTIONARY)" "$(CONTENTS)/Resources/default-dictionary.txt"
+	@# EB Garamond and Figtree, activated by ATSApplicationFontsPath in Info.plist.
+	@mkdir -p "$(CONTENTS)/Resources/Fonts"
+	@cp Resources/Fonts/*.ttf Resources/Fonts/OFL-*.txt "$(CONTENTS)/Resources/Fonts/"
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.

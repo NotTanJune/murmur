@@ -1,4 +1,5 @@
 import CoreAudio
+import Foundation
 import Testing
 @testable import Murmur
 
@@ -21,9 +22,38 @@ import Testing
         #expect(MicrophonePolicy.choose(from: [airPods, atom, iPhone, otherUSB, builtIn]) == builtIn)
     }
 
+    @Test("A Bluetooth headset or any other default input is moved to the allowed mic")
+    func correctsUnallowedDefault() {
+        let devices = [airPods, builtIn, soloCast, iPhone]
+        #expect(MicrophonePolicy.correction(forDefault: airPods.id, among: devices) == soloCast)
+        #expect(MicrophonePolicy.correction(forDefault: builtIn.id, among: devices) == soloCast)
+        #expect(MicrophonePolicy.correction(forDefault: nil, among: devices) == soloCast)
+        #expect(MicrophonePolicy.correction(forDefault: atom.id, among: [atom, builtIn]) == builtIn)
+    }
+
+    @Test("An allowed default is left alone, and with no allowed mic nothing is changed")
+    func leavesDefaultAlone() {
+        #expect(MicrophonePolicy.correction(forDefault: soloCast.id, among: [airPods, soloCast]) == nil)
+        #expect(MicrophonePolicy.correction(forDefault: builtIn.id, among: [airPods, builtIn]) == nil)
+        #expect(MicrophonePolicy.correction(forDefault: airPods.id, among: [airPods, iPhone]) == nil)
+    }
+
     @Test("Neither allowed microphone means no microphone, not the next best one")
     func refusesEverythingElse() {
         #expect(MicrophonePolicy.choose(from: [airPods, atom, iPhone, otherUSB]) == nil)
         #expect(MicrophonePolicy.choose(from: []) == nil)
+    }
+}
+
+struct SystemInputSettingTests {
+    @MainActor
+    @Test("Keeping the Mac's input on the allowed mic is on by default and persists when turned off")
+    func persistence() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(Settings(defaults: defaults).keepSystemInput)
+        Settings(defaults: defaults).keepSystemInput = false
+        #expect(Settings(defaults: defaults).keepSystemInput == false)
     }
 }

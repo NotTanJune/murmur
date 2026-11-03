@@ -82,6 +82,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--decoder-check"),
+           CommandLine.arguments.indices.contains(index + 2) {
+            let slot = CommandLine.arguments[index + 1]
+            let path = CommandLine.arguments[index + 2]
+            Task { @MainActor in exit(await DecoderCheck.run(slot: slot, path: path) ? EXIT_SUCCESS : EXIT_FAILURE) }
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--incremental-check"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let path = CommandLine.arguments[index + 1]
+            Task { @MainActor in exit(await IncrementalCheck.run(path: path) ? EXIT_SUCCESS : EXIT_FAILURE) }
+            return
+        }
         if CommandLine.arguments.contains("--cleanup-check") {
             Task { @MainActor in exit(await CleanupCheck.run() ? EXIT_SUCCESS : EXIT_FAILURE) }
             return
@@ -99,7 +112,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud = HUDPanel(controller: controller)
 
         let hasAccessibility = Permissions.hasAccessibility
-        Log.app.info("privacy grant: Accessibility=\(hasAccessibility, privacy: .public)")
+        let hasInputMonitoring = Permissions.hasInputMonitoring
+        Log.app.info("privacy grant: Accessibility=\(hasAccessibility, privacy: .public) InputMonitoring=\(hasInputMonitoring, privacy: .public)")
+        if !hasInputMonitoring {
+            Permissions.requestInputMonitoring()
+        }
         let hotkeyArmed = hasAccessibility && controller.activate()
         if !hasAccessibility {
             Permissions.promptForAccessibility()
@@ -109,6 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // grant is present and the global monitor can be armed.
             retryActivation()
         }
+        // Before capture opens, so a Bluetooth headset that grabbed the default input since
+        // the last run is already moved off it.
+        SystemInputGuard.shared.start()
+        LoginItem.registerOnce()
         if Permissions.hasMicrophone {
             controller.prepareAudio()
         }
@@ -324,6 +345,9 @@ private struct MenuContent: View {
         }
         if !Permissions.hasMicrophone {
             Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
+        }
+        if !Permissions.hasInputMonitoring {
+            Button("Grant Input Monitoring…") { Permissions.openInputMonitoringSettings() }
         }
 
         Button("Quit Murmur") { NSApp.terminate(nil) }

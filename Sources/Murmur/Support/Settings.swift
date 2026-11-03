@@ -10,11 +10,19 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case parakeetEOU
     case nemotron
 
+    /// Parakeet and Bark stream or run as one batch depending on `Settings.transcribeTiming`,
+    /// so their names follow it.
+    @MainActor
     var displayName: String {
-        switch self {
+        displayName(timing: Settings.shared.transcribeTiming)
+    }
+
+    func displayName(timing: TranscribeTiming) -> String {
+        let mode = timing == .whileSpeaking ? "streaming" : "batch"
+        return switch self {
         case .apple: "Apple (streaming)"
-        case .parakeet: "Parakeet (batch)"
-        case .barkClean: "Bark 3.0 Clean (batch)"
+        case .parakeet: "Parakeet (\(mode))"
+        case .barkClean: "Bark 3.0 Clean (\(mode))"
         case .parakeetEOU: "Parakeet EOU (streaming)"
         case .nemotron: "Nemotron (streaming)"
         }
@@ -23,8 +31,8 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
     var detail: String {
         switch self {
         case .apple: "Apple's on-device transcriber. Streams while you speak; no separate download."
-        case .parakeet: "Parakeet TDT on the Neural Engine. Resolves on release. Load the model before recording; the first load downloads ~470 MB."
-        case .barkClean: "English Parakeet fine-tune that removes fillers, false starts and repeats itself. Neural Engine, resolves on release. Load the model before recording: ~450 MB download, then about a minute to compile once."
+        case .parakeet: "Parakeet TDT on the Neural Engine. Load the model before recording; the first load downloads ~470 MB."
+        case .barkClean: "English Parakeet fine-tune that removes fillers, false starts and repeats itself. Neural Engine. Load the model before recording: ~450 MB download, then about a minute to compile once."
         case .parakeetEOU: "English, on-device. 160 ms chunks with live text. Load the model before recording; the first load downloads it."
         case .nemotron: "English, on-device. 560 ms chunks with live text. Load the model before recording; the first load downloads it."
         }
@@ -55,8 +63,29 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
         }
     }
 
-    /// Apple shows text while you talk; the batch engines only resolve on release.
-    var showsLiveText: Bool { self != .parakeet && self != .barkClean }
+    /// Every engine shows text while you talk: the Parakeet engines decode windows as the
+    /// hold goes on (or, with `TranscribeTiming.onRelease`, simply resolve on release).
+    var showsLiveText: Bool { true }
+}
+
+/// When the Parakeet-based engines transcribe.
+enum TranscribeTiming: String, CaseIterable, Sendable {
+    case whileSpeaking
+    case onRelease
+
+    var displayName: String {
+        switch self {
+        case .whileSpeaking: "While speaking"
+        case .onRelease: "On release"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .whileSpeaking: "Decodes 11-second windows while you talk, so release only finishes the last few seconds. Live text appears as each window lands."
+        case .onRelease: "Transcribes the whole recording after release. Slightly more context per pass; the wait grows with the length of the dictation."
+        }
+    }
 }
 
 /// Light, dark, or whatever macOS is set to. Applied app-wide through `NSApp.appearance`,
@@ -109,6 +138,33 @@ enum IdleUnload: String, CaseIterable {
     }
 }
 
+/// Which decoder and joint Bark Clean runs with: the pinned stock pair, or a fine-tuned pair
+/// installed from a training export, named by its folder.
+enum BarkDecoderChoice: Hashable, Sendable {
+    case stock
+    case custom(String)
+
+    var rawValue: String {
+        switch self {
+        case .stock: "stock"
+        case .custom(let name): "custom:\(name)"
+        }
+    }
+
+    init?(rawValue: String) {
+        if rawValue == "stock" { self = .stock; return }
+        guard rawValue.hasPrefix("custom:"), rawValue.count > 7 else { return nil }
+        self = .custom(String(rawValue.dropFirst(7)))
+    }
+
+    var displayName: String {
+        switch self {
+        case .stock: "Stock"
+        case .custom(let name): "Fine-tuned \(name)"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class Settings {
@@ -149,6 +205,21 @@ final class Settings {
         didSet { defaults.set(alwaysOpenMic, forKey: Keys.alwaysOpenMic) }
     }
 
+    /// Keep the Mac's default input on the allowed microphone for every app, moving it back
+    /// whenever macOS switches it (a Bluetooth headset connecting). See `SystemInputGuard`.
+    var keepSystemInput: Bool {
+        didSet { defaults.set(keepSystemInput, forKey: Keys.keepSystemInput) }
+    }
+
+    /// Keep each dictation's audio on disk for training exports.
+    var keepRecordings: Bool {
+        didSet { defaults.set(keepRecordings, forKey: Keys.keepRecordings) }
+    }
+
+    var barkDecoder: BarkDecoderChoice {
+        didSet { defaults.set(barkDecoder.rawValue, forKey: Keys.barkDecoder) }
+    }
+
     /// Release Bark and S1-mini after this long without a dictation.
     var idleUnload: IdleUnload {
         didSet { defaults.set(idleUnload.rawValue, forKey: Keys.idleUnload) }
@@ -157,6 +228,11 @@ final class Settings {
     /// Play a short tick when capture starts and stops.
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
+    }
+
+    /// When Parakeet and Bark transcribe: as windows fill during the hold, or on release.
+    var transcribeTiming: TranscribeTiming {
+        didSet { defaults.set(transcribeTiming.rawValue, forKey: Keys.transcribeTiming) }
     }
 
     var appearance: AppearanceChoice {
@@ -186,7 +262,11 @@ final class Settings {
         static let compareMode = "compareMode"
         static let appearance = "appearance"
         static let alwaysOpenMic = "alwaysOpenMic"
+        static let keepSystemInput = "keepSystemInput"
         static let idleUnload = "idleUnload"
+        static let transcribeTiming = "transcribeTiming"
+        static let keepRecordings = "keepRecordings"
+        static let barkDecoder = "barkDecoder"
     }
 
     /// Internal rather than private so tests can migrate a throwaway defaults suite.
@@ -205,6 +285,10 @@ final class Settings {
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
         alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
+        keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
         idleUnload = IdleUnload(rawValue: defaults.string(forKey: Keys.idleUnload) ?? "") ?? .fiveMinutes
+        transcribeTiming = TranscribeTiming(rawValue: defaults.string(forKey: Keys.transcribeTiming) ?? "") ?? .whileSpeaking
+        keepRecordings = defaults.object(forKey: Keys.keepRecordings) as? Bool ?? true
+        barkDecoder = BarkDecoderChoice(rawValue: defaults.string(forKey: Keys.barkDecoder) ?? "") ?? .stock
     }
 }

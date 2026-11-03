@@ -22,6 +22,9 @@
 	<string>1</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<!-- Relative to Contents/Resources: EB Garamond and Figtree, registered at launch. -->
+	<key>ATSApplicationFontsPath</key>
+	<string>Fonts</string>
 	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
 	     write files or talk to a process, but it can follow a custom-scheme link. -->
 	<key>CFBundleURLTypes</key>

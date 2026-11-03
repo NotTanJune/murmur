@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// The listening capsule: Liquid Glass with an ink outline, red bars because it only shows
-/// while a hold is live. Glass rather than a card because it floats over other apps, and
-/// glass is the one material that sits well over content you don't control.
+/// The listening capsule: a dark pill with a soft shadow and red bars, because it only
+/// shows while a hold is live. Opaque, because it floats over other apps' content.
 struct HUDView: View {
     @Bindable var controller: DictationController
 
@@ -10,10 +9,8 @@ struct HUDView: View {
         Waveform(level: controller.level, isActive: controller.state.isActive)
             .frame(width: DS.HUD.waveformWidth, height: DS.HUD.waveformHeight)
             .frame(width: DS.HUD.width, height: DS.HUD.height)
-            .glassEffect(.regular, in: .capsule)
-            .overlay {
-                Capsule().strokeBorder(DS.Color.ink.opacity(DS.Glass.outlineOpacity), lineWidth: DS.Glass.outline)
-            }
+            .background(DS.Color.hud, in: .capsule)
+            .floatingShadow()
             .padding(DS.HUD.margin)
     }
 }

@@ -1,83 +1,165 @@
 import SwiftUI
 
-// The app's vocabulary: paper, cards, keys, tags, the glass dock, the meter.
+// The app's vocabulary: cards, buttons, tags, the record button, the meter, toasts.
 // Every value here comes from `DS`. If a component needs a number that isn't a token, the
-// token is missing — add it there rather than inlining it.
+// token is missing: add it there rather than inlining it.
 
 // MARK: - Surfaces
 
-/// The window background: flat paper with a printed dot grid. The grid is what makes the
-/// glass dock visibly refract as content scrolls under it; on a flat fill glass reads as tint.
-struct PaperBackground: View {
-    var body: some View {
-        Canvas { context, size in
-            let dot = DS.Grid.dot
-            var y = DS.Grid.pitch / 2
-            while y < size.height {
-                var x = DS.Grid.pitch / 2
-                while x < size.width {
-                    context.fill(
-                        Path(ellipseIn: CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)),
-                        with: .color(DS.Color.paperDot)
-                    )
-                    x += DS.Grid.pitch
-                }
-                y += DS.Grid.pitch
-            }
-        }
-        .background(DS.Color.paper)
-        .allowsHitTesting(false)
-    }
-}
-
 extension View {
-    /// A brutalist surface: flat fill, ink border, and a hard ink slab offset down and right.
-    /// The slab is drawn outside the view's bounds, so containers must leave `lift` of room.
-    func brutalSurface(
+    /// A card: flat fill and a hairline border. No shadow; depth is for floating things.
+    func cardSurface(
         _ fill: Color = DS.Color.card,
-        radius: CGFloat = DS.Radius.card,
-        lift: CGFloat = DS.Brutal.lift,
-        border: CGFloat = DS.Brutal.border
+        radius: CGFloat = DS.Radius.card
     ) -> some View {
         background {
             let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
             ZStack {
-                shape.fill(DS.Color.ink).offset(x: lift, y: lift)
                 shape.fill(fill)
-                shape.strokeBorder(DS.Color.ink, lineWidth: border)
+                shape.strokeBorder(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
             }
         }
     }
 
-    /// Liquid Glass with an ink outline: the control layer. The outline is what ties glass to
-    /// the brutalist content beneath it.
-    func outlinedGlass(radius: CGFloat = DS.Radius.dock) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        return glassEffect(.regular, in: shape)
+    /// One row's slice of a card, so a long card can live in a `LazyVStack` row by row
+    /// instead of building every row at once. The first slice carries the top corners, the
+    /// last the bottom ones, and every slice but the first draws the divider above it.
+    func cardSegment(isFirst: Bool, isLast: Bool, radius: CGFloat = DS.Radius.card) -> some View {
+        let fill = UnevenRoundedRectangle(
+            topLeadingRadius: isFirst ? radius : 0,
+            bottomLeadingRadius: isLast ? radius : 0,
+            bottomTrailingRadius: isLast ? radius : 0,
+            topTrailingRadius: isFirst ? radius : 0
+        )
+        return background(DS.Color.card)
+            .clipShape(fill)
             .overlay {
-                shape.strokeBorder(DS.Color.ink.opacity(DS.Glass.outlineOpacity), lineWidth: DS.Glass.outline)
+                CardSegmentOutline(radius: radius, isFirst: isFirst, isLast: isLast)
+                    .stroke(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
             }
+            .overlay(alignment: .top) {
+                if !isFirst {
+                    Rectangle().fill(DS.Color.divider).frame(height: DS.Stroke.hairline)
+                }
+            }
+    }
+
+    /// The soft shadow of a surface that floats above the window: HUD, toasts, popovers.
+    func floatingShadow() -> some View {
+        shadow(color: DS.Color.shadow, radius: DS.Shadow.floatRadius, y: DS.Shadow.floatY)
     }
 }
 
-/// A content card with a title. Settings and notices are built from these.
-struct BrutalCard<Content: View>: View {
+/// A content card, optionally under an eyebrow title. Settings groups are built from these.
+struct Card<Content: View>: View {
     var title: String?
-    var fill: Color = DS.Color.card
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.base) {
+        VStack(alignment: .leading, spacing: DS.Space.snug) {
             if let title {
-                Text(title)
-                    .font(DS.Font.heading)
-                    .foregroundStyle(DS.Color.ink)
+                Eyebrow(text: title)
             }
-            content
+            VStack(alignment: .leading, spacing: DS.Space.base) {
+                content
+            }
+            .padding(DS.Space.roomy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
         }
-        .padding(DS.Space.roomy)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .brutalSurface(fill)
+    }
+}
+
+/// A selectable card for a choice between described options.
+struct OptionCard<Content: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .padding(DS.Space.roomy)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    let shape = RoundedRectangle(cornerRadius: DS.Radius.option, style: .continuous)
+                    ZStack {
+                        shape.fill(isSelected ? DS.Color.selected : DS.Color.card)
+                        shape.strokeBorder(
+                            isSelected ? DS.Color.ink : DS.Color.hairline,
+                            lineWidth: isSelected ? DS.Stroke.selected : DS.Stroke.hairline
+                        )
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.option, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The outline of a `cardSegment`: both sides always, the top edge and corners only on the
+/// first slice, the bottom ones only on the last, so stacked slices read as one border.
+private struct CardSegmentOutline: Shape {
+    let radius: CGFloat
+    let isFirst: Bool
+    let isLast: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let inset = DS.Stroke.hairline / 2
+        let minX = rect.minX + inset, maxX = rect.maxX - inset
+        let minY = rect.minY + (isFirst ? inset : 0)
+        let maxY = rect.maxY - (isLast ? inset : 0)
+        let r = radius - inset
+
+        var path = Path()
+        if isLast {
+            path.move(to: CGPoint(x: minX + r, y: maxY))
+            path.addArc(tangent1End: CGPoint(x: minX, y: maxY), tangent2End: CGPoint(x: minX, y: maxY - r), radius: r)
+        } else {
+            path.move(to: CGPoint(x: minX, y: maxY))
+        }
+        if isFirst {
+            path.addLine(to: CGPoint(x: minX, y: minY + r))
+            path.addArc(tangent1End: CGPoint(x: minX, y: minY), tangent2End: CGPoint(x: minX + r, y: minY), radius: r)
+            path.addLine(to: CGPoint(x: maxX - r, y: minY))
+            path.addArc(tangent1End: CGPoint(x: maxX, y: minY), tangent2End: CGPoint(x: maxX, y: minY + r), radius: r)
+        } else {
+            path.addLine(to: CGPoint(x: minX, y: minY))
+            path.move(to: CGPoint(x: maxX, y: minY))
+        }
+        if isLast {
+            path.addLine(to: CGPoint(x: maxX, y: maxY - r))
+            path.addArc(tangent1End: CGPoint(x: maxX, y: maxY), tangent2End: CGPoint(x: maxX - r, y: maxY), radius: r)
+            path.addLine(to: CGPoint(x: minX + r, y: maxY))
+        } else {
+            path.addLine(to: CGPoint(x: maxX, y: maxY))
+        }
+        return path
+    }
+}
+
+/// A pane page: a title, then content in a centred column of readable width. Lazy, so a
+/// long list only builds the rows on screen.
+struct PageScroll<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: DS.Space.wide) {
+                Text(title)
+                    .font(DS.Font.title)
+                    .foregroundStyle(DS.Color.ink)
+                content
+            }
+            .padding(.horizontal, DS.Space.panel)
+            .padding(.top, DS.Space.roomy)
+            .padding(.bottom, DS.Space.panel)
+            .frame(maxWidth: DS.Window.contentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .top)
     }
 }
 
@@ -96,22 +178,25 @@ struct Eyebrow: View {
     }
 }
 
-/// An outlined tag: engine name, cleanup profile, entry kind.
+/// A small tag: engine name, cleanup profile, entry kind.
 struct Tag: View {
     let text: String
     var isHighlighted = false
 
     var body: some View {
-        Eyebrow(text: text, color: isHighlighted ? DS.Color.onAccent : DS.Color.ink)
+        Eyebrow(text: text, color: isHighlighted ? DS.Color.onSelected : DS.Color.inkSecondary)
             .padding(.horizontal, DS.Space.snug)
             .padding(.vertical, DS.Space.hair)
             .background(
-                isHighlighted ? DS.Color.accent : DS.Color.card,
+                isHighlighted ? DS.Color.selected : DS.Color.field,
                 in: .rect(cornerRadius: DS.Radius.tag, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DS.Radius.tag, style: .continuous)
-                    .strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.borderThin)
+                    .strokeBorder(
+                        isHighlighted ? DS.Color.ink : DS.Color.hairline,
+                        lineWidth: DS.Stroke.hairline
+                    )
             )
     }
 }
@@ -128,104 +213,155 @@ struct Note: View {
     }
 }
 
+/// A short confirmation that floats over the content: "Copied".
+struct Toast: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: DS.Space.snug) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: DS.Icon.large))
+                .foregroundStyle(DS.Color.success)
+            Text(text)
+                .font(DS.Font.control)
+                .foregroundStyle(DS.Color.onToast)
+        }
+        .padding(.horizontal, DS.Space.roomy)
+        .padding(.vertical, DS.Space.snug)
+        .background(DS.Color.toast, in: .capsule)
+        .floatingShadow()
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Controls
 
-/// A brutalist key. At rest it stands proud of its shadow; pressed or selected it sinks
-/// into it. Selected keys are also yellow, so selection reads at a glance and without color.
-struct BrutalButtonStyle: ButtonStyle {
+/// The app's button. `.primary` is a filled capsule; `.secondary` a hairline-bordered chip;
+/// `.plain` a bare glyph for quiet actions. Selected is a cream fill, an ink stroke and a
+/// leading check, so it reads without colour.
+struct FlowButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, plain }
+
+    var kind: Kind = .secondary
     var isSelected = false
-    var fill: Color = DS.Color.card
-    /// Shorter key, for row actions.
+    /// Shorter, for row actions.
     var compact = false
-    /// Full height, tighter sides, for rows of keys that share a crowded line.
+    /// Tighter sides, for rows of choices that share a crowded line.
     var dense = false
+    /// Whether a selected button prepends a check. Off where the label already has a glyph
+    /// that changes with the state (bookmark, pencil).
+    var showsCheck = true
 
     func makeBody(configuration: Configuration) -> some View {
-        KeyBody(
+        FlowBody(
             label: configuration.label,
-            isSunk: isSelected || configuration.isPressed,
-            isSelected: isSelected,
-            fill: fill,
-            compact: compact,
-            dense: dense
+            isPressed: configuration.isPressed,
+            style: self
         )
     }
 
-    private struct KeyBody<Label: View>: View {
+    private struct FlowBody<Label: View>: View {
         let label: Label
-        let isSunk: Bool
-        let isSelected: Bool
-        let fill: Color
-        let compact: Bool
-        let dense: Bool
+        let isPressed: Bool
+        let style: FlowButtonStyle
 
         @Environment(\.isEnabled) private var isEnabled
 
+        private var isSelected: Bool { style.isSelected && style.kind == .secondary }
+
         var body: some View {
-            let lift = DS.Brutal.liftSmall
-            let shape = RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-            label
-                .font(DS.Font.control)
-                .foregroundStyle(isSelected ? DS.Color.onAccent : DS.Color.ink)
-                // A key's label never wraps: a squeezed row would otherwise break one word
-                // across two lines inside its cap.
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, compact || dense ? DS.Space.snug : DS.Space.base)
-                .frame(minHeight: compact ? DS.Control.heightSmall : DS.Control.height)
-                .background {
-                    ZStack {
-                        shape.fill(isSelected ? DS.Color.accent : fill)
-                        shape.strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.border)
-                    }
+            HStack(spacing: DS.Space.tight) {
+                if isSelected && style.showsCheck {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: DS.Icon.small, weight: .bold))
                 }
-                .background {
-                    // Behind the key and offset by `lift` at rest. When the key sinks by the
-                    // same amount the slab ends up exactly under it, i.e. it disappears.
-                    shape.fill(DS.Color.ink)
-                        .offset(x: isSunk ? 0 : lift, y: isSunk ? 0 : lift)
+                label
+            }
+            .font(DS.Font.control)
+            .foregroundStyle(foreground)
+            // A label never wraps: a squeezed row would otherwise break one word across
+            // two lines inside its chip.
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, horizontalPadding)
+            .frame(minHeight: style.compact ? DS.Control.heightSmall : DS.Control.height)
+            .background { surface }
+            .contentShape(shape)
+            .scaleEffect(isPressed ? DS.Motion.pressScale : 1)
+            .opacity(isEnabled ? (isPressed ? DS.Motion.pressOpacity : 1) : DS.Motion.disabledOpacity)
+            .animation(DS.Motion.press, value: isPressed)
+        }
+
+        private var horizontalPadding: CGFloat {
+            if style.kind == .plain { return DS.Space.snug }
+            if style.kind == .primary { return DS.Space.roomy }
+            return style.compact || style.dense ? DS.Space.snug : DS.Space.base
+        }
+
+        private var foreground: Color {
+            switch style.kind {
+            case .primary: DS.Color.onPrimary
+            case .plain: DS.Color.inkSecondary
+            case .secondary: isSelected ? DS.Color.onSelected : DS.Color.ink
+            }
+        }
+
+        private var shape: AnyShape {
+            style.kind == .primary
+                ? AnyShape(Capsule())
+                : AnyShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+        }
+
+        @ViewBuilder private var surface: some View {
+            switch style.kind {
+            case .primary:
+                Capsule().fill(DS.Color.primary)
+            case .plain:
+                Color.clear
+            case .secondary:
+                ZStack {
+                    shape.fill(isSelected ? DS.Color.selected : DS.Color.card)
+                    shape.stroke(
+                        isSelected ? DS.Color.ink : DS.Color.hairline,
+                        lineWidth: isSelected ? DS.Stroke.selected : DS.Stroke.hairline
+                    )
                 }
-                .offset(x: isSunk ? lift : 0, y: isSunk ? lift : 0)
-                .contentShape(shape)
-                .opacity(isEnabled ? 1 : 0.4)
-                .animation(DS.Motion.press, value: isSunk)
+            }
         }
     }
 }
 
-/// A row of keys for one choice. The selected key is sunk, yellow and checked.
+/// A row of chips for one choice. The selected chip is cream, ink-stroked and checked.
 struct ChoiceKeys<Option: Hashable>: View {
     let options: [Option]
     @Binding var selection: Option
     let title: (Option) -> String
     var help: ((Option) -> String)?
     var dense = false
+    /// Stack the chips top to bottom, for narrow columns.
+    var isVertical = false
 
     var body: some View {
-        HStack(spacing: DS.Space.snug) {
+        let layout = isVertical
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: DS.Space.snug))
+            : AnyLayout(HStackLayout(spacing: DS.Space.snug))
+        layout {
             ForEach(options, id: \.self) { option in
                 let isSelected = selection == option
                 Button {
                     selection = option
                 } label: {
-                    HStack(spacing: DS.Space.tight + DS.Space.hair) {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: DS.Icon.regular, weight: .bold))
-                        Text(title(option))
-                    }
+                    Text(title(option))
                 }
-                .buttonStyle(BrutalButtonStyle(isSelected: isSelected, dense: dense))
+                .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: isSelected, dense: dense))
                 .help(help?(option) ?? "")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        // Room for the shadow slab, which sits outside each key's bounds.
-        .padding(.trailing, DS.Brutal.liftSmall)
-        .padding(.bottom, DS.Brutal.liftSmall)
     }
 }
 
-/// Record and stop. Round, the one control that isn't a key: it's the thing you press most.
+/// Record and stop. Round, the one control that isn't a chip: it's the thing you press most.
 struct RecordButton: View {
     let isRecording: Bool
     let action: () -> Void
@@ -233,47 +369,35 @@ struct RecordButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
+                Circle().fill(DS.Color.record)
                 if isRecording {
-                    RoundedRectangle(cornerRadius: DS.Control.recordStopRadius)
+                    RoundedRectangle(cornerRadius: DS.Control.recordStopRadius, style: .continuous)
                         .fill(DS.Color.onRecord)
                         .frame(width: DS.Control.recordStop, height: DS.Control.recordStop)
                 } else {
                     Circle()
-                        .fill(DS.Color.record)
-                        .overlay(Circle().strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.borderThin))
+                        .fill(DS.Color.onRecord)
                         .frame(width: DS.Control.recordDot, height: DS.Control.recordDot)
                 }
             }
             .frame(width: DS.Control.recordSize, height: DS.Control.recordSize)
         }
-        .buttonStyle(RecordStyle(isRecording: isRecording))
+        .buttonStyle(RecordStyle())
         .help(isRecording ? "Stop recording" : "Record")
         .accessibilityLabel(isRecording ? "Stop" : "Record")
     }
 
     private struct RecordStyle: ButtonStyle {
-        let isRecording: Bool
-
         func makeBody(configuration: Configuration) -> some View {
-            let isSunk = isRecording || configuration.isPressed
-            let lift = DS.Brutal.liftSmall
             configuration.label
-                .background {
-                    ZStack {
-                        Circle().fill(isRecording ? DS.Color.record : DS.Color.card)
-                        Circle().strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.border)
-                    }
-                }
-                .background {
-                    Circle().fill(DS.Color.ink).offset(x: isSunk ? 0 : lift, y: isSunk ? 0 : lift)
-                }
-                .offset(x: isSunk ? lift : 0, y: isSunk ? lift : 0)
-                .animation(DS.Motion.press, value: isSunk)
+                .scaleEffect(configuration.isPressed ? DS.Motion.pressScale : 1)
+                .opacity(configuration.isPressed ? DS.Motion.pressOpacity : 1)
+                .animation(DS.Motion.press, value: configuration.isPressed)
         }
     }
 }
 
-/// A small search field set into the paper.
+/// A small search field.
 struct SearchField: View {
     @Binding var text: String
     let placeholder: String
@@ -281,7 +405,7 @@ struct SearchField: View {
     var body: some View {
         HStack(spacing: DS.Space.snug) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: DS.Icon.regular, weight: .bold))
+                .font(.system(size: DS.Icon.regular, weight: .semibold))
                 .foregroundStyle(DS.Color.inkSecondary)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
@@ -298,12 +422,49 @@ struct SearchField: View {
         }
         .padding(.horizontal, DS.Space.base)
         .frame(height: DS.Control.height)
-        .brutalSurface(DS.Color.card, radius: DS.Radius.control, lift: DS.Brutal.liftSmall)
+        .background(DS.Color.field, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                .strokeBorder(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
+        )
+    }
+}
+
+/// A magnifier that expands into a `SearchField`; closing it clears the query.
+struct SearchToggle: View {
+    @Binding var text: String
+    let placeholder: String
+    @State private var isOpen = false
+
+    var body: some View {
+        if isOpen || !text.isEmpty {
+            HStack(spacing: DS.Space.snug) {
+                SearchField(text: $text, placeholder: placeholder)
+                    .frame(width: DS.Control.searchWidth)
+                Button {
+                    text = ""
+                    withAnimation(DS.Motion.panel) { isOpen = false }
+                } label: {
+                    Text("Done")
+                }
+                .buttonStyle(FlowButtonStyle(kind: .plain))
+            }
+        } else {
+            Button {
+                withAnimation(DS.Motion.panel) { isOpen = true }
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: DS.Icon.regular, weight: .semibold))
+            }
+            .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+            .help(placeholder)
+            .accessibilityLabel(placeholder)
+        }
     }
 }
 
 /// A labelled text input, for the dictionary editor.
-struct BrutalTextField: View {
+struct FlowTextField: View {
     let label: String
     @Binding var text: String
     let prompt: String
@@ -320,37 +481,48 @@ struct BrutalTextField: View {
                 .background(DS.Color.field, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                        .strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.border)
+                        .strokeBorder(DS.Color.hairline, lineWidth: DS.Stroke.hairline)
                 )
         }
     }
 }
 
-/// Nothing to show yet.
+/// Nothing to show yet. The headline is a display serif; `highlight`, a substring of
+/// `label`, is set in italic and the accent colour.
 struct EmptyPanel: View {
     let label: String
+    var highlight: String?
     let detail: String
 
     var body: some View {
         VStack(spacing: DS.Space.snug) {
-            Text(label)
-                .font(DS.Font.heading)
-                .foregroundStyle(DS.Color.ink)
+            Text(headline)
+                .multilineTextAlignment(.center)
             Text(detail)
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
         }
         .padding(.horizontal, DS.Space.wide)
         .padding(.vertical, DS.Space.roomy)
-        .brutalSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var headline: AttributedString {
+        var text = AttributedString(label)
+        text.font = DS.Font.display
+        text.foregroundColor = DS.Color.ink
+        if let highlight, let range = text.range(of: highlight) {
+            text[range].font = DS.Font.displayItalic
+            text[range].foregroundColor = DS.Color.highlight
+        }
+        return text
     }
 }
 
 // MARK: - Instrumentation
 
-/// A segmented level meter. Lit segments are red while recording (red means recording) and
-/// ink otherwise; unlit ones stay faintly printed.
+/// A segmented level meter. Lit segments are red while recording (red means recording);
+/// unlit ones stay faint.
 struct LevelMeter: View {
     /// Input level, 0...1.
     let level: Float
@@ -386,7 +558,6 @@ struct Lamp: View {
     var body: some View {
         Circle()
             .fill(isLit ? DS.Color.record : DS.Color.inkTertiary)
-            .overlay(Circle().strokeBorder(DS.Color.ink, lineWidth: DS.Brutal.borderThin))
             .frame(width: DS.Control.lampSize, height: DS.Control.lampSize)
             .animation(DS.Motion.lamp, value: isLit)
     }

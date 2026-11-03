@@ -38,6 +38,39 @@ enum PushToTalkKey: String, CaseIterable, Sendable {
         }
     }
 
+    /// The flag bits that say this key is down: its device-dependent bit, plus the
+    /// device-independent flag unless the left-hand twin (`twinMask`) is also down.
+    var deviceMask: UInt64 {
+        switch self {
+        case .rightOption: 0x40
+        case .fn: 0
+        case .rightCommand: 0x10
+        }
+    }
+
+    var aggregateFlag: CGEventFlags {
+        switch self {
+        case .rightOption: .maskAlternate
+        case .fn: .maskSecondaryFn
+        case .rightCommand: .maskCommand
+        }
+    }
+
+    var twinMask: UInt64 {
+        switch self {
+        case .rightOption: 0x20 // NX_DEVICELALTKEYMASK
+        case .fn: 0
+        case .rightCommand: 0x08 // NX_DEVICELCMDKEYMASK
+        }
+    }
+
+    /// `flags` with this key let go: its device bit cleared, and the aggregate flag too
+    /// unless the left-hand twin still holds it.
+    func releasing(from flags: CGEventFlags) -> CGEventFlags {
+        var raw = flags.rawValue & ~deviceMask
+        if raw & twinMask == 0 { raw &= ~aggregateFlag.rawValue }
+        return CGEventFlags(rawValue: raw)
+    }
 }
 
 /// Watches for a held modifier key using AppKit's global and local event monitors.
@@ -174,10 +207,38 @@ final class HotkeyMonitor: @unchecked Sendable {
             Log.hotkey.info("push-to-talk press received (\(source, privacy: .public))")
             startWatchdog()
         } else {
-            Log.hotkey.info("push-to-talk release received (\(source, privacy: .public))")
+            // Whether the keyboard itself ever reported this hold as down. False on every
+            // hold means the watchdog is blind (no Input Monitoring), not that it is idle.
+            let hardwareSawDown = withLock { watchdogSawDown }
+            Log.hotkey.info("push-to-talk release received (\(source, privacy: .public)); keyboard reported the hold: \(hardwareSawDown, privacy: .public)")
             stopWatchdog()
         }
         action?()
+    }
+
+    // MARK: - Stuck modifier repair
+
+    /// The keyboard says `key` is up, but the session still has it held: a key-up that never
+    /// reached the window server (an event tap swallowed it, or it was lost). Every click and
+    /// keystroke until the next press of the key then arrives with that modifier, so a click
+    /// in a text field becomes ⌘-click. Posts the missing key-up.
+    ///
+    /// Needs Input Monitoring; without it `keyState` reads every key as up and this does
+    /// nothing rather than guess.
+    static func releaseIfStuck(_ key: PushToTalkKey) {
+        guard CGPreflightListenEventAccess(),
+              !CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key.keyCode))
+        else { return }
+        let flags = CGEventSource.flagsState(.combinedSessionState)
+        guard key.isDown(in: NSEvent.ModifierFlags(rawValue: UInt(flags.rawValue))) else { return }
+
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(key.keyCode), keyDown: false)
+        else { return }
+        up.type = .flagsChanged
+        up.flags = key.releasing(from: flags)
+        up.post(tap: .cghidEventTap)
+        Log.hotkey.notice("\(key.displayName, privacy: .public) was still held by the system after the key came up — released it")
     }
 
     // MARK: - Release watchdog
@@ -226,6 +287,7 @@ final class HotkeyMonitor: @unchecked Sendable {
         if release {
             Log.hotkey.notice("push-to-talk release event missing; key is up, releasing")
             transition(to: false, source: "watchdog")
+            Self.releaseIfStuck(key)
         }
     }
 

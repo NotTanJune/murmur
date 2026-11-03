@@ -32,7 +32,15 @@ enum EngineComparison {
         // Bark joins only once loaded. Starting it here would put a ~450 MB download or a
         // minute-long Neural Engine compile inside a comparison run.
         if await ParakeetModels.barkClean.isLoaded {
-            engines.append(("Bark Clean", ParakeetEngine(models: .barkClean)))
+            // With a fine-tuned pair selected, the loaded model is the fine-tuned one, so it
+            // is renamed and the stock pair is added beside it.
+            let decoder = await MainActor.run { Settings.shared.barkDecoder }
+            if case .custom = decoder {
+                engines.append(("Bark Clean (fine-tuned)", ParakeetEngine(models: .barkClean)))
+                engines.append(("Bark Clean (stock)", ParakeetEngine(models: .stockBarkClean)))
+            } else {
+                engines.append(("Bark Clean", ParakeetEngine(models: .barkClean)))
+            }
         }
         for (name, engine) in engines {
             let result = await measure(name: name, engine: engine, chunks: chunks)
