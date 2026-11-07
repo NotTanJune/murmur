@@ -3,12 +3,11 @@
 Hold a key, talk, let go. The cleaned-up text lands in whatever field has focus. Speech
 recognition and cleanup both run on your Mac, and nothing leaves it.
 
-![Holding Right ⌘ in TextEdit, speaking a sentence, releasing, and the text landing half a second later](docs/media/murmur-demo.gif)
+https://github.com/user-attachments/assets/7c77174c-abcb-4deb-aa8a-605a4560b697
 
-That is a real recording of the installed app: Bark 3.0 Clean on the Neural Engine, the rule
-cleanup, release to text in 0.45 s. The version with sound is
-[murmur-demo.mp4](docs/media/murmur-demo.mp4), and the 31 s promo is
-[murmur-promo.mp4](docs/media/murmur-promo.mp4).
+A real recording of the installed app with sound: Right ⌘ held in TextEdit, a sentence
+spoken, and Bark 3.0 Clean on the Neural Engine landing the text 0.45 s after release. The
+31 s promo is [murmur-promo.mp4](docs/media/murmur-promo.mp4).
 
 ## Install
 
