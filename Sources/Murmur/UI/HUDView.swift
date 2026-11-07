@@ -15,16 +15,17 @@ struct HUDView: View {
     }
 }
 
-/// Level-reactive bars. Each bar gets a fixed phase offset so the group ripples rather
-/// than pumping in unison.
+/// Bars that follow the input level. Each has a fixed phase offset, so the group
+/// ripples instead of pumping in unison.
 private struct Waveform: View {
     let level: Float
     let isActive: Bool
 
     private static let barCount = DS.HUD.waveformBarCount
-    private static let phases: [Double] = (0..<barCount).map { index in
-        // Irrational multiplier keeps the offsets from lining up into a visible period.
-        (Double(index) * 0.618).truncatingRemainder(dividingBy: 1)
+    /// Multiplying by about 1/golden-ratio spreads the offsets around the cycle, so no two
+    /// neighbouring bars move together and no pattern repeats. Fixed for the process.
+    private static let phases: [Double] = (0..<barCount).map {
+        (Double($0) * 0.618).truncatingRemainder(dividingBy: 1)
     }
 
     var body: some View {
@@ -53,7 +54,7 @@ private struct Waveform: View {
             + DS.HUD.waveformEnvelopeRange
             * sin((Double(index) + 1) / Double(Self.barCount + 1) * .pi)
         let amplitude = Double(max(DS.HUD.waveformMinimumLevel, min(level, 1)))
-        // Wave rides on top of the level so bars still breathe during quiet passages.
+        // The wave term below never reaches zero, so quiet input still moves the bars.
         let scaled = amplitude
             * (DS.HUD.waveformLevelFloor + DS.HUD.waveformLevelRange * Double(wave))
             * envelope

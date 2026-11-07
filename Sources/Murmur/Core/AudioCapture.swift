@@ -3,7 +3,7 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 
-/// Microphone capture with on-the-fly conversion to whatever format the speech engine wants.
+/// Captures microphone audio and converts it on the fly to the format the speech engine asked for.
 ///
 /// Records through a standalone input-only AUHAL unit pinned to the policy's microphone,
 /// **not** `AVAudioEngine`. The engine's input node follows the system default input: a
@@ -31,6 +31,7 @@ final class AudioCapture: @unchecked Sendable {
     private nonisolated(unsafe) var outputFormat: AVAudioFormat?
     /// Diagnostics for the capture in progress, read by the input callback.
     private nonisolated(unsafe) var session: Session?
+    /// Main thread only: true from a successful `start` until `stop`.
     private var isRunning = false
 
     /// The microphone this unit records from (`MicrophonePolicy`), never the system default.
@@ -71,9 +72,9 @@ final class AudioCapture: @unchecked Sendable {
         let levelGate: LevelGate
     }
 
-    /// Called on the audio thread with each converted buffer.
+    /// Audio thread: receives each converted buffer.
     private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
-    /// Called on the audio thread with a 0…1 RMS level, for the HUD waveform.
+    /// Audio thread: receives a 0 to 1 level for the HUD waveform. Both closures are dropped when capture stops.
     private nonisolated(unsafe) var onLevel: (@Sendable (Float) -> Void)?
     /// Called on the main thread when a route change stopped capture and it could not be
     /// restarted on the new device. Capture is already stopped when this runs.
@@ -380,6 +381,7 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
+    /// Stops capture and releases per-capture state. Does nothing when idle.
     func stop() {
         guard isRunning else { return }
         if let unit { AudioOutputUnitStop(unit) }
@@ -471,7 +473,7 @@ final class AudioCapture: @unchecked Sendable {
             )
         }
         if levelGate.shouldEmit(at: Date().timeIntervalSinceReferenceDate) {
-            onLevel?(Self.rms(of: buffer))
+            onLevel?(Self.level(of: buffer))
         }
 
         guard let outputFormat else { return }
@@ -481,7 +483,7 @@ final class AudioCapture: @unchecked Sendable {
         if buffer.format == outputFormat {
             converter = nil
             converterInputFormat = nil
-            if let copy = Self.copy(buffer) {
+            if let copy = Self.deepCopy(buffer) {
                 onBuffer?(AudioChunk(buffer: copy))
             }
             return
@@ -495,26 +497,26 @@ final class AudioCapture: @unchecked Sendable {
         }
         guard let converter else { return }
 
-        // Output frame count scales with the sample-rate ratio; round up so we never clip.
+        // Capacity covers the rate ratio rounded up, plus a margin so resampling never clips.
         let ratio = outputFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 64
         guard let converted = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return }
 
-        // The input block runs synchronously inside `convert`, on this thread.
+        // The converter persists across callbacks, so the input block must never signal end of
+        // stream; it supplies the render buffer once and then reports no data for now.
+        let supplied = SuppliedFlag()
         nonisolated(unsafe) let input = buffer
-        let consumed = Latch()
-        var error: NSError?
-        let status = converter.convert(to: converted, error: &error) { _, outStatus in
-            guard !consumed.take() else {
-                outStatus.pointee = .noDataNow
+        var conversionError: NSError?
+        let status = converter.convert(to: converted, error: &conversionError) { _, inputStatus in
+            if supplied.testAndSet() {
+                inputStatus.pointee = .noDataNow
                 return nil
             }
-            outStatus.pointee = .haveData
+            inputStatus.pointee = .haveData
             return input
         }
-
-        if let error {
-            Log.audio.error("conversion failed: \(error.localizedDescription)")
+        if let conversionError {
+            Log.audio.error("audio conversion failed: \(conversionError.localizedDescription, privacy: .public)")
             return
         }
         guard status != .error, converted.frameLength > 0 else { return }
@@ -522,31 +524,20 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     /// Deep-copies a rendered buffer into storage we own.
-    private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard buffer.frameLength > 0,
-              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength)
+    private static func deepCopy(_ source: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard source.frameLength > 0,
+              let copy = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: source.frameLength)
         else { return nil }
-
-        copy.frameLength = buffer.frameLength
-        let channels = Int(buffer.format.channelCount)
-        let frames = Int(buffer.frameLength)
-
-        if let source = buffer.floatChannelData, let destination = copy.floatChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int16ChannelData, let destination = copy.int16ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int32ChannelData, let destination = copy.int32ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else {
-            return nil
+        copy.frameLength = source.frameLength
+        let from = UnsafeMutableAudioBufferListPointer(source.mutableAudioBufferList)
+        let to = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        guard from.count == to.count else { return nil }
+        for index in 0..<from.count {
+            guard let sourceData = from[index].mData, let destinationData = to[index].mData else { return nil }
+            let bytes = min(Int(from[index].mDataByteSize), Int(to[index].mDataByteSize))
+            memcpy(destinationData, sourceData, bytes)
+            to[index].mDataByteSize = UInt32(bytes)
         }
-
         return copy
     }
 
@@ -566,13 +557,16 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
-    /// One-shot flag. Only touched from the audio thread inside a synchronous call.
-    private final class Latch: @unchecked Sendable {
-        private var fired = false
-        /// - Returns: the value *before* this call, then latches to `true`.
-        func take() -> Bool {
-            defer { fired = true }
-            return fired
+    /// Remembers whether the converter's input block already supplied its buffer. Touched only
+    /// from the audio thread inside one synchronous `convert` call, so it needs no lock.
+    private final class SuppliedFlag: @unchecked Sendable {
+        private var value = false
+
+        /// Returns the previous value and leaves the flag set.
+        func testAndSet() -> Bool {
+            let previous = value
+            value = true
+            return previous
         }
     }
 
@@ -592,7 +586,8 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
-    private static func rms(of buffer: AVAudioPCMBuffer) -> Float {
+    /// Maps a buffer's RMS onto 0...1 for the level meter.
+    private static func level(of buffer: AVAudioPCMBuffer) -> Float {
         let frames = Int(buffer.frameLength)
         let channels = max(1, Int(buffer.format.channelCount))
         guard frames > 0 else { return 0 }
@@ -625,8 +620,8 @@ final class AudioCapture: @unchecked Sendable {
 
         let rms = (sum / Float(frames * channels)).squareRoot()
 
-        // Map roughly -50…0 dBFS onto 0…1 so quiet speech still moves the meter.
-        let db = 20 * log10(max(rms, 1e-7))
-        return max(0, min(1, (db + 50) / 50))
+        // A -50...0 dBFS window lets quiet speech still move the meter.
+        let decibels = 20 * log10(max(rms, 1e-7))
+        return min(1, max(0, (decibels + 50) / 50))
     }
 }

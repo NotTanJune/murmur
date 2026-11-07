@@ -41,6 +41,7 @@ actor IncrementalParakeetEngine: TranscriptionEngine {
 
     private var recognizer: (any WindowedRecognizer)?
     private var consumer: Task<Void, Never>?
+    /// The active session's output. Non-nil means a session is open.
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
     private var windowCount = 0
     /// The transcript composed from the windows so far.
@@ -60,6 +61,7 @@ actor IncrementalParakeetEngine: TranscriptionEngine {
     }
 
     func preferredInputFormat() async -> AVAudioFormat? {
+        // Same as the batch engine: the windowed manager expects 16 kHz mono Float32.
         AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
     }
 

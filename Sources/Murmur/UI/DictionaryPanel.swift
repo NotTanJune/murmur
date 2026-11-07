@@ -2,10 +2,11 @@ import MurmurDictionary
 import AppKit
 import SwiftUI
 
-/// The dictionary: add, edit, delete, search.
+/// Where entries are added, edited, deleted and searched.
 ///
-/// Both entry kinds live in one list rather than separate tabs — they're two shapes of the
-/// same idea and you want to see everything you've taught it at once. The kind is carried by
+/// Terms and corrections share one list rather than two tabs: they are two forms of the same
+/// idea, and the point of the screen is to see everything the app has been taught at once.
+/// The kind is shown by
 /// a tag on each row.
 struct DictionaryPanel: View {
     @State private var store = DictionaryStore.shared
@@ -24,7 +25,7 @@ struct DictionaryPanel: View {
                     label: store.entries.isEmpty ? "Teach it your words." : "No matches",
                     highlight: store.entries.isEmpty ? "words" : nil,
                     detail: store.entries.isEmpty
-                        ? "Add words it keeps getting wrong."
+                        ? "Add the words the recognizer keeps getting wrong."
                         : "Try a different search."
                 )
                 .padding(.top, DS.Space.wide)
@@ -37,9 +38,9 @@ struct DictionaryPanel: View {
                             entry: entry,
                             onEdit: { editing = entry },
                             onToggle: {
-                                var updated = entry
-                                updated.isEnabled.toggle()
-                                store.update(updated)
+                                var flipped = entry
+                                flipped.isEnabled.toggle()
+                                store.update(flipped)
                             },
                             onDelete: { store.delete(entry) }
                         )
@@ -70,14 +71,14 @@ struct DictionaryPanel: View {
                 Image(systemName: "folder")
                     .font(.system(size: DS.Icon.regular, weight: .semibold))
             }
-            .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+            .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
             .help("Reveal \(DictionaryStore.fileURL.path)")
             .accessibilityLabel("Reveal dictionary file")
             Button { isAdding = true } label: {
                 Label("Add", systemImage: "plus")
                     .labelStyle(.titleAndIcon)
             }
-            .buttonStyle(FlowButtonStyle(kind: .primary, compact: true))
+            .buttonStyle(KeyButtonStyle(kind: .primary, compact: true))
             .keyboardShortcut("n", modifiers: .command)
         }
     }
@@ -92,53 +93,60 @@ private struct DictionaryRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.isScrolling) private var isScrolling
 
     var body: some View {
         HStack(spacing: DS.Space.base) {
             Tag(text: entry.kind == .correction ? "Fix" : "Term")
 
+            // An off entry is dimmed through its colours, not a row-wide `opacity`, which
+            // would render every row to an offscreen layer while scrolling.
             if entry.kind == .correction {
                 Text(entry.hear)
                     .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkSecondary)
+                    .foregroundStyle(entry.isEnabled ? DS.Color.inkSecondary : DS.Color.inkTertiary)
                     .strikethrough(true, color: DS.Color.inkTertiary)
                 Image(systemName: "arrow.right")
                     .font(.system(size: DS.Icon.small, weight: .semibold))
-                    .foregroundStyle(DS.Color.inkSecondary)
+                    .foregroundStyle(entry.isEnabled ? DS.Color.inkSecondary : DS.Color.inkTertiary)
             }
 
             Text(entry.write)
                 .font(DS.Font.bodyEmphasis)
-                .foregroundStyle(DS.Color.ink)
+                .foregroundStyle(entry.isEnabled ? DS.Color.ink : DS.Color.inkSecondary)
 
             Spacer()
 
             if isHovering {
                 Button("Edit", action: onEdit)
-                    .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                    .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: DS.Icon.regular, weight: .semibold))
                 }
-                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
                 .accessibilityLabel("Delete")
             }
             // On is cream, ink-stroked and checked, like every other "on" state in the app.
             Button(entry.isEnabled ? "On" : "Off", action: onToggle)
-                .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: entry.isEnabled, compact: true))
+                .buttonStyle(KeyButtonStyle(kind: .secondary, isSelected: entry.isEnabled, compact: true))
                 .help(entry.isEnabled ? "Turn this entry off" : "Turn this entry on")
         }
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
         .background(isHovering ? DS.Color.cardHover : Color.clear)
-        .opacity(entry.isEnabled ? 1 : 0.6)
-        .onHover { isHovering = $0 }
+        // Hover is ignored while the list is moving, so rows passing under a still pointer
+        // don't re-render on every frame (same as the transcripts list).
+        .onHover { if !isScrolling { isHovering = $0 } }
+        .onChange(of: isScrolling) { _, scrolling in
+            if scrolling { isHovering = false }
+        }
     }
 }
 
 // MARK: - Editor
 
-/// Add or edit one entry, with the false-positive warning shown live as you type.
+/// Adds or edits one entry. Warnings are hints only and never block saving.
 private struct DictionaryEditor: View {
     let entry: DictionaryEntry?
     let onSave: (DictionaryEntry) -> Void
@@ -156,6 +164,8 @@ private struct DictionaryEditor: View {
         _write = State(initialValue: entry?.write ?? "")
     }
 
+    /// The hear field keeps its text while the kind is Term, so switching back loses nothing;
+    /// only the saved entry ignores it.
     private var draft: DictionaryEntry {
         DictionaryEntry(
             id: entry?.id ?? UUID(),
@@ -169,7 +179,9 @@ private struct DictionaryEditor: View {
     private var warnings: [DictionaryWarning] { DictionaryWarning.check(draft) }
 
     private var isValid: Bool {
-        !draft.write.isEmpty && (kind == .term || !draft.hear.isEmpty)
+        let hasWrite = !write.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasHear = !hear.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasWrite && (kind == .term || hasHear)
     }
 
     var body: some View {
@@ -182,13 +194,11 @@ private struct DictionaryEditor: View {
 
             VStack(alignment: .leading, spacing: DS.Space.base) {
                 if kind == .correction {
-                    field("When you hear", text: $hear, prompt: "cloud code")
+                    field("What it hears", text: $hear, prompt: "tail wind")
+                    field("Write", text: $write, prompt: "Tailwind")
+                } else {
+                    field("Word or phrase", text: $write, prompt: "Tailwind")
                 }
-                field(
-                    kind == .correction ? "Write" : "Word or phrase",
-                    text: $write,
-                    prompt: kind == .correction ? "Claude Code" : "Anthropic"
-                )
             }
 
             ForEach(warnings) { warning in
@@ -209,14 +219,14 @@ private struct DictionaryEditor: View {
             HStack(spacing: DS.Space.snug) {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(FlowButtonStyle(kind: .secondary))
+                    .buttonStyle(KeyButtonStyle(kind: .secondary))
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard isValid else { return }
                     onSave(draft)
                     dismiss()
                 }
-                .buttonStyle(FlowButtonStyle(kind: .primary))
+                .buttonStyle(KeyButtonStyle(kind: .primary))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValid)
             }
@@ -238,6 +248,6 @@ private struct DictionaryEditor: View {
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        FlowTextField(label: label, text: text, prompt: prompt)
+        PaperTextField(label: label, text: text, prompt: prompt)
     }
 }

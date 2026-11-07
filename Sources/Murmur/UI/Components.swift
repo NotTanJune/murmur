@@ -1,7 +1,7 @@
 import SwiftUI
 
 // The app's vocabulary: cards, buttons, tags, the record button, the meter, toasts.
-// Every value here comes from `DS`. If a component needs a number that isn't a token, the
+// Every value in this file comes from `DS`. If a
 // token is missing: add it there rather than inlining it.
 
 // MARK: - Surfaces
@@ -145,6 +145,8 @@ struct PageScroll<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
 
+    @State private var isScrolling = false
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: DS.Space.wide) {
@@ -160,7 +162,14 @@ struct PageScroll<Content: View>: View {
             .frame(maxWidth: .infinity)
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
+        .onScrollPhaseChange { _, phase in isScrolling = phase != .idle }
+        .environment(\.isScrolling, isScrolling)
     }
+}
+
+extension EnvironmentValues {
+    /// True while the enclosing `PageScroll` is moving, so rows can ignore hover.
+    @Entry var isScrolling = false
 }
 
 // MARK: - Labels
@@ -239,7 +248,7 @@ struct Toast: View {
 /// The app's button. `.primary` is a filled capsule; `.secondary` a hairline-bordered chip;
 /// `.plain` a bare glyph for quiet actions. Selected is a cream fill, an ink stroke and a
 /// leading check, so it reads without colour.
-struct FlowButtonStyle: ButtonStyle {
+struct KeyButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, plain }
 
     var kind: Kind = .secondary
@@ -253,17 +262,17 @@ struct FlowButtonStyle: ButtonStyle {
     var showsCheck = true
 
     func makeBody(configuration: Configuration) -> some View {
-        FlowBody(
+        PaperBody(
             label: configuration.label,
             isPressed: configuration.isPressed,
             style: self
         )
     }
 
-    private struct FlowBody<Label: View>: View {
+    private struct PaperBody<Label: View>: View {
         let label: Label
         let isPressed: Bool
-        let style: FlowButtonStyle
+        let style: KeyButtonStyle
 
         @Environment(\.isEnabled) private var isEnabled
 
@@ -353,7 +362,7 @@ struct ChoiceKeys<Option: Hashable>: View {
                 } label: {
                     Text(title(option))
                 }
-                .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: isSelected, dense: dense))
+                .buttonStyle(KeyButtonStyle(kind: .secondary, isSelected: isSelected, dense: dense))
                 .help(help?(option) ?? "")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
@@ -447,7 +456,7 @@ struct SearchToggle: View {
                 } label: {
                     Text("Done")
                 }
-                .buttonStyle(FlowButtonStyle(kind: .plain))
+                .buttonStyle(KeyButtonStyle(kind: .plain))
             }
         } else {
             Button {
@@ -456,7 +465,7 @@ struct SearchToggle: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: DS.Icon.regular, weight: .semibold))
             }
-            .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+            .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
             .help(placeholder)
             .accessibilityLabel(placeholder)
         }
@@ -464,7 +473,7 @@ struct SearchToggle: View {
 }
 
 /// A labelled text input, for the dictionary editor.
-struct FlowTextField: View {
+struct PaperTextField: View {
     let label: String
     @Binding var text: String
     let prompt: String

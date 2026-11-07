@@ -128,7 +128,7 @@ private struct NoticeCard: View {
                 .foregroundStyle(DS.Color.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Open Settings") { MainNavigation.shared.show(.settings) }
-                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
         }
         .padding(DS.Space.base)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -261,13 +261,17 @@ private struct SidebarTransport: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
         .onChange(of: controller.isRecording) { _, active in
-            startedAt = active ? Date() : nil
-            if !active { elapsed = 0 }
+            if active {
+                startedAt = Date()
+            } else {
+                startedAt = nil
+                elapsed = 0
+            }
         }
         .task(id: startedAt) {
-            guard let startedAt else { return }
+            guard let start = startedAt else { return }
             while !Task.isCancelled {
-                elapsed = Date().timeIntervalSince(startedAt)
+                elapsed = Date().timeIntervalSince(start)
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
@@ -295,7 +299,7 @@ private struct AppearanceToggle: View {
                 .font(.system(size: DS.Icon.large, weight: .medium))
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(FlowButtonStyle(kind: .plain))
+        .buttonStyle(KeyButtonStyle(kind: .plain))
         .help(isDark ? "Dark appearance. Click for light." : "Light appearance. Click for dark.")
         .accessibilityLabel(isDark ? "Switch to light appearance" : "Switch to dark appearance")
     }
@@ -311,10 +315,10 @@ private struct TranscriptionList: View {
     @State private var toast: String?
 
     private var runs: [DictationRun] {
-        let all = store.runs.reversed().map { $0 }
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return all }
-        return all.filter { $0.text.localizedStandardContains(trimmed) }
+        let newestFirst = Array(store.runs.reversed())
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if needle.isEmpty { return newestFirst }
+        return newestFirst.filter { $0.text.localizedStandardContains(needle) }
     }
 
     /// Newest first, split by calendar day.
@@ -399,14 +403,13 @@ private struct TranscriptionList: View {
                     .allowsHitTesting(false)
             }
         }
-        // Confirmed, unlike a single row: one row is trivially re-recorded, the whole
-        // history is not, and there's no undo.
+        // Wiping the whole history cannot be undone, so it asks first; a single row does not.
         .confirmationDialog(
             "Delete all \(store.runs.count) recordings?",
             isPresented: $isConfirmingClear,
             titleVisibility: .visible
         ) {
-            Button("Delete All", role: .destructive) { RunLog.clear() }
+            Button("Delete all", role: .destructive) { RunLog.clear() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Saved recordings are deleted too. This can't be undone.")
@@ -417,7 +420,7 @@ private struct TranscriptionList: View {
         HStack(spacing: DS.Space.snug) {
             SearchToggle(text: $query, placeholder: "Search transcriptions")
             Button("Delete all") { isConfirmingClear = true }
-                .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
                 .disabled(store.runs.isEmpty)
         }
     }
@@ -447,6 +450,7 @@ private struct TranscriptionRow: View {
     @State private var isHovering = false
     @State private var isEditing = false
     @State private var draft = ""
+    @Environment(\.isScrolling) private var isScrolling
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.base) {
@@ -473,7 +477,6 @@ private struct TranscriptionRow: View {
                     Text(run.label ?? run.text)
                         .font(DS.Font.body)
                         .foregroundStyle(DS.Color.ink)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -490,7 +493,12 @@ private struct TranscriptionRow: View {
         .padding(.horizontal, DS.Space.roomy)
         .padding(.vertical, DS.Space.base)
         .background(isHovering ? DS.Color.cardHover : Color.clear)
-        .onHover { isHovering = $0 }
+        // Rows pass under a still pointer while scrolling; ignore that and drop any stale
+        // highlight when a scroll starts.
+        .onHover { if !isScrolling { isHovering = $0 } }
+        .onChange(of: isScrolling) { _, scrolling in
+            if scrolling { isHovering = false }
+        }
     }
 
     /// Engine, cleanup and timing on one quiet line.
@@ -513,17 +521,47 @@ private struct TranscriptionRow: View {
 
     /// Hidden until the pointer is over the row, except a kept transcription's Save chip,
     /// so saved reads as saved at a glance.
-    private var actions: some View {
-        HStack(spacing: DS.Space.tight) {
-            copyButton
-            if TrainingLabel.editAllowed(run) {
-                editButton
+    /// The buttons are only built while visible; otherwise a glyph-only stand-in of the same
+    /// size keeps the row height and the text column from shifting.
+    @ViewBuilder private var actions: some View {
+        let showsActions = isHovering || isEditing || run.isSaved
+        Group {
+            if showsActions {
+                HStack(spacing: DS.Space.tight) {
+                    copyButton
+                    if TrainingLabel.editAllowed(run) {
+                        editButton
+                    }
+                    saveButton
+                        .opacity(isHovering || run.isSaved || isEditing ? 1 : 0)
+                    deleteButton
+                }
+                .transition(.opacity)
+            } else {
+                actionsPlaceholder
             }
-            saveButton
-                .opacity(isHovering || run.isSaved || isEditing ? 1 : 0)
-            deleteButton
         }
-        .opacity(isHovering || isEditing || run.isSaved ? 1 : 0)
+        .animation(DS.Motion.panel, value: showsActions)
+    }
+
+    private var actionsPlaceholder: some View {
+        HStack(spacing: DS.Space.tight) {
+            placeholderGlyph("doc.on.doc")
+            if TrainingLabel.editAllowed(run) {
+                placeholderGlyph("pencil")
+            }
+            placeholderGlyph(run.isSaved ? "bookmark.fill" : "bookmark")
+            placeholderGlyph("trash")
+        }
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    private func placeholderGlyph(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: DS.Icon.regular, weight: .semibold))
+            .padding(.horizontal, DS.Space.snug)
+            .frame(minHeight: DS.Control.heightSmall)
     }
 
     private var editButton: some View {
@@ -538,7 +576,7 @@ private struct TranscriptionRow: View {
             Image(systemName: isEditing ? "checkmark" : "pencil")
                 .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: isEditing, compact: true, showsCheck: false))
+        .buttonStyle(KeyButtonStyle(kind: .secondary, isSelected: isEditing, compact: true, showsCheck: false))
         .help("Correct what was heard. Corrections train the model on the next export.")
         .accessibilityLabel(isEditing ? "Done" : "Fix")
     }
@@ -564,7 +602,7 @@ private struct TranscriptionRow: View {
             Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                 .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+        .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
         .help("Copy this transcription")
         .accessibilityLabel(didCopy ? "Copied" : "Copy")
     }
@@ -574,7 +612,7 @@ private struct TranscriptionRow: View {
             Image(systemName: run.isSaved ? "bookmark.fill" : "bookmark")
                 .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(FlowButtonStyle(kind: .secondary, isSelected: run.isSaved, compact: true, showsCheck: false))
+        .buttonStyle(KeyButtonStyle(kind: .secondary, isSelected: run.isSaved, compact: true, showsCheck: false))
         .help(run.isSaved
             ? "Saved. Click to let this transcription expire after 30 days."
             : "Keep this transcription. Unsaved ones are deleted after 30 days.")
@@ -589,14 +627,14 @@ private struct TranscriptionRow: View {
             Image(systemName: "trash")
                 .font(.system(size: DS.Icon.regular, weight: .semibold))
         }
-        .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+        .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
         .help("Delete this transcription")
         .accessibilityLabel("Delete")
     }
 }
 
-/// Shows that the dictionary fired, and on what. Without this the dictionary is invisible
-/// and you can't tell a rule that works from one that never matches.
+/// Which dictionary rules fired on a transcript, so you can see which ones earn their place.
+/// One badge per rule, original struck through, then what replaced it.
 private struct CorrectionBadges: View {
     let corrections: [AppliedCorrection]
 

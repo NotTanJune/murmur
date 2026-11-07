@@ -1,33 +1,28 @@
 import MurmurDictionary
 import Foundation
 
-/// One completed dictation.
+/// A finished hold, as stored in `runs.jsonl`.
 struct DictationRun: Codable, Sendable, Identifiable {
-    /// Stable identity, so a single run can be deleted without matching on its text.
-    ///
-    /// Decoded leniently: runs written before this existed have no `id` field, and failing
-    /// their whole line would throw away the user's history to add a delete button. Those
-    /// get a fresh id on load, which is then persisted the next time the file is rewritten.
+    /// Stable identity, so one run can be deleted without matching on its text. Decoding is
+    /// lenient: older lines have no id and get a fresh one, written out the next time the
+    /// file is rewritten.
     var id: UUID = UUID()
-
     let date: Date
+    /// The engine's display name when the run happened.
     let engine: String
-    /// How long the key was held.
+    /// Seconds of audio captured for this hold.
     let audioSeconds: Double
-    /// Release → final text ready. This is the latency you actually feel.
+    /// Seconds from key release to the final text being ready: the latency you feel.
     let processSeconds: Double
     var deliverySeconds: Double?
     var displayedLatency: Double { deliverySeconds ?? processSeconds }
+    /// The final delivered transcript, after cleanup and dictionary.
     let text: String
-    /// Shared by every engine that processed the same recording, so the dashboard can
-    /// present them as one side-by-side comparison instead of unrelated rows.
+    /// Shared by every engine that processed the same recording, so the comparison view can
+    /// show them together. Nil for ordinary dictation.
     var group: String?
-
-    /// Dictionary corrections that fired on this transcript. Recorded so history can show
-    /// whether the dictionary is actually doing anything, rather than leaving it to faith.
-    ///
-    /// Optional for backwards compatibility: runs recorded before the dictionary existed
-    /// decode with this nil rather than failing the whole line.
+    /// Dictionary corrections that fired. Nil, not empty, when none did, and for runs
+    /// recorded before the dictionary existed.
     var corrections: [AppliedCorrection]?
 
     /// Kept past the retention window. Absent in older lines, which decode as not saved.
@@ -54,17 +49,13 @@ struct DictationRun: Codable, Sendable, Identifiable {
         return !(corrections ?? []).isEmpty
     }
 
+    /// How many times faster than real time the release was.
     var realtimeFactor: Double { audioSeconds / max(processSeconds, 0.0001) }
     var characters: Int { text.count }
 
     init(
-        id: UUID = UUID(),
-        date: Date,
-        engine: String,
-        audioSeconds: Double,
-        processSeconds: Double,
-        text: String,
-        group: String? = nil,
+        id: UUID = UUID(), date: Date, engine: String, audioSeconds: Double,
+        processSeconds: Double, text: String, group: String? = nil,
         corrections: [AppliedCorrection]? = nil,
         deliverySeconds: Double? = nil,
         isSaved: Bool = false,
@@ -103,11 +94,11 @@ struct DictationRun: Codable, Sendable, Identifiable {
     }
 }
 
-/// Appends every dictation to a JSONL file and regenerates a dashboard beside it.
+/// Owns `runs.jsonl` and the dashboard page rebuilt next to it.
 ///
-/// The dashboard is a plain file with a meta-refresh rather than a served page: `file://`
-/// can't fetch its own data directory without tripping CORS, so instead of the page pulling
-/// data, the app pushes a freshly rendered page after each run and the browser just reloads.
+/// The dashboard is a static HTML file the app rewrites after each run and the browser
+/// reloads on a timer. A page opened from disk cannot load the history file itself
+/// (cross-origin restrictions), so the app pushes the rendered result instead.
 ///
 /// **No file I/O on the main thread.** Every read, write and dashboard render runs on one
 /// serial queue that owns the history in memory. Recording used to re-read the whole file
@@ -249,13 +240,13 @@ enum RunLog {
         update(renderDashboard: false) { _ in }
     }
 
-    /// Deletes one run.
+    /// Removes one run by id, never by text.
     static func delete(_ run: DictationRun) {
         delete(ids: [run.id])
     }
 
-    /// Deletes every run in a comparison group — the engines all transcribed one utterance,
-    /// so removing that utterance means removing all of its rows.
+    /// Every engine in a group transcribed one utterance, so removing that utterance
+    /// removes all of its rows.
     static func deleteGroup(_ group: String) {
         update { file in file.rewrite(file.runs.filter { $0.group != group }) }
     }
@@ -330,8 +321,8 @@ private final class RunFile: @unchecked Sendable {
         runs.append(contentsOf: newRuns)
     }
 
-    /// Replaces the whole file. Deleting can't be an append, and rewriting also persists the
-    /// ids that older runs were assigned on load.
+    /// Removing records means replacing the whole file. That also writes out the ids that
+    /// older records were given when they were loaded.
     func rewrite(_ kept: [DictationRun]) {
         let encoder = Self.encoder()
         let body = kept.compactMap { run -> String? in
@@ -339,7 +330,7 @@ private final class RunFile: @unchecked Sendable {
             return String(data: data, encoding: .utf8)
         }.joined(separator: "\n")
 
-        // Atomic: a partial write here would lose history that the user didn't ask to delete.
+        // Atomic, so a failed write cannot truncate history the user did not ask to remove.
         try? (body.isEmpty ? "" : body + "\n")
             .write(to: Self.url, atomically: true, encoding: .utf8)
         RunLog.removeRecordings(of: runs, except: kept, in: RecordingStore.shared)
@@ -363,6 +354,8 @@ private final class RunFile: @unchecked Sendable {
         guard let data = try? Data(contentsOf: url) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        // A line that fails to decode (a truncated tail after a crash, a missing key) is
+        // skipped without stopping the ones after it.
         return data.split(separator: 0x0A).compactMap { line in
             try? decoder.decode(DictationRun.self, from: Data(line))
         }

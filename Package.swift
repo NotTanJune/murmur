@@ -5,8 +5,8 @@ let package = Package(
     name: "Murmur",
     platforms: [.macOS(.v26)],
     dependencies: [
-        // Parakeet TDT as CoreML on the Neural Engine. Optional at runtime — Apple's
-        // SpeechTranscriber remains the default and needs no dependency at all.
+        // Core ML speech models on the Neural Engine. Apple's transcriber is the default
+        // engine and does not use this package.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6"),
         // S1-mini transcript cleanup on the GPU. Called through MLXLMCommon directly rather
         // than the FoundationModels adapter, which can't keep a per-profile prompt cache, so
@@ -16,8 +16,7 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.3.0")),
     ],
     targets: [
-        // The dictionary is its own target so it can be tested directly against the vectors
-        // in Tests/MurmurDictionaryTests/dictionary-test-vectors.json, without the app.
+        // A separate target so CI can run the correction vectors without building the app.
         .target(
             name: "MurmurDictionary",
             path: "Sources/MurmurDictionary",

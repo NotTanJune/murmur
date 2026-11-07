@@ -1,53 +1,48 @@
-# Working on this repo
+# Agent notes for Murmur
 
-Read this before changing anything. It is written for a coding agent picking the project up
-cold, and it is mostly a list of things that look wrong but aren't, plus things that look
-fine and will bite you.
-
----
-
-## What this is
-
-Push-to-talk dictation. Hold a key, talk, release, and cleaned-up text is typed into
-whatever had focus. macOS only: Swift 6 and SwiftUI; speech by Apple `SpeechAnalyzer` or
-Bark/Parakeet via FluidAudio; cleanup by rules, S1-mini via MLX, or Apple Intelligence.
-It works and is in daily use. (A Windows port in C# lived in `windows/` until 2026-11-03 and
-was removed because it will never be used; it is in git history if ever needed.)
+This is the briefing for a coding agent new to the project. Most of it covers traps: behaviour that
+seems broken but is deliberate, and safe-looking changes that cause real damage.
 
 ---
 
-## The one rule that matters
+## The project
 
-**`Tests/MurmurDictionaryTests/dictionary-test-vectors.json` is the specification for
-correction behaviour.** If you change how corrections work, change the vectors first, watch
-them go red, then make them green.
+Murmur is push-to-talk dictation for macOS, built with Swift 6 and SwiftUI. A held key records, and
+on release the cleaned-up text goes into the focused app. Speech comes from Apple `SpeechAnalyzer`
+or from Bark and Parakeet through FluidAudio. Cleanup comes from rules, S1-mini through MLX, or Apple
+Intelligence. The app is in daily use. A Windows port in C# lived in `windows/` until 2026-11-03; it
+was removed for good and remains in git history.
+
+---
+
+## Start with the dictionary vectors
+
+`Tests/MurmurDictionaryTests/dictionary-test-vectors.json` defines correction behaviour. For any
+change to how corrections work, edit the vectors first, see them fail, then make them pass.
 
 ```bash
-swift test --filter VectorTests
+swift test --scratch-path ~/Library/Caches/MurmurBuild/scratch --filter VectorTests
 ```
 
 ---
 
-## Things that look like bugs and are not
+## Deliberate behaviour that can look like a bug
 
-**`swift build` fails with "input file was modified during the build."** The repo lives in an
-iCloud-synced folder and the sync engine touches files mid-compile. **Always build with
-`make`**, which uses `--scratch-path` outside the synced tree. A bare `swift build` also
-writes a `.build/` directory into iCloud, which makes every subsequent build minutes slower.
-If you see this error, wait a few seconds and retry.
+**"input file was modified during the build" from `swift build`.** Build with `make`, which keeps
+all output in `~/Library/Caches/MurmurBuild`. In a synced folder the sync engine changes files
+while the compiler reads them, and a bare `swift build` also fills a `.build/` directory that the
+engine then has to process. If the error appears, retry after a few seconds.
 
-**Compare mode doesn't type anything.** By design — `Settings.compareMode` runs every engine
-on one recording and shows them side by side. If both injected, two transcripts would fight
-over one text field. This is the single most confusing behaviour in the app.
+**Compare mode types nothing.** `Settings.compareMode` sends one recording through several engines
+and lists the results together. Injecting from each would put competing transcripts into one field,
+so none of them inject.
 
-**The timing column isn't comparing like with like.** Apple and Parakeet are timed on local
-compute with the clock started *after* model load. Wispr Flow's number is its own
-`e2eLatency`, which includes a network round trip and its cleanup pass. Don't present them
-as one ranking.
+**Compare timings are not one ranking.** Murmur's engines are timed on local compute, and the clock
+starts once the model is loaded. Wispr Flow reports its own `e2eLatency`, which covers a network
+round trip plus its cleanup.
 
-**`MainActor.assumeIsolated` will crash the process.** It does not check the claim, it
-asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
-down once already.
+**`MainActor.assumeIsolated` can crash the process.** It asserts isolation without checking first.
+From non-main-actor code, use `await MainActor.run`. This bug has taken the app down before.
 
 **Never mutate `@State` inside a `Canvas` draw closure.** It floods the log and corrupts
 state. The old VU meter hit this; the current `LevelMeter` avoids `Canvas` entirely and
@@ -62,17 +57,16 @@ and motion token; `Components.swift` builds the shared pieces from them. **Views
 contain literal values.** If a component needs a number that isn't a token, add the token
 rather than inlining it.
 
-The direction is modelled on Wispr Flow's desktop hub (the aesthetic, not the brand: no
-logo, mark, name or copy). A classical serif over a rounded geometric sans, a cream and
-lavender light theme, a warm near-black dark theme, white cards with hairline borders, and
-a sidebar beside an inset content pane.
+The direction is ink on paper: a warm paper ground, charcoal ink, an ochre accent, moss for
+statistics, Fraunces for big moments over Figtree for everything else, white cards with
+hairline borders, a sidebar beside an inset content pane, and a warm near-black dark theme.
 
 - **Layout:** `MainWindow` is a custom sidebar plus an inset pane on the `chrome` colour,
   not `NavigationSplitView`. The sidebar holds the app name, navigation and the transport
   (record, counter, level, engine, profile, recording notice). The pane has a rounded
   top-leading corner and the appearance toggle above it. The title bar is hidden; the
   sidebar clears the traffic lights with `DS.Window.trafficLightClearance`.
-- **Type:** EB Garamond (`display`, `stat`) only for big moments such as the word count and
+- **Type:** Fraunces (`display`, `stat`) only for big moments such as the word count and
   empty states; Figtree for everything else; `counter` stays SF monospaced so digits don't
   shift. The TTFs live in `Resources/Fonts/`, the `Makefile` copies them into
   `Contents/Resources/Fonts/`, and `ATSApplicationFontsPath = Fonts` in `Info.plist`
@@ -106,43 +100,54 @@ older styling.
 
 ---
 
-## macOS specifics
+## macOS notes
 
-**Code signing is load-bearing, not cosmetic.** TCC stores a code-signing *requirement* per
-entry, not just a path. An ad-hoc signature changes every build, so the rebuilt binary stops
-satisfying the stored requirement — and the symptom lies: the Accessibility toggle still
-shows as **on** while the app is untrusted. The `Makefile` auto-detects a Developer ID via
-`security find-identity`. Don't replace that with `--sign -`.
+**The signing identity has to stay stable.** TCC saves a code-signing requirement for each entry,
+so a matching path is not enough. Ad-hoc signatures differ per build, so a rebuilt app no longer
+meets the saved requirement, and the Accessibility toggle then shows **on** while the app is
+untrusted. The `Makefile` finds a Developer ID through `security find-identity`. Keep that, and do
+not switch to `--sign -`.
 
-If a grant does get wedged, reset that one row — never toggle, and never omit the bundle ID:
+To clear a stuck grant, reset that single entry with its bundle ID. Toggling does not fix it:
 
 ```bash
 tccutil reset Accessibility ai.pivotstudio.murmur
 ```
 
-A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
-Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
+Leaving out the bundle ID resets Accessibility for every app on the Mac. Afterwards press ⌘Q in
+System Settings before reopening it, because the Privacy pane keeps a cached list.
 
-**`log` may be shadowed in the user's shell.** Use `/usr/bin/log` explicitly.
+**Use `/usr/bin/log` by full path.** The user's shell may define its own `log`.
 
-**Don't run the `.app` from the repo folder.** It's iCloud-synced and the sync engine can
-corrupt the signature. `make install` puts the running copy in `/Applications`.
+**Run the installed app, not a build in the repo.** A sync engine can break the signature of a
+bundle inside a synced folder. `make install` copies the app to `/Applications`.
 
 ---
 
-## Regex, if you touch the dictionary
+## Dictionary regexes
 
 **Keep NFC normalization** in `DictionaryCorrector`. macOS returns decomposed strings, so
 without it an accented trigger silently never fires.
 
 ---
 
-## What isn't built
+## License and provenance
 
-1. **Command Mode** — select text, hold a second key, "make this more formal."
-2. **Onboarding** — a first-run window walking through the macOS permissions.
+Murmur's source is GPL-3.0-only (`LICENSE`). The fork parent, `per-simmons/murmur-youtube`, has no
+license, so its code was replaced from behaviour specs on 2026-11-06 and older commits are not covered
+by the GPL grant. Never restore or copy code from those commits or from that repository. Third-party
+terms live in `THIRD_PARTY.md`.
+
+---
+
+## Not built yet
+
+1. **Command Mode.** Holding a second key over selected text would rewrite it on request, such as
+   "make this more formal."
+2. **Onboarding.** A first-run window would walk through the macOS permissions.
 3. **Notarization.** The app is signed with a Developer ID but not notarized for
    distribution.
+4. **Automatic profiles.** The cleanup profile is chosen by hand, not from the focused app.
 
 ## Murmur streaming options and verification
 
@@ -306,8 +311,9 @@ Long holds no longer pay for their length at release (added 2026-10-31). Three p
   overlap re-decoded: a glued fragment equal to the previous word's ending ("MacBook" +
   "book" typed "MacBookbook" on 2026-11-01), a first word equal to the last word or its
   ending, and a cut-off word that prefixes the next ("blind blindsided"). Windows flushed at
-  release go into the final text, never into a partial. Measured on 57 s of synthesized
-  speech: release tail 0.10 s against the batch engine's 0.34 s for the whole file. Other
+  release go into the final text, never into a partial. Measured on 50 s of synthesized
+  speech on an M2 on 2026-11-06: release tail 0.17 s against the batch engine's 0.32 s for
+  the whole file (an earlier 57 s clip measured 0.10 s against 0.34 s). Other
   seam artifacts remain ("All Also", "I think. that's fair"), so the setting stays
   user-visible. Compare mode still uses batch.
   `Murmur --incremental-check <audio-file>` runs both engines on a file at 2× real time.
@@ -316,8 +322,10 @@ Long holds no longer pay for their length at release (added 2026-10-31). Three p
   normal formatter with its guard, so one rejected piece falls back alone. At release the
   final transcript must still begin with the pipelined words verbatim or the whole text is
   cleaned in one pass. Email, Notes and Message place greetings, bullets and the dropped
-  final period from the whole text, so they are not pipelined. Measured: 131-word paragraph,
-  release tail 109 ms against 2.1 s whole.
+  final period from the whole text, so they are not pipelined. Measured on an idle M2:
+  131-word paragraph, release tail 270 ms against 2.3 s whole (2026-11-06; an earlier run
+  measured 109 ms against 2.1 s). Under heavy load from other apps the same text took 5 to
+  7 s, which is why the S1-mini budget adapts to measured throughput (see `S1MiniEngine`).
 - **Prompt-lookup decoding** in `S1MiniRuntime` (`Decoding.promptLookup`, the default;
   `.greedy` is the reference and `--cleanup-check` runs both). Drafts the next tokens from the
   transcript by n-gram match and verifies them in one pass, rolling the KV cache back with

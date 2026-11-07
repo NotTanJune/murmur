@@ -4,14 +4,14 @@ import ApplicationServices
 import Foundation
 
 /// Murmur needs two grants, and neither can be worked around:
-/// - **Microphone** — obviously.
+/// - **Microphone** (required): without it nothing can be captured.
 /// - **Accessibility** — for global key monitoring and AX text insertion.
 ///
 /// A third, **Input Monitoring**, is optional: without it `CGEventSource.keyState` reads every
 /// key as up, so `HotkeyMonitor`'s watchdog can't tell when the push-to-talk key really came
 /// up after its release event went missing.
 ///
-/// Accessibility has no programmatic request; the OS only shows the prompt, and the user
+/// Accessibility trust cannot be requested in code, the system only shows a prompt; the user
 /// must toggle it in System Settings. TCC also keys on the code signature, so re-signing the
 /// app resets the grant.
 @MainActor
@@ -40,11 +40,11 @@ enum Permissions {
         NSWorkspace.shared.open(url)
     }
 
-    /// Shows the system Accessibility prompt if the app isn't yet trusted.
+    /// Shows the system Accessibility prompt and returns the current trust state.
+    /// The option key is spelled as a literal because `kAXTrustedCheckOptionPrompt` imports as a
+    /// mutable global, which strict concurrency rejects.
     @discardableResult
     static func promptForAccessibility() -> Bool {
-        // Spelled out rather than using `kAXTrustedCheckOptionPrompt`, which imports as a
-        // mutable global and so isn't usable from concurrency-checked code.
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
@@ -61,12 +61,14 @@ enum Permissions {
     }
 
     static func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     static func openMicrophoneSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
-        NSWorkspace.shared.open(url)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
     }
 }

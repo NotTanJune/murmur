@@ -1,36 +1,30 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Holds and releases Wispr Flow's push-to-talk key by posting synthetic modifier events.
+/// Presses and releases Wispr Flow's push-to-talk key so one recording can feed Wispr and the
+/// local engines at once.
 ///
-/// Wispr is a closed app with no API — the only way to make it record on demand is to press
-/// its hotkey. That lets one Record button in the comparison window drive all three engines
-/// off the same utterance, instead of asking the user to hold two keys at once and then go
-/// looking for the results somewhere else.
-///
-/// This is inherently coupled to Wispr's hotkey setting. `key` must match whatever is bound
-/// to `ptt` in Wispr's own config; if the user rebinds it there, this stops working until
-/// it's updated here.
+/// Wispr offers no API, so its hotkey is the only way to make it record. The comparison
+/// window's single Record button uses this to start Wispr on the same utterance. It depends
+/// on Wispr's own binding (`prefs.user.shortcuts`, entry `ptt`, in
+/// `~/Library/Application Support/Wispr Flow/config.json`); after a rebind it does nothing
+/// until `keyCode` is updated.
 @MainActor
 enum WisprTrigger {
-    /// Left Command — Wispr's `ptt` binding.
-    ///
-    /// Wispr stores its shortcuts by keycode in
-    /// `~/Library/Application Support/Wispr Flow/config.json` under `prefs.user.shortcuts`,
-    /// so that file is the source of truth if this ever needs re-checking.
-    static let keyCode = CGKeyCode(kVK_Command) // 55, left Command
+    static let keyCode = CGKeyCode(kVK_Command)
 
-    /// The device-specific left-Command bit. macOS reports plain `.maskCommand` for either
-    /// side, so an app that distinguishes left from right — as Wispr does, since it binds
-    /// left Command separately — needs this set too.
-    private static let leftCommandDeviceBit = CGEventFlags(rawValue: 0x0000_0008)
+    /// `NX_DEVICELCMDKEYMASK`. macOS sets `.maskCommand` for either Command key, and Wispr
+    /// binds left Command separately from right, so the device bit must be set too.
+    private static let leftCommandDeviceBit: UInt64 = 0x0000_0008
 
+    /// While a press is outstanding the system sees left Command held. There is no timeout
+    /// here; the controller pairing `press` with `release` bounds it.
     private static var isHeld = false
 
     static func press() {
         guard !isHeld else { return }
         isHeld = true
-        post(flags: [.maskCommand, leftCommandDeviceBit])
+        post(flags: CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | leftCommandDeviceBit))
     }
 
     static func release() {
@@ -39,15 +33,12 @@ enum WisprTrigger {
         post(flags: [])
     }
 
-    /// Builds the event from a *null* source rather than `CGEvent(keyboardEventSource:)`.
-    ///
-    /// A keyboard event whose `type` is reassigned to `.flagsChanged` silently loses its
-    /// keycode, and the resulting event does nothing at all — it looks like it posted fine.
-    /// Creating a bare event and setting the keycode field explicitly is the only shape that
-    /// actually works.
     private static func post(flags: CGEventFlags) {
+        // A bare event given the type and key code explicitly. Converting a keyboard event
+        // made with `CGEvent(keyboardEventSource:...)` loses the key code and posts an event
+        // that looks right but does nothing.
         guard let event = CGEvent(source: nil) else {
-            Log.speech.error("WisprTrigger: could not create event")
+            Log.speech.error("Could not create the Wispr Flow trigger event")
             return
         }
         event.type = .flagsChanged

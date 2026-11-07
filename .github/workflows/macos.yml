@@ -1,15 +1,15 @@
 name: macOS
 
-# Runs the dictionary correction contract (Tests/MurmurDictionaryTests/dictionary-test-vectors.json)
-# against the Swift implementation.
+# Checks the Swift corrector against the behaviour contract in
+# Tests/MurmurDictionaryTests/dictionary-test-vectors.json.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ['Sources/**', 'Tests/**', 'Package.swift', '.github/workflows/macos.yml']
   pull_request:
     paths: ['Sources/**', 'Tests/**', 'Package.swift', '.github/workflows/macos.yml']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,21 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Package.swift declares swift-tools-version 6.2, but the runner defaults to an
-      # older Xcode (Swift 6.1) and fails to even parse the manifest. Select the newest
-      # Xcode present rather than pinning a version that will age out of the image.
-      - name: Select the newest Xcode
+      # The manifest needs Swift 6.2 and the image defaults to an older toolchain. Taking the
+      # newest installed Xcode avoids a version pin that goes stale.
+      - name: Use the newest Xcode on the runner
         run: |
           latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           echo "Using $latest"
           sudo xcode-select -s "$latest/Contents/Developer"
 
-      - name: Swift version
+      - name: Print the Swift version
         run: swift --version
 
-      # The app target needs macOS 26 and the Speech framework, which the runner image
-      # does not have. The dictionary target is deliberately platform-neutral, so it — and
-      # the contract that matters here — builds and tests anywhere.
-      - name: Test the dictionary target
+      # MurmurDictionary has no app or platform dependencies, so it runs on an image that lacks
+      # macOS 26 and the Speech framework.
+      - name: Run the dictionary vectors
         run: swift test --filter VectorTests
-

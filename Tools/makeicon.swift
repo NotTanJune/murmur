@@ -1,158 +1,97 @@
-#!/usr/bin/env swift
 import AppKit
+import CoreText
 import Foundation
 
-// Renders AppIcon.icns from code — no design tool, no binary asset to keep in sync with
-// the HUD palette. Run: swift Tools/makeicon.swift
+// Regenerates Resources/AppIcon.iconset. Run from the repo root: swift Tools/makeicon.swift
+// Flat cream rounded square, ink hairline, one large lowercase italic "m" in EB Garamond Italic.
 
-// Matches `Brand` in HUDView.swift. Change both together.
-let accent = NSColor(srgbRed: 0.42, green: 0.55, blue: 1.00, alpha: 1)
-let accentWarm = NSColor(srgbRed: 0.76, green: 0.47, blue: 1.00, alpha: 1)
+let cream = CGColor(red: 1.0, green: 1.0, blue: 0.9216, alpha: 1)      // #FFFFEB
+let ink = CGColor(red: 0.1020, green: 0.1020, blue: 0.1020, alpha: 1)  // #1A1A1A
 
-/// Relative bar heights, center-weighted so the mark reads as a voice waveform rather
-/// than a bar chart.
-let bars: [CGFloat] = [0.30, 0.52, 0.78, 1.00, 0.82, 0.56, 0.34]
+let fontPath = "Resources/Fonts/EBGaramond-Italic[wght].ttf"
+let outputDirectory = "Resources/AppIcon.iconset"
 
-func drawIcon(size: CGFloat) -> NSImage {
-    let image = NSImage(size: NSSize(width: size, height: size))
-    image.lockFocus()
-    guard let ctx = NSGraphicsContext.current?.cgContext else {
-        image.unlockFocus()
-        return image
-    }
-    ctx.setShouldAntialias(true)
-    ctx.interpolationQuality = .high
+// Fractions of the canvas edge, following the macOS icon grid (824 of 1024 for the body).
+let bodyFraction: CGFloat = 824.0 / 1024.0
+let radiusFraction: CGFloat = 185.0 / 1024.0
+let hairlineFraction: CGFloat = 3.0 / 1024.0
+let glyphWidthFraction: CGFloat = 0.56    // width of the "m" outline relative to the canvas
 
-    // macOS Big Sur+ icon grid: art occupies the middle ~82%, leaving the shadow gutter
-    // the system expects.
-    let inset = size * 0.09
-    let rect = CGRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
-    // Apple's squircle is ~22.37% of the tile's edge.
-    let radius = rect.width * 0.2237
-
-    let squircle = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
-
-    // Drop shadow under the tile.
-    ctx.saveGState()
-    ctx.setShadow(
-        offset: CGSize(width: 0, height: -size * 0.012),
-        blur: size * 0.035,
-        color: NSColor.black.withAlphaComponent(0.30).cgColor
-    )
-    ctx.addPath(squircle)
-    ctx.setFillColor(accent.cgColor)
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    // Diagonal brand gradient.
-    ctx.saveGState()
-    ctx.addPath(squircle)
-    ctx.clip()
-    let gradient = CGGradient(
-        colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: [accent.cgColor, accentWarm.cgColor] as CFArray,
-        locations: [0, 1]
-    )!
-    ctx.drawLinearGradient(
-        gradient,
-        start: CGPoint(x: rect.minX, y: rect.maxY),
-        end: CGPoint(x: rect.maxX, y: rect.minY),
-        options: []
-    )
-
-    // Soft top highlight so the tile reads as glass rather than flat fill.
-    let highlight = CGGradient(
-        colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: [
-            NSColor.white.withAlphaComponent(0.28).cgColor,
-            NSColor.white.withAlphaComponent(0.0).cgColor,
-        ] as CFArray,
-        locations: [0, 1]
-    )!
-    ctx.drawLinearGradient(
-        highlight,
-        start: CGPoint(x: rect.midX, y: rect.maxY),
-        end: CGPoint(x: rect.midX, y: rect.midY),
-        options: []
-    )
-    ctx.restoreGState()
-
-    // Waveform mark.
-    let barWidth = rect.width * 0.072
-    let gap = rect.width * 0.050
-    let totalWidth = CGFloat(bars.count) * barWidth + CGFloat(bars.count - 1) * gap
-    let maxHeight = rect.height * 0.46
-    var x = rect.midX - totalWidth / 2
-
-    ctx.saveGState()
-    ctx.setShadow(
-        offset: CGSize(width: 0, height: -size * 0.004),
-        blur: size * 0.014,
-        color: NSColor.black.withAlphaComponent(0.22).cgColor
-    )
-    ctx.setFillColor(NSColor.white.cgColor)
-    for bar in bars {
-        let height = max(barWidth, maxHeight * bar)
-        let barRect = CGRect(x: x, y: rect.midY - height / 2, width: barWidth, height: height)
-        ctx.addPath(CGPath(
-            roundedRect: barRect,
-            cornerWidth: barWidth / 2,
-            cornerHeight: barWidth / 2,
-            transform: nil
-        ))
-        ctx.fillPath()
-        x += barWidth + gap
-    }
-    ctx.restoreGState()
-
-    image.unlockFocus()
-    return image
+guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(URL(fileURLWithPath: fontPath) as CFURL) as? [CTFontDescriptor],
+      let descriptor = descriptors.first else {
+    print("could not load \(fontPath)")
+    exit(1)
 }
 
-func png(_ image: NSImage, pixels: Int) -> Data? {
-    guard let rep = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: pixels, pixelsHigh: pixels,
-        bitsPerSample: 8, samplesPerPixel: 4,
-        hasAlpha: true, isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bytesPerRow: 0, bitsPerPixel: 0
+func render(pixels: Int) -> Data? {
+    guard let context = CGContext(
+        data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ) else { return nil }
-    rep.size = NSSize(width: pixels, height: pixels)
 
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    // Redraw at native pixel size rather than scaling a single render — keeps the small
-    // sizes crisp instead of muddy.
-    drawIcon(size: CGFloat(pixels)).draw(
-        in: NSRect(x: 0, y: 0, width: pixels, height: pixels),
-        from: .zero, operation: .sourceOver, fraction: 1
-    )
-    NSGraphicsContext.restoreGraphicsState()
+    let side = CGFloat(pixels)
+    context.setAllowsAntialiasing(true)
+    context.interpolationQuality = .high
 
-    return rep.representation(using: .png, properties: [:])
+    let body = side * bodyFraction
+    let rect = CGRect(x: (side - body) / 2, y: (side - body) / 2, width: body, height: body)
+    let radius = side * radiusFraction
+    let shape = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+
+    context.addPath(shape)
+    context.setFillColor(cream)
+    context.fillPath()
+
+    let hairline = max(1, side * hairlineFraction)
+    context.addPath(CGPath(roundedRect: rect.insetBy(dx: hairline / 2, dy: hairline / 2),
+                           cornerWidth: radius - hairline / 2, cornerHeight: radius - hairline / 2, transform: nil))
+    context.setStrokeColor(ink)
+    context.setLineWidth(hairline)
+    context.strokePath()
+
+    // Size the font so the m's own outline, not the em box, has the target width.
+    let probe = CTFontCreateWithFontDescriptor(descriptor, 1000, nil)
+    var character: UniChar = 0x6D
+    var glyph = CGGlyph()
+    guard CTFontGetGlyphsForCharacters(probe, &character, &glyph, 1) else { return nil }
+    guard let probePath = CTFontCreatePathForGlyph(probe, glyph, nil) else { return nil }
+    let probeBox = probePath.boundingBoxOfPath
+    let fontSize = 1000 * (side * glyphWidthFraction) / probeBox.width
+
+    let font = CTFontCreateWithFontDescriptor(descriptor, fontSize, nil)
+    guard let path = CTFontCreatePathForGlyph(font, glyph, nil) else { return nil }
+    let box = path.boundingBoxOfPath
+
+    // Centre the outline's bounding box on the canvas. The italic slant already shifts mass to
+    // the right at the top, so box centring reads as centred.
+    var move = CGAffineTransform(translationX: side / 2 - box.midX, y: side / 2 - box.midY)
+    guard let placed = path.copy(using: &move) else { return nil }
+    context.addPath(placed)
+    context.setFillColor(ink)
+    context.fillPath()
+
+    guard let image = context.makeImage() else { return nil }
+    return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
 }
 
-let fm = FileManager.default
-let root = URL(fileURLWithPath: fm.currentDirectoryPath)
-let iconset = root.appendingPathComponent("Resources/AppIcon.iconset")
-try? fm.removeItem(at: iconset)
-try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
-
-// (point size, scale) pairs iconutil expects.
-let variants: [(Int, Int)] = [
-    (16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2),
-    (256, 1), (256, 2), (512, 1), (512, 2),
+let outputs: [(String, Int)] = [
+    ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+    ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+    ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+    ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+    ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
 ]
 
-for (points, scale) in variants {
-    let pixels = points * scale
-    guard let data = png(NSImage(), pixels: pixels) else {
-        print("failed at \(pixels)px"); exit(1)
-    }
-    let suffix = scale == 2 ? "@2x" : ""
-    let name = "icon_\(points)x\(points)\(suffix).png"
-    try data.write(to: iconset.appendingPathComponent(name))
-}
+let fileManager = FileManager.default
+try? fileManager.removeItem(atPath: outputDirectory)
+try fileManager.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
 
-print("wrote \(variants.count) PNGs to Resources/AppIcon.iconset")
+for (name, pixels) in outputs {
+    guard let png = render(pixels: pixels) else {
+        print("failed to render \(pixels) x \(pixels)")
+        exit(1)
+    }
+    try png.write(to: URL(fileURLWithPath: outputDirectory).appendingPathComponent(name))
+}
+print("wrote \(outputs.count) PNGs to \(outputDirectory)")

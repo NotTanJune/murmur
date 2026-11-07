@@ -3,17 +3,18 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
-/// Which modifier key holds the mic open.
+/// The modifier key that holds the microphone open while it is down.
 enum PushToTalkKey: String, CaseIterable, Sendable {
     case rightOption
     case fn
     case rightCommand
 
+    /// Matches `NSEvent.keyCode` of the flags-changed event for the physical key.
     var keyCode: Int64 {
         switch self {
-        case .rightOption: Int64(kVK_RightOption)   // 61
-        case .fn: Int64(kVK_Function)               // 63
-        case .rightCommand: Int64(kVK_RightCommand) // 54
+        case .rightOption: 61  // kVK_RightOption
+        case .fn: 63  // kVK_Function
+        case .rightCommand: 54  // kVK_RightCommand
         }
     }
 
@@ -154,7 +155,7 @@ final class HotkeyMonitor: @unchecked Sendable {
             localMonitor = local
         }
 
-        Log.hotkey.info("listening for \(self.key.displayName)")
+        Log.hotkey.info("listening for \(self.key.displayName, privacy: .public)")
         return true
     }
 

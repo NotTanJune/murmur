@@ -1,13 +1,7 @@
 import SwiftUI
 
-/// Live-updating store behind the comparison window.
-///
-/// The window replaced a generated HTML file opened in the browser. That approach needed a
-/// `file://` URL, spawned a fresh tab on every open, and left stale tabs showing old data
-/// with no way to tell which was current. A window owned by the app has none of those
-/// problems: one instance, always live, nothing to refresh.
-@MainActor
-@Observable
+/// Feeds the comparison window, which updates live without a manual refresh.
+@MainActor @Observable
 final class RunStore {
     static let shared = RunStore()
 
@@ -25,13 +19,21 @@ final class RunStore {
         runs = snapshot
     }
 
-    /// Recordings grouped by comparison, newest first.
+    /// The comparison groups, newest first.
     var comparisons: [[DictationRun]] {
-        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
-            .values
+        var order: [String] = []
+        var groups: [String: [DictationRun]] = [:]
+        for run in runs {
+            guard let group = run.group else { continue }
+            if groups[group] == nil { order.append(group) }
+            groups[group, default: []].append(run)
+        }
+        return order
+            .compactMap { groups[$0] }
             .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
     }
 
+    /// Recordings made outside a comparison, newest first. Storage is oldest first.
     var singles: [DictationRun] {
         runs.filter { $0.group == nil }.reversed()
     }
@@ -47,14 +49,13 @@ struct ComparisonWindow: View {
             VStack(alignment: .leading, spacing: DS.Space.wide) {
                 header
                 recordBar
-
                 if store.runs.isEmpty {
                     emptyState
                 } else {
-                    ForEach(Array(store.comparisons.enumerated()), id: \.offset) { _, group in
-                        ComparisonCard(runs: group)
+                    ForEach(store.comparisons, id: \.first?.id) { runs in
+                        ComparisonCard(runs: runs)
                     }
-                    ForEach(Array(store.singles.enumerated()), id: \.offset) { _, run in
+                    ForEach(store.singles, id: \.id) { run in
                         SingleCard(run: run)
                     }
                 }
@@ -77,13 +78,13 @@ struct ComparisonWindow: View {
             Spacer()
             if !store.runs.isEmpty {
                 Button("Clear") { RunLog.clear() }
-                    .buttonStyle(FlowButtonStyle(kind: .secondary))
+                    .buttonStyle(KeyButtonStyle(kind: .secondary))
             }
         }
     }
 
-    /// One button that records every engine at once — no hotkeys, and the results appear in
-    /// this same window, so there's nowhere to go afterwards to read them.
+    /// One button starts every engine at once, no hotkeys, and the results land in this
+    /// window. `isActive` rather than `isRecording` keeps it showing stop through finishing.
     private var recordBar: some View {
         let isRecording = controller.state.isActive
 
@@ -113,6 +114,7 @@ struct ComparisonWindow: View {
 
     private func statusLine(isRecording: Bool) -> String {
         if isRecording { return "Click stop when you're done talking." }
+        // During a comparison the controller writes its progress here, then the transcript.
         if !controller.transcript.isEmpty { return controller.transcript }
         return WisprReader.isInstalled
             ? "Click record, talk, click stop. Apple, Parakeet and Wispr Flow all hear it."
@@ -133,32 +135,45 @@ struct ComparisonWindow: View {
 private struct ComparisonCard: View {
     let runs: [DictationRun]
 
-    /// Fastest first. The engines are *measured* sequentially, so arrival order reflects
-    /// which ran first, not which is quicker — sorting by measured time is what makes the
-    /// winner readable at a glance.
+    /// Wispr's row is timed differently from the rest (see `margin`), so it stays out of
+    /// the ranking.
+    private func isComparable(_ run: DictationRun) -> Bool {
+        run.engine != WisprReader.engineName
+    }
+
+    private var comparableRuns: [DictationRun] {
+        runs.filter { isComparable($0) }
+    }
+
+    /// Ordered by measured time, not arrival, since the engines run one after another.
+    /// Wispr Flow's row, when present, comes last.
     private var ranked: [DictationRun] {
-        runs.sorted { $0.processSeconds < $1.processSeconds }
+        comparableRuns.sorted { $0.processSeconds < $1.processSeconds }
+            + runs.filter { !isComparable($0) }
     }
 
-    /// How much faster the winner was, once both are in.
+    /// The winner's lead, defined once at least two comparable engines have reported. The
+    /// Wispr Flow time is a different measure (its own end-to-end latency, including a
+    /// network round trip and cloud cleanup) and is left out.
     private var margin: String? {
-        guard runs.count > 1,
-              let best = ranked.first,
-              let worst = ranked.last,
-              best.processSeconds > 0
-        else { return nil }
-        let ratio = worst.processSeconds / best.processSeconds
-        let delta = worst.processSeconds - best.processSeconds
-        guard delta > 0.005 else { return "tied" }
-        return String(format: "%@ %.1f× faster · %.2fs ahead", best.engine, ratio, delta)
+        let times = comparableRuns.sorted { $0.processSeconds < $1.processSeconds }
+        guard times.count >= 2, let fastest = times.first, let slowest = times.last,
+              fastest.processSeconds > 0 else { return nil }
+        let ratio = slowest.processSeconds / fastest.processSeconds
+        let delta = slowest.processSeconds - fastest.processSeconds
+        if delta <= 0.005 { return "tied" }
+        return "\(fastest.engine) is \(String(format: "%.1f", ratio))x faster, "
+            + "\(String(format: "%.2f", delta))s ahead"
     }
 
-    /// Case and punctuation are normalized away: Apple auto-punctuates and Parakeet
-    /// doesn't, and that's a formatting difference, not a recognition error.
+    /// Texts are compared ignoring case and punctuation, because engines format differently
+    /// (Apple punctuates, batch Parakeet does not) and that is not a recognition difference.
     private var verdict: (text: String, agrees: Bool) {
         if Set(runs.map(\.text)).count == 1 { return ("identical", true) }
-        let normalized = Set(runs.map {
-            $0.text.lowercased().split { !$0.isLetter && !$0.isNumber }.joined(separator: " ")
+        let normalized: Set<String> = Set(runs.map { run in
+            run.text.lowercased()
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .joined(separator: " ")
         })
         return normalized.count == 1 ? ("same words", true) : ("words differ", false)
     }
@@ -166,14 +181,16 @@ private struct ComparisonCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
             HStack(spacing: DS.Space.snug) {
-                Text(runs.first.map { "\($0.date.formatted(date: .omitted, time: .standard)) · held \($0.audioSeconds, format: .number.precision(.fractionLength(1)))s" } ?? "")
+                Text(runs.first.map {
+                    "\($0.date.formatted(date: .omitted, time: .standard)) · "
+                        + "\(String(format: "%.1f", $0.audioSeconds))s"
+                } ?? "")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Color.inkSecondary)
                 Spacer()
                 Tag(text: verdict.text, isHighlighted: verdict.agrees)
 
-                // Deletes the whole group: every engine here transcribed one utterance, so
-                // removing that utterance means removing all of its rows together.
+                // Deletes every row at once: the rows are one utterance seen by different engines.
                 if let group = runs.first?.group {
                     Button {
                         withAnimation(DS.Motion.panel) { RunLog.deleteGroup(group) }
@@ -181,7 +198,7 @@ private struct ComparisonCard: View {
                         Image(systemName: "trash")
                             .font(.system(size: DS.Icon.regular, weight: .semibold))
                     }
-                    .buttonStyle(FlowButtonStyle(kind: .secondary, compact: true))
+                    .buttonStyle(KeyButtonStyle(kind: .secondary, compact: true))
                     .help("Delete this comparison")
                     .accessibilityLabel("Delete comparison")
                 }
@@ -196,7 +213,7 @@ private struct ComparisonCard: View {
             } else if runs.count == 1 {
                 HStack(spacing: DS.Space.tight) {
                     ProgressView().controlSize(.small)
-                    Text("running second engine…")
+                    Text("The next engine is still running")
                 }
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
@@ -204,8 +221,12 @@ private struct ComparisonCard: View {
 
             Rectangle().fill(DS.Color.divider).frame(height: DS.Stroke.hairline)
 
-            ForEach(Array(ranked.enumerated()), id: \.offset) { index, run in
-                EngineRow(run: run, rank: index + 1, showRank: runs.count > 1)
+            ForEach(Array(ranked.enumerated()), id: \.element.id) { index, run in
+                EngineRow(
+                    run: run,
+                    rank: index + 1,
+                    showRank: isComparable(run) && comparableRuns.count >= 2
+                )
             }
         }
         .padding(DS.Space.roomy)
@@ -220,19 +241,28 @@ private struct EngineRow: View {
 
     private var isWinner: Bool { showRank && rank == 1 }
 
+    /// Wispr's time is its own end-to-end figure, not compute time, so it gets no
+    /// real-time multiple.
+    private var detail: String {
+        if run.engine == WisprReader.engineName {
+            return "Wispr's own end-to-end time, with network and cleanup · \(run.characters) characters"
+        }
+        return "\(String(format: "%.0f", run.realtimeFactor))x realtime · \(run.characters) characters"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.tight) {
             HStack(alignment: .firstTextBaseline) {
                 Tag(text: run.engine + (isWinner ? " · fastest" : ""), isHighlighted: isWinner)
                 Spacer()
-                Text("\(run.processSeconds, format: .number.precision(.fractionLength(2)))s")
+                Text("\(String(format: "%.2f", run.processSeconds))s")
                     .font(isWinner ? DS.Font.counterLarge : DS.Font.counter)
                     .foregroundStyle(DS.Color.ink)
             }
-            Text("\(run.realtimeFactor, format: .number.precision(.fractionLength(0)))× realtime · \(run.characters) chars")
+            Text(detail)
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
-            Text(run.text.isEmpty ? "(nothing recognized)" : run.text)
+            Text(run.text.isEmpty ? "Nothing recognized" : run.text)
                 .font(DS.Font.body)
                 .foregroundStyle(run.text.isEmpty ? DS.Color.inkSecondary : DS.Color.ink)
                 .textSelection(.enabled)
@@ -250,7 +280,7 @@ private struct SingleCard: View {
             HStack {
                 Tag(text: run.engine)
                 Spacer()
-                Text("\(run.processSeconds, format: .number.precision(.fractionLength(2)))s")
+                Text("\(String(format: "%.2f", run.processSeconds))s")
                     .font(DS.Font.counter)
                     .foregroundStyle(DS.Color.inkSecondary)
             }

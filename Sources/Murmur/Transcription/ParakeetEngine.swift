@@ -3,23 +3,21 @@ import CoreML
 import FluidAudio
 import Foundation
 
-/// NVIDIA Parakeet TDT 0.6B, compiled to CoreML and run on the Neural Engine via FluidAudio.
-///
-/// **Batch, not streaming.** Audio is accumulated while the key is held and transcribed in
-/// one pass on release. That's a deliberate trade: at ~100× realtime a 30-second utterance
-/// resolves in roughly a third of a second, which is imperceptible for push-to-talk — but
-/// it means no live text in the HUD while you speak, unlike Apple's engine.
-/// FluidAudio's `SlidingWindowAsrManager` would restore live partials at the cost of a
-/// more complex integration; see the note in `docs`.
+/// NVIDIA Parakeet TDT 0.6B compiled to Core ML and run on the Neural Engine through
+/// FluidAudio. This is the batch engine: it buffers audio during the hold and transcribes
+/// everything once at release. That is cheap (about 100 times real time) but means the HUD
+/// shows no live text while speaking, unlike Apple's engine. Live partials for this model
+/// come from `IncrementalParakeetEngine`, chosen by the "While speaking" timing setting;
+/// this type is the "On release" path and the compare-mode path.
 ///
 /// The same engine runs Underdog Bark 3.0 Clean: it is a Parakeet TDT v3 fine-tune with the
 /// identical component contract, so only the weights (`ParakeetModels.barkClean`) differ.
 actor ParakeetEngine: TranscriptionEngine {
     private let models: ParakeetModels
+    /// 16 kHz mono Float32 audio collected so far.
     private var samples: [Float] = []
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
-
-    /// Defaults to 16 kHz mono float32 — exactly what Parakeet is trained on.
+    /// FluidAudio's defaults (16 kHz mono Float32) are the format Parakeet was trained on.
     private let converter = AudioConverter()
 
     init(models: ParakeetModels = .shared) {
@@ -27,18 +25,17 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     func preferredInputFormat() async -> AVAudioFormat? {
-        // Parakeet is trained on 16 kHz mono; AudioCapture converts to whatever we ask for.
+        // Capture converts to whatever format the engine asks for.
         AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
     }
 
     func start() async throws -> AsyncThrowingStream<TranscriptionChunk, Error> {
         samples.removeAll(keepingCapacity: true)
-
         let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         self.continuation = continuation
 
-        // Force the (possibly very slow) first load to happen here rather than on release,
-        // so the user waits before speaking instead of losing an utterance to a timeout.
+        // The first load can be very slow. Paying for it here puts the wait before the user
+        // speaks, so no utterance is lost to a timeout.
         _ = try await models.manager()
 
         return stream
@@ -47,17 +44,9 @@ actor ParakeetEngine: TranscriptionEngine {
     func feed(_ chunk: AudioChunk) async {
         let buffer = chunk.buffer
         guard buffer.frameLength > 0 else { return }
-
-        // Delegated to FluidAudio's own converter rather than hand-rolled, for one reason
-        // that matters more than tidiness: `AsrManager.transcribe(_ samples: [Float])`
-        // performs **no resampling and no rate validation**. Feed it the wrong sample rate
-        // and it doesn't throw — it silently transcribes garbage.
-        //
-        // That's a live risk here. In compare mode the capture format is dictated by
-        // Apple's analyzer, and `bestAvailableAudioFormat` may legitimately return 8 kHz
-        // as well as 16 kHz. `resampleBuffer` normalizes whatever arrives to the 16 kHz
-        // mono float32 the model expects, and its Int16→Float path is bit-identical to
-        // dividing by 32768, so nothing is lost versus doing it by hand.
+        // The shared converter handles any capture format. In compare mode that is whatever
+        // Apple's analyzer asked for, and `AsrManager.transcribe` never checks the sample
+        // rate, so skipping this would produce silently wrong text.
         do {
             samples.append(contentsOf: try converter.resampleBuffer(buffer))
         } catch {
@@ -72,9 +61,8 @@ actor ParakeetEngine: TranscriptionEngine {
             samples.removeAll(keepingCapacity: true)
         }
 
-        // Parakeet's encoder needs a minimum window; a stray tap of the key isn't speech.
-        // Logged rather than silent — an unexpected drop to zero here is how the
-        // format bug above disguised itself as a fast, empty result.
+        // Under 0.1 s is an accidental key tap, not speech. The skip is logged because an
+        // earlier sample-rate bug showed up as a suspiciously fast empty result.
         guard samples.count >= 1_600 else {
             Log.speech.info("\(self.models.source.label, privacy: .public): skipped — only \(self.samples.count) samples captured")
             return
@@ -87,14 +75,13 @@ actor ParakeetEngine: TranscriptionEngine {
             let result = try await manager.transcribe(samples, decoderState: &decoderState)
             let elapsed = Date().timeIntervalSince(started)
             let audioSeconds = Double(samples.count) / 16_000
-
             Log.speech.info("""
                 \(self.models.source.label, privacy: .public): \(audioSeconds, format: .fixed(precision: 1))s audio in \
-                \(elapsed, format: .fixed(precision: 2))s (\(audioSeconds / max(elapsed, 0.0001), format: .fixed(precision: 0))× realtime)
+                \(elapsed, format: .fixed(precision: 2))s \
+                (\(audioSeconds / max(elapsed, 0.0001), format: .fixed(precision: 0))x realtime)
                 """)
 
-            continuation?.yield(
-                TranscriptionChunk(
+            continuation?.yield(TranscriptionChunk(
                     text: Self.cleanTranscript(result.text),
                     isFinal: true
                 )
@@ -113,17 +100,15 @@ actor ParakeetEngine: TranscriptionEngine {
         text
             .replacingOccurrences(of: "<unk>", with: "")
             .replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: " +([,.!?;:])", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: " +(?=[,.!?;:])", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
-/// Process-wide model cache.
-///
-/// Loading is expensive — ~470 MB downloaded on first ever run, then a few seconds from
-/// disk per process — and the models are immutable once loaded, so every dictation shares
-/// one instance rather than paying that per utterance. Its own actor because `static var`
-/// on `ParakeetEngine` would be unprotected global mutable state under Swift 6.
+/// The process-wide model cache. The first ever load downloads about 470 MB; later loads
+/// take seconds from disk. Loaded models are immutable, so one shared instance serves every
+/// dictation. It is an actor because Swift 6 rejects unprotected mutable static state on
+/// `ParakeetEngine`.
 actor ParakeetModels {
     enum Source: Sendable {
         /// NVIDIA's weights, fetched and cached by FluidAudio.
@@ -161,13 +146,15 @@ actor ParakeetModels {
     /// Whether NVIDIA's v3 models are already on disk, checked without loading them.
     /// Bark's equivalent is `BarkModelStore.isDownloaded`.
     ///
-    /// `nonisolated` and filesystem-based on purpose: the menu needs this synchronously
-    /// while drawing, and an in-memory "have I loaded yet" flag would wrongly report
-    /// "not downloaded" on every fresh launch.
+    /// This reads the disk, so it is correct straight after launch and can be called
+    /// synchronously while a menu draws; an in-memory flag would be wrong until the first load.
     nonisolated static var isDownloaded: Bool {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return false
+        }
         let encoder = support
-            .appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3/Encoder.mlmodelc")
+            .appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3", isDirectory: true)
+            .appendingPathComponent("Encoder.mlmodelc")
         return FileManager.default.fileExists(atPath: encoder.path)
     }
 
@@ -207,7 +194,8 @@ actor ParakeetModels {
         return models
     }
 
-    /// Loads once; concurrent callers await the same task rather than racing to download.
+    /// Loads at most once. Overlapping callers share one load task instead of each
+    /// downloading.
     func manager() async throws -> AsrManager {
         if let loaded { return loaded }
         if let loadTask { return try await loadTask.value.0 }
@@ -238,19 +226,18 @@ actor ParakeetModels {
             self.models = models
             return manager
         } catch {
-            // Don't cache a failed load — a transient download error shouldn't wedge the
-            // engine for the rest of the session.
+            // A failed load is not cached, so a transient error doesn't strand the session.
             loadTask = nil
             throw error
         }
     }
 
     private static func loadParakeetV3() async throws -> AsrModels {
-        // Built as a value first: os.Logger requires a literal interpolation, so a
-        // ternary can't be passed directly as the argument.
+        // The stage text is built first because `os.Logger` interpolation needs a plain
+        // value, so a conditional can't be written inline in the log call.
         let stage = isDownloaded
             ? "loading models from disk"
-            : "downloading models (~470 MB, one time)"
+            : "downloading the models (about 470 MB, once)"
         Log.speech.info("Parakeet: \(stage, privacy: .public)")
         return try await AsrModels.downloadAndLoad(version: .v3, encoderPrecision: .int8)
     }

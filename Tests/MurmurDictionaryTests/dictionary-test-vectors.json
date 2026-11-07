@@ -1,241 +1,137 @@
 {
   "$comment": [
-    "Behavioural contract for the dictionary correction pass.",
-    "",
-    "The corrector must run every case below and produce exactly the stated output. A change",
-    "to correction semantics starts here, not in the implementation.",
-    "",
-    "Rules under test:",
-    "  1. Whole matches only  - a rule must never bite into a longer word.",
-    "  2. Case-insensitive    - the trigger matches in any case; output is verbatim.",
-    "  3. Longest match first - a longer trigger wins over a shorter overlapping one.",
-    "  4. Glued words match   - parts may be separated by any number of spaces or hyphens,",
-    "                           including none at all.",
-    "  5. Disabled is inert   - a disabled entry changes nothing."
+    "Specification of DictionaryCorrector.apply. Change a vector first, watch it fail, then fix the code.",
+    "R1 eligibility: only enabled corrections with a usable trigger become rules; terms never rewrite.",
+    "R2 whole phrase: every trigger word, in order; a partial or reordered phrase never matches.",
+    "R3 right boundary: a letter or number of any script directly after the span blocks it; punctuation, apostrophes and hyphens do not.",
+    "R4 left boundary: the same on the left; start of text, hyphen, underscore and brackets allow a match.",
+    "R5 separators: between trigger words the input may hold any run of whitespace and hyphens, or nothing; a trigger's own separator style is irrelevant.",
+    "R6 case: matching ignores case in any script; the write text is inserted exactly as stored.",
+    "R7 replacement is literal text: no templates, no back-references, empty deletes, not trimmed, not rescanned by its own rule.",
+    "R8 trigger is literal: regex metacharacters match only themselves.",
+    "R9 ordering: longest stored trigger first, ties by entry order, length measured on the stored string.",
+    "R10 sequence: each rule sees the previous rules' output, so rules can chain on inserted text.",
+    "R11 reporting: one report per rule that matched, in run order; count is the matches seen; from is the first match as it stood.",
+    "R12 normalisation: trigger and text are compared as NFC; with a rule present the result is NFC, with none the text is untouched.",
+    "R13 boundaries beyond ASCII: emoji and symbols are boundaries, letters of other scripts are not.",
+    "Harness: text is compared by Unicode scalars; an expected correction may pin from; expected corrections are matched by to, count and, when given, from."
   ],
   "version": 1,
   "cases": [
     {
-      "name": "basic phrase replacement",
+      "name": "R1 disabled correction changes nothing",
       "entries": [
         {
           "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "I use cloud code every day.",
-      "expected": "I use Claude Code every day.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "glued together with no separator",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "I use CloudCode every day.",
-      "expected": "I use Claude Code every day.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "joined by a hyphen",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "I use Cloud-Code every day.",
-      "expected": "I use Claude Code every day.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "multiple spaces between parts",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "I use cloud  code every day.",
-      "expected": "I use Claude Code every day.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "trigger matches regardless of case",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "CLOUD CODE is great.",
-      "expected": "Claude Code is great.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "must not corrupt a longer word that starts the same way",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "Cloudflare fronts the cloudcodex service.",
-      "expected": "Cloudflare fronts the cloudcodex service.",
-      "expectedCorrections": []
-    },
-    {
-      "name": "must not touch the ordinary word alone",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "The cloud is fine and the code is fine.",
-      "expected": "The cloud is fine and the code is fine.",
-      "expectedCorrections": []
-    },
-    {
-      "name": "longest trigger wins over a shorter overlapping one",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud",
-          "write": "Claude"
-        },
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "cloud code",
-      "expected": "Claude Code",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "counts repeated hits",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "clawed code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "clawed code, then clawed code again, and clawed code.",
-      "expected": "Claude Code, then Claude Code again, and Claude Code.",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 3
-        }
-      ]
-    },
-    {
-      "name": "punctuation is a boundary",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "(cloud code), \"cloud code\"; cloud code!",
-      "expected": "(Claude Code), \"Claude Code\"; Claude Code!",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 3
-        }
-      ]
-    },
-    {
-      "name": "a possessive still matches - the apostrophe is not a letter",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
-        }
-      ],
-      "input": "cloud code's output",
-      "expected": "Claude Code's output",
-      "expectedCorrections": [
-        {
-          "to": "Claude Code",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "name": "a disabled entry changes nothing",
-      "entries": [
-        {
-          "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code",
+          "hear": "tail wind",
+          "write": "Tailwind",
           "isEnabled": false
         }
       ],
-      "input": "I use cloud code every day.",
-      "expected": "I use cloud code every day.",
+      "input": "I use tail wind daily",
+      "expected": "I use tail wind daily",
       "expectedCorrections": []
     },
     {
-      "name": "a term entry never rewrites text",
+      "name": "R1 disabled entry beside an enabled one, only the enabled fires",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "mongo db",
+          "write": "MongoDB",
+          "isEnabled": false
+        },
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "mongo db and oh auth",
+      "expected": "mongo db and OAuth",
+      "expectedCorrections": [
+        {
+          "to": "OAuth",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R1 term never rewrites, even when only the case differs",
       "entries": [
         {
           "kind": "term",
-          "write": "Anthropic"
+          "write": "Tailwind"
         }
       ],
-      "input": "anthropic makes models.",
-      "expected": "anthropic makes models.",
+      "input": "i like tailwind",
+      "expected": "i like tailwind",
       "expectedCorrections": []
     },
     {
-      "name": "single word trigger is honoured when asked for",
+      "name": "R1 term carrying a hear string stays inert",
+      "entries": [
+        {
+          "kind": "term",
+          "write": "Tailwind",
+          "hear": "tail wind"
+        }
+      ],
+      "input": "use tail wind",
+      "expected": "use tail wind",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R1 trigger of only spaces is inert",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "   ",
+          "write": "X"
+        }
+      ],
+      "input": "a b  c",
+      "expected": "a b  c",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R1 trigger of only hyphens is inert",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "---",
+          "write": "X"
+        }
+      ],
+      "input": "a - b -- c",
+      "expected": "a - b -- c",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R1 empty entries list is a no-op",
+      "entries": [],
+      "input": "Hello there",
+      "expected": "Hello there",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R1 list of only terms is a no-op",
+      "entries": [
+        {
+          "kind": "term",
+          "write": "Alpha"
+        },
+        {
+          "kind": "term",
+          "write": "Beta"
+        }
+      ],
+      "input": "alpha and beta",
+      "expected": "alpha and beta",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R1 single-word trigger works, no warning heuristics here",
       "entries": [
         {
           "kind": "correction",
@@ -243,8 +139,8 @@
           "write": "Vercel"
         }
       ],
-      "input": "Deployed on Vercell today.",
-      "expected": "Deployed on Vercel today.",
+      "input": "deploy on vercell now",
+      "expected": "deploy on Vercel now",
       "expectedCorrections": [
         {
           "to": "Vercel",
@@ -253,47 +149,449 @@
       ]
     },
     {
-      "name": "several independent rules in one pass",
+      "name": "R2 words in the wrong order do not match",
       "entries": [
         {
           "kind": "correction",
-          "hear": "clawed code",
-          "write": "Claude Code"
-        },
-        {
-          "kind": "correction",
-          "hear": "whisper flow",
-          "write": "Wispr Flow"
+          "hear": "read me",
+          "write": "README"
         }
       ],
-      "input": "clawed code beat whisper flow.",
-      "expected": "Claude Code beat Wispr Flow.",
+      "input": "me read the docs",
+      "expected": "me read the docs",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R2 one trigger word missing does not match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "read me",
+          "write": "README"
+        }
+      ],
+      "input": "please read the file",
+      "expected": "please read the file",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R2 an unrelated word between the parts does not match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "read me",
+          "write": "README"
+        }
+      ],
+      "input": "read the me",
+      "expected": "read the me",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R3 extra letters glued after the match block it",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "oh authority is not it",
+      "expected": "oh authority is not it",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R3 punctuation and a possessive after the match are boundaries",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "mongo db",
+          "write": "MongoDB"
+        }
+      ],
+      "input": "(mongo db) \"mongo db\"; mongo db! mongo db's",
+      "expected": "(MongoDB) \"MongoDB\"; MongoDB! MongoDB's",
       "expectedCorrections": [
         {
-          "to": "Claude Code",
-          "count": 1
-        },
+          "to": "MongoDB",
+          "count": 4,
+          "from": "mongo db"
+        }
+      ]
+    },
+    {
+      "name": "R3 a digit directly after blocks the match, a space before the digit does not",
+      "entries": [
         {
-          "to": "Wispr Flow",
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind4 and tail wind 4",
+      "expected": "tail wind4 and Tailwind 4",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
           "count": 1
         }
       ]
     },
     {
-      "name": "empty input is left alone",
+      "name": "R3 a hyphen then letters after the match still matches",
       "entries": [
         {
           "kind": "correction",
-          "hear": "cloud code",
-          "write": "Claude Code"
+          "hear": "tail wind",
+          "write": "Tailwind"
         }
       ],
-      "input": "",
-      "expected": "",
+      "input": "tail wind-css",
+      "expected": "Tailwind-css",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R3 a letter from another script directly after blocks the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind\u65e5\u672c\u8a9e and tail wind\u0434",
+      "expected": "tail wind\u65e5\u672c\u8a9e and tail wind\u0434",
       "expectedCorrections": []
     },
     {
-      "name": "replacement containing regex metacharacters is literal",
+      "name": "R4 letters directly before block the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "pooh auth",
+      "expected": "pooh auth",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R4 a digit directly before blocks the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "2oh auth",
+      "expected": "2oh auth",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R4 hyphen, underscore and opening bracket before allow the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "x-oh auth, y_oh auth, (oh auth",
+      "expected": "x-OAuth, y_OAuth, (OAuth",
+      "expectedCorrections": [
+        {
+          "to": "OAuth",
+          "count": 3,
+          "from": "oh auth"
+        }
+      ]
+    },
+    {
+      "name": "R4 start of the text allows the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oh auth",
+          "write": "OAuth"
+        }
+      ],
+      "input": "oh auth rocks",
+      "expected": "OAuth rocks",
+      "expectedCorrections": [
+        {
+          "to": "OAuth",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R5 space, nothing, hyphen and doubled space all match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind, tailwind, tail-wind, tail  wind",
+      "expected": "Tailwind, Tailwind, Tailwind, Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 4,
+          "from": "tail wind"
+        }
+      ]
+    },
+    {
+      "name": "R5 hyphen with spaces and doubled hyphens match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail - wind and tail--wind and tail -- wind",
+      "expected": "Tailwind and Tailwind and Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 3,
+          "from": "tail - wind"
+        }
+      ]
+    },
+    {
+      "name": "R5 a tab between the words matches",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "a tail\twind b",
+      "expected": "a Tailwind b",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1,
+          "from": "tail\twind"
+        }
+      ]
+    },
+    {
+      "name": "R5 a newline between the words matches and the whole span is replaced",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "so tail\nwind works",
+      "expected": "so Tailwind works",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1,
+          "from": "tail\nwind"
+        }
+      ]
+    },
+    {
+      "name": "R5 a no-break space between the words matches",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail\u00a0wind",
+      "expected": "Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R5 a mixed run of space, hyphen and tab matches",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail -\t- wind",
+      "expected": "Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1,
+          "from": "tail -\t- wind"
+        }
+      ]
+    },
+    {
+      "name": "R5 separators outside the match stay in the output",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "x -tail wind- y",
+      "expected": "x -Tailwind- y",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R5 a trigger written with a hyphen behaves like the spaced one",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail-wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind and tailwind",
+      "expected": "Tailwind and Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "R5 a trigger with doubled and edge spaces behaves like the clean one",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "  tail   wind  ",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind",
+      "expected": "Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R6 mixed-case input matches",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "mongo db",
+          "write": "MongoDB"
+        }
+      ],
+      "input": "Mongo Db and mONGO dB",
+      "expected": "MongoDB and MongoDB",
+      "expectedCorrections": [
+        {
+          "to": "MongoDB",
+          "count": 2,
+          "from": "Mongo Db"
+        }
+      ]
+    },
+    {
+      "name": "R6 a lowercase write stays lowercase over capitalised input",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "read me",
+          "write": "readme"
+        }
+      ],
+      "input": "Read Me first",
+      "expected": "readme first",
+      "expectedCorrections": [
+        {
+          "to": "readme",
+          "count": 1,
+          "from": "Read Me"
+        }
+      ]
+    },
+    {
+      "name": "R6 case folding covers accented capitals",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "\u00e9cole normale",
+          "write": "\u00c9cole Normale"
+        }
+      ],
+      "input": "\u00c9COLE NORMALE",
+      "expected": "\u00c9cole Normale",
+      "expectedCorrections": [
+        {
+          "to": "\u00c9cole Normale",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R6 case folding covers Cyrillic",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "\u043f\u0440\u0438\u0432\u0435\u0442 \u043c\u0438\u0440",
+          "write": "\u041f\u0440\u0438\u0432\u0435\u0442, \u043c\u0438\u0440"
+        }
+      ],
+      "input": "\u041f\u0420\u0418\u0412\u0415\u0422 \u041c\u0418\u0420",
+      "expected": "\u041f\u0440\u0438\u0432\u0435\u0442, \u043c\u0438\u0440",
+      "expectedCorrections": [
+        {
+          "to": "\u041f\u0440\u0438\u0432\u0435\u0442, \u043c\u0438\u0440",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R7 write with dollar, ampersand and backslash is literal",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "price tag",
+          "write": "$1 & \\0 $0 \\n"
+        }
+      ],
+      "input": "the price tag here",
+      "expected": "the $1 & \\0 $0 \\n here",
+      "expectedCorrections": [
+        {
+          "to": "$1 & \\0 $0 \\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R7 write with plus signs is literal",
       "entries": [
         {
           "kind": "correction",
@@ -301,8 +599,8 @@
           "write": "C++"
         }
       ],
-      "input": "I write c plus plus.",
-      "expected": "I write C++.",
+      "input": "I write c plus plus",
+      "expected": "I write C++",
       "expectedCorrections": [
         {
           "to": "C++",
@@ -311,41 +609,802 @@
       ]
     },
     {
-      "name": "trigger containing regex metacharacters is literal",
+      "name": "R7 write starting with a dot is literal",
       "entries": [
         {
           "kind": "correction",
-          "hear": "dot net",
-          "write": ".NET"
+          "hear": "dot env",
+          "write": ".env"
         }
       ],
-      "input": "Built with dot net.",
-      "expected": "Built with .NET.",
+      "input": "open dot env",
+      "expected": "open .env",
       "expectedCorrections": [
         {
-          "to": ".NET",
+          "to": ".env",
           "count": 1
         }
       ]
     },
     {
-      "name": "accented trigger matches decomposed input (NFC normalization)",
-      "$comment": "macOS hands back NFD strings from several APIs. Without normalizing both sides, an accented trigger silently never fires. Input here is deliberately NFD.",
+      "name": "R7 write that contains its own trigger is not rescanned",
       "entries": [
         {
           "kind": "correction",
-          "hear": "café racer",
-          "write": "Café Racer"
+          "hear": "fox",
+          "write": "red fox"
         }
       ],
-      "input": "a café racer bike",
-      "expected": "a Café Racer bike",
+      "input": "a fox",
+      "expected": "a red fox",
       "expectedCorrections": [
         {
-          "to": "Café Racer",
+          "to": "red fox",
+          "count": 1,
+          "from": "fox"
+        }
+      ]
+    },
+    {
+      "name": "R7 empty write deletes the span",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "um sure",
+          "write": ""
+        }
+      ],
+      "input": "well um sure fine",
+      "expected": "well  fine",
+      "expectedCorrections": [
+        {
+          "to": "",
+          "count": 1,
+          "from": "um sure"
+        }
+      ]
+    },
+    {
+      "name": "R7 write is not trimmed",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "big apple",
+          "write": "  NYC "
+        }
+      ],
+      "input": "visit big apple",
+      "expected": "visit   NYC ",
+      "expectedCorrections": [
+        {
+          "to": "  NYC ",
           "count": 1
         }
       ]
+    },
+    {
+      "name": "R8 dot in a trigger matches only a dot",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "node.js",
+          "write": "Node.js"
+        }
+      ],
+      "input": "node.js and nodexjs and NODE.JS",
+      "expected": "Node.js and nodexjs and Node.js",
+      "expectedCorrections": [
+        {
+          "to": "Node.js",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "R8 plus signs in a trigger match only themselves",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "c++",
+          "write": "C plus plus"
+        }
+      ],
+      "input": "c++ and cc and c",
+      "expected": "C plus plus and cc and c",
+      "expectedCorrections": [
+        {
+          "to": "C plus plus",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 dollar in a trigger matches only a dollar",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "$ymbol",
+          "write": "Symbol"
+        }
+      ],
+      "input": "the $ymbol and ymbol",
+      "expected": "the Symbol and ymbol",
+      "expectedCorrections": [
+        {
+          "to": "Symbol",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 parentheses in a trigger match only themselves",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "f(x)",
+          "write": "f of x"
+        }
+      ],
+      "input": "compute f(x) and fx and f(y)",
+      "expected": "compute f of x and fx and f(y)",
+      "expectedCorrections": [
+        {
+          "to": "f of x",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 brackets in a trigger match only themselves",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "a[0]",
+          "write": "first item"
+        }
+      ],
+      "input": "see a[0] and a0",
+      "expected": "see first item and a0",
+      "expectedCorrections": [
+        {
+          "to": "first item",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 star in a trigger matches only a star",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "what*",
+          "write": "wildcard"
+        }
+      ],
+      "input": "what* and whatt and wha",
+      "expected": "wildcard and whatt and wha",
+      "expectedCorrections": [
+        {
+          "to": "wildcard",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 question mark in a trigger matches only itself",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "why?",
+          "write": "because"
+        }
+      ],
+      "input": "ask why? or why",
+      "expected": "ask because or why",
+      "expectedCorrections": [
+        {
+          "to": "because",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 pipe in a trigger matches only a pipe",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "a|b",
+          "write": "a or b"
+        }
+      ],
+      "input": "a|b and a b",
+      "expected": "a or b and a b",
+      "expectedCorrections": [
+        {
+          "to": "a or b",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R8 backslash in a trigger matches only a backslash",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "c:\\temp",
+          "write": "C drive temp"
+        }
+      ],
+      "input": "in c:\\temp now",
+      "expected": "in C drive temp now",
+      "expectedCorrections": [
+        {
+          "to": "C drive temp",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R9 shorter entry listed first still loses to the longer",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "TW"
+        },
+        {
+          "kind": "correction",
+          "hear": "tail wind css",
+          "write": "TW-CSS"
+        }
+      ],
+      "input": "use tail wind css",
+      "expected": "use TW-CSS",
+      "expectedCorrections": [
+        {
+          "to": "TW-CSS",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R9 longer entry listed first wins as well",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind css",
+          "write": "TW-CSS"
+        },
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "TW"
+        }
+      ],
+      "input": "use tail wind css",
+      "expected": "use TW-CSS",
+      "expectedCorrections": [
+        {
+          "to": "TW-CSS",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R9 three overlapping lengths resolve longest first",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "wind",
+          "write": "W"
+        },
+        {
+          "kind": "correction",
+          "hear": "tail wind css v4",
+          "write": "TWC4"
+        },
+        {
+          "kind": "correction",
+          "hear": "tail wind css",
+          "write": "TWC"
+        }
+      ],
+      "input": "tail wind css v4 and tail wind css and wind",
+      "expected": "TWC4 and TWC and W",
+      "expectedCorrections": [
+        {
+          "to": "TWC4",
+          "count": 1,
+          "from": "tail wind css v4"
+        },
+        {
+          "to": "TWC",
+          "count": 1,
+          "from": "tail wind css"
+        },
+        {
+          "to": "W",
+          "count": 1,
+          "from": "wind"
+        }
+      ]
+    },
+    {
+      "name": "R9 equal lengths keep entry order, first listed wins",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "red fox",
+          "write": "RF"
+        },
+        {
+          "kind": "correction",
+          "hear": "fox den",
+          "write": "FD"
+        }
+      ],
+      "input": "red fox den",
+      "expected": "RF den",
+      "expectedCorrections": [
+        {
+          "to": "RF",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R9 equal lengths keep entry order, reversed",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "fox den",
+          "write": "FD"
+        },
+        {
+          "kind": "correction",
+          "hear": "red fox",
+          "write": "RF"
+        }
+      ],
+      "input": "red fox den",
+      "expected": "red FD",
+      "expectedCorrections": [
+        {
+          "to": "FD",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R9 length is measured on the stored string, stray spaces sort first",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "red fox",
+          "write": "RF"
+        },
+        {
+          "kind": "correction",
+          "hear": " fox den ",
+          "write": "FD"
+        }
+      ],
+      "input": "red fox den",
+      "expected": "red FD",
+      "expectedCorrections": [
+        {
+          "to": "FD",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R10 a shorter rule matches text inserted by a longer rule",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "fox",
+          "write": "hound"
+        },
+        {
+          "kind": "correction",
+          "hear": "red fox den",
+          "write": "Red Fox"
+        }
+      ],
+      "input": "the red fox den",
+      "expected": "the Red hound",
+      "expectedCorrections": [
+        {
+          "to": "Red Fox",
+          "count": 1,
+          "from": "red fox den"
+        },
+        {
+          "to": "hound",
+          "count": 1,
+          "from": "Fox"
+        }
+      ]
+    },
+    {
+      "name": "R10 rule B whose trigger equals rule A's write chains",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "oauth2",
+          "write": "OAuth 2.0"
+        },
+        {
+          "kind": "correction",
+          "hear": "oh auth two",
+          "write": "OAuth2"
+        }
+      ],
+      "input": "use oh auth two now",
+      "expected": "use OAuth 2.0 now",
+      "expectedCorrections": [
+        {
+          "to": "OAuth2",
+          "count": 1,
+          "from": "oh auth two"
+        },
+        {
+          "to": "OAuth 2.0",
+          "count": 1,
+          "from": "OAuth2"
+        }
+      ]
+    },
+    {
+      "name": "R10 equivalent triggers differing in case and separator never both fire",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "Tail Wind",
+          "write": "TW"
+        },
+        {
+          "kind": "correction",
+          "hear": "tail-wind",
+          "write": "TailW"
+        }
+      ],
+      "input": "tail wind",
+      "expected": "TW",
+      "expectedCorrections": [
+        {
+          "to": "TW",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R11 three hits count as three",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "tail wind tail wind tail wind",
+      "expected": "Tailwind Tailwind Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "name": "R11 several independent rules are each reported once",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        },
+        {
+          "kind": "correction",
+          "hear": "mongo db",
+          "write": "MongoDB"
+        }
+      ],
+      "input": "mongo db with tail wind",
+      "expected": "MongoDB with Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "MongoDB",
+          "count": 1
+        },
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R11 no hit reports nothing",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "nothing here",
+      "expected": "nothing here",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R11 empty input returns empty",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "",
+      "expected": "",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R11 a rule that rewrites to identical text still counts",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "github",
+          "write": "GitHub"
+        }
+      ],
+      "input": "push to GitHub",
+      "expected": "push to GitHub",
+      "expectedCorrections": [
+        {
+          "to": "GitHub",
+          "count": 1,
+          "from": "GitHub"
+        }
+      ]
+    },
+    {
+      "name": "R11 two rules with the same write give two reports",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "clawed code",
+          "write": "Claude Code"
+        },
+        {
+          "kind": "correction",
+          "hear": "cloud code",
+          "write": "Claude Code"
+        }
+      ],
+      "input": "clawed code and cloud code",
+      "expected": "Claude Code and Claude Code",
+      "expectedCorrections": [
+        {
+          "to": "Claude Code",
+          "count": 1,
+          "from": "clawed code"
+        },
+        {
+          "to": "Claude Code",
+          "count": 1,
+          "from": "cloud code"
+        }
+      ]
+    },
+    {
+      "name": "R11 from shows the first real match and count covers all",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "TAIL-WIND and tail  wind",
+      "expected": "Tailwind and Tailwind",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 2,
+          "from": "TAIL-WIND"
+        }
+      ]
+    },
+    {
+      "name": "R12 composed trigger, decomposed input",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "caf\u00e9",
+          "write": "Caf\u00e9"
+        }
+      ],
+      "input": "un cafe\u0301 noir",
+      "expected": "un Caf\u00e9 noir",
+      "expectedCorrections": [
+        {
+          "to": "Caf\u00e9",
+          "count": 1,
+          "from": "caf\u00e9"
+        }
+      ]
+    },
+    {
+      "name": "R12 decomposed trigger, composed input",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "cafe\u0301",
+          "write": "Caf\u00e9"
+        }
+      ],
+      "input": "un caf\u00e9 noir",
+      "expected": "un Caf\u00e9 noir",
+      "expectedCorrections": [
+        {
+          "to": "Caf\u00e9",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R12 decomposed trigger and decomposed input",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "cafe\u0301",
+          "write": "Caf\u00e9"
+        }
+      ],
+      "input": "cafe\u0301",
+      "expected": "Caf\u00e9",
+      "expectedCorrections": [
+        {
+          "to": "Caf\u00e9",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R12 decomposed accent on the left boundary letter blocks",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "mon ami",
+          "write": "M.A."
+        }
+      ],
+      "input": "e\u0301mon ami",
+      "expected": "\u00e9mon ami",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R12 decomposed accent on the right boundary letter blocks",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "mon ami",
+          "write": "M.A."
+        }
+      ],
+      "input": "mon amie\u0301",
+      "expected": "mon ami\u00e9",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R12 text that matches nothing still comes back composed",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "cafe\u0301 here",
+      "expected": "caf\u00e9 here",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R12 with no rules decomposed text is returned untouched",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [],
+      "input": "cafe\u0301 here",
+      "expected": "cafe\u0301 here",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R12 with only terms decomposed text is returned untouched",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "term",
+          "write": "Cafe"
+        }
+      ],
+      "input": "cafe\u0301 here",
+      "expected": "cafe\u0301 here",
+      "expectedCorrections": []
+    },
+    {
+      "name": "R12 a decomposed write is inserted as stored",
+      "$comment": "Decomposed text is written with escapes so an editor or git cannot recompose it.",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "cafe",
+          "write": "cafe\u0301"
+        }
+      ],
+      "input": "a cafe b",
+      "expected": "a cafe\u0301 b",
+      "expectedCorrections": [
+        {
+          "to": "cafe\u0301",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R13 emoji next to the span do not block it",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "\ud83d\udc4dtail wind\ud83c\udf89",
+      "expected": "\ud83d\udc4dTailwind\ud83c\udf89",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R13 symbols next to the span do not block it",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "$tail wind%",
+      "expected": "$Tailwind%",
+      "expectedCorrections": [
+        {
+          "to": "Tailwind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "R13 a CJK letter directly before blocks the match",
+      "entries": [
+        {
+          "kind": "correction",
+          "hear": "tail wind",
+          "write": "Tailwind"
+        }
+      ],
+      "input": "\u65e5tail wind",
+      "expected": "\u65e5tail wind",
+      "expectedCorrections": []
     }
   ]
 }

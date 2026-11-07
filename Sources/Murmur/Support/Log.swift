@@ -1,5 +1,6 @@
 import OSLog
 
+/// Loggers shared across the app, one category per subsystem area.
 enum Log {
     static let audio = Logger(subsystem: "ai.pivotstudio.murmur", category: "audio")
     static let speech = Logger(subsystem: "ai.pivotstudio.murmur", category: "speech")

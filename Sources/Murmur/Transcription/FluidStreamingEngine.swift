@@ -7,6 +7,8 @@ actor FluidStreamingEngine: TranscriptionEngine {
     private let manager: any StreamingAsrManager
     private var tail: Task<Void, Never>?
     private var loaded = false
+    /// The current session's output. Non-nil means a session is open; touched only inside
+    /// the serialized operations.
     private var continuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
     private var receivedAudio = false
 

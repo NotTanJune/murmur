@@ -6,12 +6,10 @@
 	<string>Murmur</string>
 	<key>CFBundleDisplayName</key>
 	<string>Murmur</string>
-	<!-- Deliberately space-free and distinct from the existing app's `murmur`, so that
-	     `pkill`/`killall` on either app can never match the other. -->
+	<!-- No spaces and an exact-case match target for pkill -x. -->
 	<key>CFBundleExecutable</key>
 	<string>Murmur</string>
-	<!-- Separate from the existing Murmur's com.murmur.client: distinct TCC identity,
-	     distinct preferences domain, no shared state of any kind. -->
+	<!-- TCC grants and preferences key on this ID. Changing it drops every grant. -->
 	<key>CFBundleIdentifier</key>
 	<string>ai.pivotstudio.murmur</string>
 	<key>CFBundlePackageType</key>
@@ -22,11 +20,10 @@
 	<string>1</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- Relative to Contents/Resources: EB Garamond and Figtree, registered at launch. -->
+	<!-- Folder under Contents/Resources holding Fraunces and Figtree. -->
 	<key>ATSApplicationFontsPath</key>
 	<string>Fonts</string>
-	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
-	     write files or talk to a process, but it can follow a custom-scheme link. -->
+	<!-- murmur:// links are how the local dashboard page sends actions to the app. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -40,15 +37,14 @@
 	</array>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
-	<!-- A regular app: dock icon, app menu, standard windows. The menu bar item remains
-	     for status and the hotkey while you're working elsewhere, but it is secondary. -->
+	<!-- False keeps the Dock icon and app menu alongside the menu bar item. -->
 	<key>LSUIElement</key>
 	<false/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Murmur listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<string>Murmur records your voice while the dictation key is held, then converts it to text on this Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Murmur transcribes your speech on-device to insert text where you're typing.</string>
+	<string>Murmur uses on-device speech recognition to type what you say into the focused field.</string>
 </dict>
 </plist>

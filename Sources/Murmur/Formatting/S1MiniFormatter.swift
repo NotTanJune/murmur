@@ -22,17 +22,18 @@ struct S1MiniFormatter: TextFormatter {
             return await fallback.format(trimmed)
         }
 
-        // Generation runs at about 165 tokens/s on an M2: a 135-word paragraph took 1.2 s.
-        // The budget grows with length so long dictation isn't cut off at a fixed limit.
+        // The budget grows with the text and with how slow this machine has measured, so a
+        // long dictation under load is not cut off at the idle figure (see S1MiniEngine).
         let words = trimmed.split(whereSeparator: \.isWhitespace).count
-        let budget = Duration.milliseconds(1_500 + words * 20)
+        let budget = await engine.budget(forWords: words)
+        let startedAt = ContinuousClock.now
 
         do {
-            let cleaned = try await withThrowingTaskGroup(of: String.self) { group in
+            let cleaned: String = try await withThrowingTaskGroup(of: String.self) { group in
                 group.addTask { try await engine.clean(trimmed, profile: profile) }
                 group.addTask {
                     try await Task.sleep(for: budget)
-                    throw CancellationError()
+                    throw S1MiniError.budgetExceeded
                 }
                 guard let first = try await group.next() else { throw CancellationError() }
                 group.cancelAll()
@@ -49,6 +50,9 @@ struct S1MiniFormatter: TextFormatter {
             }
             return cleaned
         } catch {
+            if case S1MiniError.budgetExceeded = error {
+                await engine.noteTimeout(words: words, elapsed: ContinuousClock.now - startedAt)
+            }
             Log.speech.info("S1-mini cleanup failed (\(error.localizedDescription, privacy: .public)) — falling back")
             return await fallback.format(trimmed)
         }

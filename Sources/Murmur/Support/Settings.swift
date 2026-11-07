@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Observation
 
-/// Which speech engine transcribes an utterance.
+/// Names which speech engine transcribes an utterance. Raw values are persisted.
 enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case apple
     case parakeet
@@ -178,13 +178,13 @@ final class Settings {
         didSet { defaults.set(engine.rawValue, forKey: Keys.engine) }
     }
 
-    /// Run every engine on each recording and show them side by side, instead of
-    /// transcribing with one. Nothing is typed into the focused app in this mode.
+    /// Runs every engine on each recording and shows them side by side instead of
+    /// transcribing with one. This mode never types into the focused app.
     var compareMode: Bool {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
 
-    /// Run the cleanup pass before injecting. Off = raw engine output.
+    /// Runs the cleanup pass before injecting; off means raw engine output.
     var cleanupEnabled: Bool {
         didSet { defaults.set(cleanupEnabled, forKey: Keys.cleanupEnabled) }
     }
@@ -225,7 +225,8 @@ final class Settings {
         didSet { defaults.set(idleUnload.rawValue, forKey: Keys.idleUnload) }
     }
 
-    /// Play a short tick when capture starts and stops.
+    /// Plays a short tick when capture starts and stops; also gates the compare-mode
+    /// completion sound.
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
@@ -272,10 +273,12 @@ final class Settings {
     /// Internal rather than private so tests can migrate a throwaway defaults suite.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let raw = defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.rightOption.rawValue
-        pushToTalkKey = PushToTalkKey(rawValue: raw) ?? .rightOption
-        // Apple by default: no download, no dependency, live text while speaking.
+        pushToTalkKey = PushToTalkKey(
+            rawValue: defaults.string(forKey: Keys.pushToTalkKey) ?? PushToTalkKey.rightOption.rawValue
+        ) ?? .rightOption
+        // Apple needs no download or extra dependency and shows live text while you speak.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
+        // `object(forKey:)`, because `bool(forKey:)` cannot tell a stored false from no value.
         cleanupEnabled = defaults.object(forKey: Keys.cleanupEnabled) as? Bool ?? true
         let legacySmartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? false
         cleanupEngine = CleanupEngine(rawValue: defaults.string(forKey: Keys.cleanupEngine) ?? "")

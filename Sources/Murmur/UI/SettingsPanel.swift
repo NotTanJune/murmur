@@ -136,7 +136,7 @@ struct SettingsPanel: View {
                                 Button(status == .loading ? "Loading model…" : "Load model") {
                                     models.load(settings.engine)
                                 }
-                                .buttonStyle(FlowButtonStyle(kind: .secondary))
+                                .buttonStyle(KeyButtonStyle(kind: .secondary))
                                 .disabled(controller.state.isActive || status == .loading)
                             }
                             Note(text: status.message)
@@ -179,7 +179,7 @@ struct SettingsPanel: View {
                     let pending = TrainingExport.pending(store.runs, corrector: DictionaryStore.shared.corrector)
                     HStack(spacing: DS.Space.base) {
                         Button("Export \(pending.count) labelled run\(pending.count == 1 ? "" : "s")") { export() }
-                            .buttonStyle(FlowButtonStyle(kind: .secondary))
+                            .buttonStyle(KeyButtonStyle(kind: .secondary))
                             .disabled(pending.count == 0)
                         Note(text: String(format: "%.1f minutes of corrected speech since the last export.", pending.seconds / 60))
                     }
@@ -203,7 +203,7 @@ struct SettingsPanel: View {
                     }
                     HStack(spacing: DS.Space.base) {
                         Button("Install fine-tuned decoder…") { importSlot() }
-                            .buttonStyle(FlowButtonStyle(kind: .secondary))
+                            .buttonStyle(KeyButtonStyle(kind: .secondary))
                         if case .custom(let name) = settings.barkDecoder {
                             Button("Remove \(name)") {
                                 settings.barkDecoder = .stock
@@ -211,7 +211,7 @@ struct SettingsPanel: View {
                                 slots = CustomDecoderSlot.installed()
                                 Task { try? await ParakeetModels.barkClean.reload() }
                             }
-                            .buttonStyle(FlowButtonStyle(kind: .secondary))
+                            .buttonStyle(KeyButtonStyle(kind: .secondary))
                         }
                     }
                     if let trainingMessage {
@@ -251,7 +251,7 @@ struct SettingsPanel: View {
                                     Button(s1Mini.state.isBusy ? "Loading S1-mini…" : "Load S1-mini") {
                                         s1Mini.start()
                                     }
-                                    .buttonStyle(FlowButtonStyle(kind: .secondary))
+                                    .buttonStyle(KeyButtonStyle(kind: .secondary))
                                     .disabled(s1Mini.state.isBusy)
                                 }
                                 Note(text: s1Mini.state.message)

@@ -1,19 +1,17 @@
-# macOS build
+# SwiftPM and Xcode output
 .build/
+.swiftpm/
 *.xcuserdatad
 .DS_Store
 
-# Built .app bundles, at the repo root ONLY.
-#
-# Anchored deliberately: macOS filesystems are case-insensitive, so an unanchored `*.app/`
-# also matches any source folder whose name ends in ".App".
+# Built bundles at the repo root. The pattern is anchored because macOS paths are case-insensitive,
+# so an unanchored `*.app/` would also match a source folder ending in ".App".
 /*.app/
 
-# Local ASR model weights. Large, redistributed under their own license, and fetched by the
-# app itself.
+# Model weights. The app downloads them and they carry their own licenses.
 models/
 *.onnx
 *.nemo
 
-# Written by xcodebuild when `make app` builds the package.
-.swiftpm/
+# Coverage output
+*.profraw

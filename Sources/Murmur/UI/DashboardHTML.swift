@@ -1,239 +1,277 @@
 import Foundation
 
-/// Renders the live comparison page. Self-contained, theme-aware, auto-refreshing.
+/// The legacy HTML results page. The in-app comparison window replaced it, but the app
+/// still writes it beside the history file and `murmur://` links still point at it.
+///
+/// Pure and nonisolated: `RunLog` calls it from its serial history queue.
 enum DashboardHTML {
-    static func render(runs: [DictationRun], compareMode: Bool = false, key: String = "Right \u{2325}") -> String {
-        let byEngine = Dictionary(grouping: runs, by: \.engine)
-        let summary = byEngine
-            .map { engine, runs in EngineSummary(engine: engine, runs: runs) }
-            .sorted { $0.engine < $1.engine }
-
-        // Comparison groups first — they're the reason this page exists.
-        let groups = Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
-            .sorted { ($0.value.first?.date ?? .distantPast) > ($1.value.first?.date ?? .distantPast) }
-        let ungrouped = runs.filter { $0.group == nil }
-
-        let body = runs.isEmpty
-            ? emptyState(compareMode: compareMode, key: key)
-            : """
-              \(groups.isEmpty ? "" : "<h2 class=\"sec\">Head to head</h2>")
-              \(groups.map { comparisonBlock(runs: $0.value) }.joined())
-              \(summary.isEmpty ? "" : "<h2 class=\"sec\">Overall</h2>")
-              <div class="grid">\(summary.map(summaryCard).joined())</div>
-              \(ungrouped.isEmpty ? "" : runsTable(ungrouped.reversed()))
-              """
+    static func render(
+        runs: [DictationRun],
+        compareMode: Bool = false,
+        key: String = "Right \u{2325}"
+    ) -> String {
+        var body = ""
+        body += "<h1>Murmur engine comparison</h1>\n"
+        body += statusBar(count: runs.count)
+        if runs.isEmpty {
+            body += emptyState(compareMode: compareMode, key: key)
+        } else {
+            body += groupsSection(runs)
+            body += totalsSection(runs)
+            body += tableSection(runs)
+        }
+        body += footer
 
         return """
         <!doctype html>
-        <html lang="en"><head>
+        <html lang="en">
+        <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <!-- The app rewrites this file after every dictation; the page just reloads. -->
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="refresh" content="3">
-        <title>Murmur — engine comparison</title>
+        <title>Murmur: engine comparison</title>
         <style>
-        :root{--bg:#fbfbfd;--panel:#fff;--ink:#1d1d1f;--muted:#6e6e73;--line:#e3e3e8;
-              --accent:#6b8cff;--accent2:#c278ff;--good:#1a9c5b;}
-        @media (prefers-color-scheme:dark){:root{--bg:#0f0f12;--panel:#18181d;--ink:#f2f2f5;
-              --muted:#9a9aa3;--line:#2c2c34;--good:#3ecf8e;}}
-        :root[data-theme="dark"]{--bg:#0f0f12;--panel:#18181d;--ink:#f2f2f5;--muted:#9a9aa3;--line:#2c2c34;--good:#3ecf8e;}
-        :root[data-theme="light"]{--bg:#fbfbfd;--panel:#fff;--ink:#1d1d1f;--muted:#6e6e73;--line:#e3e3e8;--good:#1a9c5b;}
-        *{box-sizing:border-box}
-        body{margin:0;padding:36px 22px 64px;background:var(--bg);color:var(--ink);
-             font:15px/1.6 ui-rounded,-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
-        .wrap{max-width:1000px;margin:0 auto}
-        h1{margin:0 0 4px;font-size:27px;letter-spacing:-.02em;
-           background:linear-gradient(90deg,var(--accent),var(--accent2));
-           -webkit-background-clip:text;background-clip:text;color:transparent}
-        .sub{color:var(--muted);font-size:13px}
-        .bar{display:flex;justify-content:space-between;align-items:center;
-             gap:12px;margin-bottom:26px;flex-wrap:wrap}
-        .btn{font-size:12.5px;font-weight:600;text-decoration:none;padding:6px 14px;
-             border-radius:999px;border:1px solid var(--line);color:var(--ink);
-             background:var(--panel);white-space:nowrap}
-        .btn:hover{border-color:var(--accent);color:var(--accent)}
-        .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);
-             margin-right:5px;vertical-align:middle;animation:p 2s infinite}
-        @keyframes p{0%,100%{opacity:1}50%{opacity:.35}}
-        .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:26px}
-        .panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:20px}
-        .panel h2{margin:0 0 2px;font-size:17px;letter-spacing:-.01em}
-        .n{color:var(--muted);font-size:12px;margin-bottom:15px}
-        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-        .stat{border:1px solid var(--line);border-radius:10px;padding:9px 10px}
-        .stat .k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-        .stat .v{font-size:19px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-        table{width:100%;border-collapse:collapse;font-size:13.5px}
-        .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:15px;background:var(--panel)}
-        th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
-           color:var(--muted);font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line)}
-        td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
-        tr:last-child td{border-bottom:none}
-        .num{font-variant-numeric:tabular-nums;white-space:nowrap}
-        .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;
-              background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
-        .txt{color:var(--muted);max-width:460px}
-        .empty{text-align:center;padding:60px 20px;color:var(--muted)}
-        .empty .lead{font-size:19px;color:var(--ink);font-weight:600;margin-bottom:10px}
-        .empty .hint{font-size:12.5px;opacity:.75}
-        kbd{background:color-mix(in srgb,var(--ink) 12%,transparent);border:1px solid var(--line);
-            border-radius:6px;padding:2px 8px;font:inherit;font-weight:600}
-        code{background:color-mix(in srgb,var(--ink) 8%,transparent);padding:1px 5px;border-radius:5px;font-size:12.5px}
-        footer{margin-top:22px;color:var(--muted);font-size:12px}
-        .sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
-             margin:26px 0 12px;font-weight:600}
-        .cmp{margin-bottom:14px}
-        .cmphead{display:flex;justify-content:space-between;align-items:center;
-                 padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid var(--line);
-                 color:var(--muted);font-size:12px}
-        .verdict{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px}
-        .verdict.same{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
-        .verdict.diff{background:color-mix(in srgb,var(--accent2) 18%,transparent);color:var(--accent2)}
-        .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
-        .col{min-width:0}
-        .colhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px}
-        .big{font-size:20px;font-weight:600;letter-spacing:-.02em}
-        .pill.win{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
-        .meta{color:var(--muted);font-size:11.5px;margin-bottom:9px}
-        .out{font-size:14px;line-height:1.55;overflow-wrap:anywhere}
-        </style></head><body><div class="wrap">
-        <h1>Engine comparison</h1>
-        <div class="bar">
-          <div class="sub"><span class="dot"></span>live — reloads every 3s · \(runs.count) dictation\(runs.count == 1 ? "" : "s") recorded</div>
-          \(runs.isEmpty ? "" : "<a class=\"btn\" href=\"murmur://clear\">Clear results</a>")
-        </div>
-        \(body)
-        <footer>
-          Process time is release → text ready: the latency you actually feel. RTF is hold
-          duration ÷ process time. Apple streams text while you talk, so its felt latency is
-          lower than these numbers suggest; Parakeet resolves everything on release.
-        </footer>
-        </div></body></html>
+        \(css)
+        </style>
+        </head>
+        <body>
+        <main>
+        \(body)</main>
+        </body>
+        </html>
         """
+    }
+
+    // MARK: - Sections
+
+    private static func statusBar(count: Int) -> String {
+        let noun = count == 1 ? "dictation" : "dictations"
+        var html = "<div class=\"status\"><div class=\"live\"><span class=\"dot\"></span>"
+        html += "<span>Live, reloads every 3 seconds. \(count) \(noun) recorded.</span></div>\n"
+        if count > 0 {
+            html += "<a class=\"button\" href=\"murmur://clear\">Clear results</a>\n"
+        }
+        html += "</div>\n"
+        return html
     }
 
     private static func emptyState(compareMode: Bool, key: String) -> String {
-        """
-        <div class="panel empty">
-          <p class="lead">Hold <kbd>\(escape(key))</kbd>, say a sentence, let go.</p>
-          <p>\(compareMode
-              ? "Both engines will run on that one recording and appear here side by side."
-              : "Compare mode is off — turn it on in the menu bar to see both engines at once.")</p>
-          <p class="hint">Nothing to click here. This page fills in on its own.</p>
-        </div>
-        """
-    }
-
-    /// One recording, every engine's take on it, laid out for direct reading.
-    private static func comparisonBlock(runs: [DictationRun]) -> String {
-        guard let first = runs.first else { return "" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-
-        let fastest = runs.min(by: { $0.processSeconds < $1.processSeconds })?.engine
-
-        // Compared on normalized text — case and punctuation differences aren't recognition
-        // errors, and Apple auto-punctuates while Parakeet doesn't. Hence "same words"
-        // rather than "identical text": the rendered strings can still look different.
-        let sameWords = Set(runs.map { normalized($0.text) }).count == 1
-        let exact = Set(runs.map(\.text)).count == 1
-        let verdict = exact ? "identical" : (sameWords ? "same words" : "words differ")
-
-        let columns = runs.map { run -> String in
-            let win = run.engine == fastest && runs.count > 1
-            return """
-            <div class="col">
-              <div class="colhead">
-                <span class="pill\(win ? " win" : "")">\(escape(run.engine))\(win ? " · fastest" : "")</span>
-                <span class="num big">\(fmt(run.processSeconds, 2))s</span>
-              </div>
-              <div class="meta">\(fmt(run.realtimeFactor, 0))× realtime · \(run.characters) chars</div>
-              <div class="out">\(escape(run.text))</div>
-            </div>
-            """
-        }.joined()
-
+        let second = compareMode
+            ? "Both engines will run on that one recording and appear here side by side."
+            : "Compare mode is off. Turn it on from the menu bar to run both engines on one recording."
         return """
-        <section class="panel cmp">
-          <div class="cmphead">
-            <span class="num">\(formatter.string(from: first.date)) · held \(fmt(first.audioSeconds, 1))s</span>
-            <span class="verdict \(sameWords ? "same" : "diff")">\(verdict)</span>
-          </div>
-          <div class="cols">\(columns)</div>
+        <section class="empty">
+        <p class="lead">Hold <kbd>\(escape(key))</kbd>, say a sentence, and let go.</p>
+        <p>\(second)</p>
+        <p class="hint">Nothing to click: this page fills in on its own.</p>
         </section>
+
         """
     }
 
-    private static func normalized(_ text: String) -> String {
+    private static func groupsSection(_ runs: [DictationRun]) -> String {
+        var order: [String] = []
+        var members: [String: [DictationRun]] = [:]
+        for run in runs {
+            guard let group = run.group else { continue }
+            if members[group] == nil { order.append(group) }
+            members[group, default: []].append(run)
+        }
+        guard !order.isEmpty else { return "" }
+
+        let newestFirst = order.sorted {
+            (members[$0]?.first?.date ?? .distantPast) > (members[$1]?.first?.date ?? .distantPast)
+        }
+        var html = "<h2>Side-by-side comparisons</h2>\n"
+        for group in newestFirst {
+            if let groupRuns = members[group] { html += groupPanel(groupRuns) }
+        }
+        return html
+    }
+
+    private static func groupPanel(_ runs: [DictationRun]) -> String {
+        guard let first = runs.first else { return "" }
+        let (verdictText, agrees) = verdict(for: runs)
+        let fastest = runs.count >= 2 ? runs.min { $0.processSeconds < $1.processSeconds }?.engine : nil
+
+        var html = "<section class=\"panel\">\n<header>\n"
+        html += "<div class=\"when\"><span class=\"num\">\(clock(first.date))</span>"
+        html += "<span class=\"muted\">held \(fixed(first.audioSeconds, 1)) s</span></div>\n"
+        html += "<span class=\"badge \(agrees ? "agree" : "differ")\">\(verdictText)</span>\n"
+        html += "</header>\n<div class=\"columns\">\n"
+        for run in runs {
+            let isFastest = run.engine == fastest
+            html += "<article>\n<div class=\"line\">"
+            html += "<span class=\"pill\(isFastest ? " best" : "")\">\(escape(run.engine))"
+            html += isFastest ? " &middot; fastest" : ""
+            html += "</span>"
+            html += "<span class=\"big num\">\(fixed(run.processSeconds, 2)) s</span></div>\n"
+            html += "<div class=\"meta num\">\(fixed(run.realtimeFactor, 0))&times; real time &middot; "
+            html += "\(run.characters) characters</div>\n"
+            html += "<p class=\"text\">\(escape(run.text))</p>\n</article>\n"
+        }
+        html += "</div>\n</section>\n"
+        return html
+    }
+
+    private static func totalsSection(_ runs: [DictationRun]) -> String {
+        let engines = Set(runs.map(\.engine)).sorted()
+        var html = "<h2>Per-engine totals</h2>\n<div class=\"cards\">\n"
+        for engine in engines {
+            let mine = runs.filter { $0.engine == engine }
+            let noun = mine.count == 1 ? "run" : "runs"
+            html += "<section class=\"card\">\n<div class=\"pill\">\(escape(engine))</div>\n"
+            html += "<div class=\"meta\">\(mine.count) \(noun), medians</div>\n<div class=\"stats\">\n"
+            html += stat("Process time", "\(fixed(median(mine.map(\.processSeconds)), 2)) s")
+            html += stat("RTF", "\(fixed(median(mine.map(\.realtimeFactor)), 0))&times;")
+            html += stat("Characters", "\(mine.reduce(0) { $0 + $1.characters })")
+            html += "</div>\n</section>\n"
+        }
+        html += "</div>\n"
+        return html
+    }
+
+    private static func tableSection(_ runs: [DictationRun]) -> String {
+        let loose = runs.filter { $0.group == nil }.reversed()
+        guard !loose.isEmpty else { return "" }
+        var html = "<h2>Dictations</h2>\n<div class=\"scroll\"><table>\n<thead><tr>"
+        for heading in ["Time", "Engine", "Held", "Process", "RTF", "Transcript"] {
+            html += "<th>\(heading)</th>"
+        }
+        html += "</tr></thead>\n<tbody>\n"
+        for run in loose {
+            html += "<tr><td class=\"num\">\(clock(run.date))</td>"
+            html += "<td><span class=\"pill\">\(escape(run.engine))</span></td>"
+            html += "<td class=\"num\">\(fixed(run.audioSeconds, 1)) s</td>"
+            html += "<td class=\"num\">\(fixed(run.processSeconds, 2)) s</td>"
+            html += "<td class=\"num\">\(fixed(run.realtimeFactor, 0))&times;</td>"
+            html += "<td class=\"transcript\">\(escape(run.text))</td></tr>\n"
+        }
+        html += "</tbody>\n</table></div>\n"
+        return html
+    }
+
+    private static let footer = """
+    <footer>
+    <p><strong>Process time</strong> is the wait from key release to text ready, the latency you feel.
+    <strong>RTF</strong> (real-time factor) is hold duration divided by process time.</p>
+    <p>Apple's engine streams text while you talk, and Parakeet and Bark stream by default too,
+    so the latency you feel can be lower than the number suggests. Medians are shown so a single
+    cold start does not define an engine.</p>
+    </footer>
+
+    """
+
+    // MARK: - Pieces
+
+    private static func stat(_ label: String, _ value: String) -> String {
+        "<div class=\"stat\"><div class=\"label\">\(label)</div><div class=\"value num\">\(value)</div></div>\n"
+    }
+
+    /// Exact match, then a match after folding case and punctuation, otherwise different.
+    /// Apple punctuates and Parakeet does not, so the middle case is not a real difference.
+    private static func verdict(for runs: [DictationRun]) -> (text: String, agrees: Bool) {
+        let texts = runs.map(\.text)
+        if Set(texts).count <= 1 { return ("Identical", true) }
+        if Set(texts.map(normalise)).count <= 1 { return ("Same words, different punctuation or case", true) }
+        return ("Different words", false)
+    }
+
+    private static func normalise(_ text: String) -> String {
         text.lowercased()
-            .split { !$0.isLetter && !$0.isNumber }
+            .split(whereSeparator: { !($0.isLetter || $0.isNumber) })
             .joined(separator: " ")
     }
 
-    private struct EngineSummary {
-        let engine: String
-        let runs: [DictationRun]
-
-        var medianProcess: Double { median(runs.map(\.processSeconds)) }
-        var medianRTF: Double { median(runs.map(\.realtimeFactor)) }
-        var totalChars: Int { runs.reduce(0) { $0 + $1.characters } }
-
-        /// Median rather than mean — one cold-start outlier shouldn't define the number.
-        private func median(_ values: [Double]) -> Double {
-            guard !values.isEmpty else { return 0 }
-            let sorted = values.sorted()
-            let mid = sorted.count / 2
-            return sorted.count.isMultiple(of: 2) ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
-        }
+    private static func median(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let mid = sorted.count / 2
+        return sorted.count.isMultiple(of: 2) ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
     }
 
-    private static func summaryCard(_ s: EngineSummary) -> String {
-        """
-        <section class="panel">
-          <h2>\(escape(s.engine))</h2>
-          <div class="n">\(s.runs.count) run\(s.runs.count == 1 ? "" : "s") · median of all</div>
-          <div class="stats">
-            <div class="stat"><div class="k">Process</div><div class="v">\(fmt(s.medianProcess, 2))s</div></div>
-            <div class="stat"><div class="k">RTF</div><div class="v">\(fmt(s.medianRTF, 0))×</div></div>
-            <div class="stat"><div class="k">Chars</div><div class="v">\(s.totalChars)</div></div>
-          </div>
-        </section>
-        """
+    /// Fixed decimals with a dot, whatever the user's locale.
+    private static func fixed(_ value: Double, _ places: Int) -> String {
+        String(format: "%.\(places)f", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 
-    private static func runsTable(_ runs: [DictationRun]) -> String {
+    private static func clock(_ date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
         formatter.dateFormat = "HH:mm:ss"
-
-        let rows = runs.map { run in
-            """
-            <tr>
-              <td class="num">\(formatter.string(from: run.date))</td>
-              <td><span class="pill">\(escape(run.engine))</span></td>
-              <td class="num">\(fmt(run.audioSeconds, 1))s</td>
-              <td class="num">\(fmt(run.processSeconds, 2))s</td>
-              <td class="num">\(fmt(run.realtimeFactor, 0))×</td>
-              <td class="txt">\(escape(run.text))</td>
-            </tr>
-            """
-        }.joined()
-
-        return """
-        <div class="scroll"><table>
-          <thead><tr><th>Time</th><th>Engine</th><th>Held</th><th>Process</th><th>RTF</th><th>Transcript</th></tr></thead>
-          <tbody>\(rows)</tbody>
-        </table></div>
-        """
+        return formatter.string(from: date)
     }
 
-    private static func fmt(_ value: Double, _ places: Int) -> String {
-        String(format: "%.\(places)f", value)
-    }
-
-    private static func escape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
+    private static func escape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
+
+    // MARK: - Style
+
+    private static let css = #"""
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f4ee; --card: #ffffff; --ink: #1c1b19; --muted: #6f6c64;
+      --line: #e3dfd3; --accent: #5b4bd6; --accent-bg: #ece9fb;
+      --good: #1f7a4d; --good-bg: #e2f3ea; --bad: #a3481f; --bad-bg: #fbeadf;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161513; --card: #1f1e1b; --ink: #ecebe6; --muted: #9a978d;
+        --line: #33312c; --accent: #a99dff; --accent-bg: #2a2650;
+        --good: #6fd09c; --good-bg: #183225; --bad: #f0a27a; --bad-bg: #3a2418;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    }
+    main { max-width: 1000px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 26px; margin: 0 0 16px; }
+    h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 32px 0 12px; }
+    .num { font-variant-numeric: tabular-nums; }
+    .muted, .meta, footer { color: var(--muted); }
+    .status { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+    .live { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #2fb36b; animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--card); text-decoration: none; }
+    .empty, .panel, .card, .scroll { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .empty { padding: 32px; text-align: center; }
+    .empty .lead { font-size: 18px; }
+    .hint { color: var(--muted); font-size: 13px; }
+    kbd { padding: 2px 8px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; font: inherit; background: var(--bg); }
+    .panel { margin-bottom: 16px; overflow: hidden; }
+    .panel header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .when { display: flex; gap: 12px; align-items: baseline; }
+    .badge { padding: 2px 10px; border-radius: 999px; font-size: 13px; }
+    .badge.agree { color: var(--good); background: var(--good-bg); }
+    .badge.differ { color: var(--bad); background: var(--bad-bg); }
+    .columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .columns article { padding: 16px; border-right: 1px solid var(--line); }
+    .line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; color: var(--accent); background: var(--accent-bg); }
+    .pill.best { color: var(--good); background: var(--good-bg); }
+    .big { font-size: 22px; }
+    .meta { font-size: 13px; margin: 4px 0 8px; }
+    .text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+    .card { padding: 16px; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+    .stat { padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+    .stat .label { font-size: 12px; color: var(--muted); }
+    .stat .value { font-size: 18px; }
+    .scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    .transcript { color: var(--muted); max-width: 420px; overflow-wrap: anywhere; }
+    footer { margin-top: 32px; font-size: 13px; }
+    """#
 }

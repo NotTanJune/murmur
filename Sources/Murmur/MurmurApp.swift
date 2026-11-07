@@ -16,8 +16,8 @@ struct MurmurApp: App {
     }
 
     var body: some Scene {
-        // The main window. A `Window` rather than a `WindowGroup`: this app has one front
-        // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
+        // One `Window`, not a `WindowGroup`: there is a single main window, and the
+        // New Window shortcut (⌘N) has nothing to create.
         Window("Murmur", id: "main") {
             MainWindow(controller: delegate.controller)
         }
@@ -36,13 +36,13 @@ struct MurmurApp: App {
                     .keyboardShortcut(",", modifiers: .command)
             }
             CommandGroup(after: .appInfo) {
-                Button("Reveal Dictionary File") {
+                Button("Reveal Dictionary in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
                 }
             }
         }
 
-        // Secondary now: status and the hotkey while you're working in another app.
+        // Secondary surface: status and the hotkey while you work in another app.
         MenuBarExtra {
             MenuContent(controller: delegate.controller)
         } label: {
@@ -61,7 +61,6 @@ struct MurmurApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DictationController()
     private var hud: HUDPanel?
-    private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Diagnostic: run S1-mini from the installed bundle on fixed samples, print, and quit.
@@ -100,9 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // A regular app now: dock icon, app menu, standard windows. The HUD is still a
-        // non-activating panel, so dictating into another app never steals its focus — that
-        // property belongs to the panel, not to the activation policy.
+        // A regular app: Dock icon, app menu, ordinary windows. Keeping focus on the field
+        // being dictated into is the HUD panel's own doing (non-activating, never key), so
+        // this policy does not affect it.
         NSApp.setActivationPolicy(.regular)
 
         // Seed the personal dictionary at launch rather than waiting for the Dictionary
@@ -163,10 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Every `make install` relaunches the app and drops its windows. Restoring the
-        // window when it was open last time keeps it from vanishing on each rebuild.
+        // Every `make install` relaunches the app and drops its windows; bring the comparison
+        // window back if it was open last time so it survives rebuilds.
         if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
+                // Let scene creation finish before looking for the window.
                 try? await Task.sleep(for: .milliseconds(400))
                 Self.showComparisonWindow()
             }
@@ -181,41 +181,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `murmur://clear` and `murmur://show`, used by the legacy HTML dashboard and
-    /// as a scriptable way to raise the window.
+    /// It doubles as a scriptable way to raise the window.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme == "murmur" {
             switch url.host {
-            case "clear":
-                RunLog.clear()
-            case "show":
-                Self.showComparisonWindow()
-            default:
-                break
+            case "clear": RunLog.clear()
+            case "show": Self.showComparisonWindow()
+            default: break
             }
         }
     }
 
-    /// Raises the comparison window without needing SwiftUI's `openWindow` environment
-    /// value — usable from the app delegate and from a URL handler.
+    /// Raises the comparison window if SwiftUI has one; it does not create it. Only ever
+    /// targets that window, never the HUD.
     static func showComparisonWindow() {
         RunStore.shared.reload()
-        if let existing = NSApp.windows.first(where: { $0.title == "Engine comparison" }) {
-            existing.makeKeyAndOrderFront(nil)
+        if let window = NSApp.windows.first(where: { $0.title == "Engine comparison" }) {
+            window.makeKeyAndOrderFront(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        let isOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
-        UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
+        let comparisonOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
+        UserDefaults.standard.set(comparisonOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
     }
 
-    /// Shows and hides the HUD in step with the controller's state.
+    /// Shows the HUD for as long as a hold is live. Tracking fires once, so each firing
+    /// re-registers. Showing or hiding the HUD never activates the app or makes a window key.
     private func observeState() {
         withObservationTracking {
             _ = controller.state
         } onChange: { [weak self] in
+            // Fires before the new value is stored and off the main actor; read it from a task.
             Task { @MainActor in
                 guard let self else { return }
                 if self.controller.state.isActive {
@@ -233,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             while !Task.isCancelled {
                 if Permissions.hasAccessibility, controller.activate() {
                     controller.prepareAudio()
-                    Log.app.info("Accessibility granted — hotkey armed")
+                    Log.app.info("Accessibility granted; hotkey armed")
                     return
                 }
                 try? await Task.sleep(for: .seconds(1))
@@ -329,11 +328,11 @@ private struct MenuContent: View {
             }
         }
 
-        Toggle("Sound", isOn: $settings.soundEnabled)
+        Toggle("Start and stop tick", isOn: $settings.soundEnabled)
 
         Divider()
 
-        Button("Show comparison window") {
+        Button("Open Engine Comparison…") {
             RunStore.shared.reload()
             openWindow(id: "comparison")
             NSApp.activate(ignoringOtherApps: true)
