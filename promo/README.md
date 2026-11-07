@@ -13,6 +13,7 @@ yarn dev        # Remotion Studio
 yarn render     # out/murmur-promo.mp4
 yarn poster     # out/murmur-poster.png, frame 880 of the end card
 yarn banner     # out/murmur-banner.png, the README banner (src/Banner.tsx)
+yarn demo       # out/murmur-demo.mp4, the README demo: public/demo-capture.mp4 with overlays (src/Demo.tsx)
 ```
 
 Renders are CPU heavy. `remotion.config.ts` caps concurrency at 2; run them niced too:

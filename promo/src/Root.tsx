@@ -4,6 +4,7 @@ import {FontGate} from './fonts';
 import {MurmurPromo} from './MurmurPromo';
 import {DictationScene} from './scenes/DictationScene';
 import {Banner, BANNER_HEIGHT, BANNER_WIDTH} from './Banner';
+import {Demo, DEMO_FPS, DEMO_HEIGHT, DEMO_SECONDS, DEMO_WIDTH} from './Demo';
 import {EndCard} from './scenes/EndCard';
 import {FitScene} from './scenes/FitScene';
 import {MacScene} from './scenes/MacScene';
@@ -25,6 +26,7 @@ const MacPreview = gated(MacScene);
 const FitPreview = gated(FitScene);
 const EndPreview = gated(EndCard);
 const BannerStill = gated(Banner);
+const DemoClip = gated(Demo);
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -44,6 +46,14 @@ export const RemotionRoot: React.FC = () => {
         height={BANNER_HEIGHT}
         fps={FPS}
         durationInFrames={1}
+      />
+      <Composition
+        id="Demo"
+        component={DemoClip}
+        width={DEMO_WIDTH}
+        height={DEMO_HEIGHT}
+        fps={DEMO_FPS}
+        durationInFrames={Math.round(DEMO_SECONDS * DEMO_FPS)}
       />
       <Folder name="Scenes">
         <Composition
