@@ -35,13 +35,17 @@ struct Job: Decodable {
 
     struct Candidate: Decodable {
         let name: String
-        /// `parakeet-coreml` (a Parakeet v3-layout Core ML folder) or `command`.
+        /// `parakeet-coreml` (a Parakeet v3-layout Core ML folder), `command` or `preprocess`.
         let kind: String
         let folder: String?
         /// The joint's file name inside `folder`; FluidAudio's generic layout is the default.
         let joint: String?
         /// For `command`: argv, with `{audio}` replaced by a 16 kHz mono WAV of the recording.
         /// It must print the transcript on stdout.
+        /// For `preprocess`: argv, with `{audio}` replaced by the recording as stored and
+        /// `{output}` by the audio file it must write. The current engine then runs on that
+        /// file. If it prints a number, that is its processing time in seconds; otherwise its
+        /// wall time counts.
         let command: [String]?
     }
 
@@ -67,6 +71,9 @@ enum Bench {
         /// command, which has no hold.
         var tailSeconds: Double?
         var piecesCleanedWhileHeld = 0
+        /// For a `preprocess` candidate, its time on the whole clip. Not in `tailSeconds`:
+        /// a filter in the app would run while the key is held.
+        var preprocessSeconds: Double?
         /// Whether the two passes heard the same words.
         var repeatable = true
         var error: String?
@@ -76,6 +83,8 @@ enum Bench {
         enum Kind {
             case engine(@MainActor () -> any TranscriptionEngine)
             case command([String])
+            /// An audio filter in front of the current engine.
+            case preprocess([String], @MainActor () -> any TranscriptionEngine)
         }
 
         let name: String
@@ -182,17 +191,16 @@ enum Bench {
                 do {
                     switch contender.kind {
                     case .engine(let make):
-                        let audio = try await chunks(item.path, for: make())
-                        audioSeconds = duration(audio)
-                        let alone = try await hold(make(), chunks: audio, paced: false, pipeline: nil)
-                        outcome.decodeSeconds = alone.heardSeconds
-                        let pipeline = pipelined ? CleanupPipeline(formatter: formatter) : nil
-                        let whole = try await hold(make(), chunks: audio, paced: job.paced, pipeline: pipeline)
-                        outcome.heard = whole.text
-                        outcome.repeatable = whole.text == alone.text
-                        outcome.typed = await typed(whole.text, formatter: formatter, pipeline: pipeline)
-                        outcome.tailSeconds = seconds(clock.now - whole.releasedAt)
-                        outcome.piecesCleanedWhileHeld = pipeline?.chunkCount ?? 0
+                        audioSeconds = try await runEngine(make, path: item.path, into: &outcome,
+                                                           paced: job.paced, pipelined: pipelined, formatter: formatter)
+                    case .preprocess(let argv, let make):
+                        let filtered = scratch.appendingPathComponent("\(contender.name)-\(item.id).wav")
+                        let started = clock.now
+                        let printed = try runCommand(argv, audio: item.path, output: filtered.path)
+                        outcome.preprocessSeconds = Double(printed) ?? seconds(clock.now - started)
+                        audioSeconds = try await runEngine(make, path: filtered.path, into: &outcome,
+                                                           paced: job.paced, pipelined: pipelined, formatter: formatter)
+                        try? FileManager.default.removeItem(at: filtered)
                     case .command(let argv):
                         let wav = scratch.appendingPathComponent("\(item.id).wav")
                         if !FileManager.default.fileExists(atPath: wav.path) {
@@ -289,12 +297,40 @@ enum Bench {
                     return nil
                 }
                 contenders.append(Contender(name: candidate.name, label: "\(candidate.name) (command, whole clip)", kind: .command(argv)))
+            case "preprocess":
+                guard let argv = candidate.command, argv.contains(where: { $0.contains("{audio}") }),
+                      argv.contains(where: { $0.contains("{output}") }) else {
+                    print("FAIL \(candidate.name): a preprocess command needs argv with {audio} and {output}")
+                    return nil
+                }
+                contenders.append(Contender(
+                    name: candidate.name, label: "\(candidate.name) → \(label)",
+                    kind: .preprocess(argv) { engine(for: choice) }
+                ))
             default:
                 print("FAIL \(candidate.name): unknown kind \(candidate.kind)")
                 return nil
             }
         }
         return contenders
+    }
+
+    /// The engine alone on the whole clip, then a hold with cleanup. Returns the audio length.
+    private static func runEngine(
+        _ make: @MainActor () -> any TranscriptionEngine, path: String, into outcome: inout Outcome,
+        paced: Bool, pipelined: Bool, formatter: any TextFormatter
+    ) async throws -> Double {
+        let audio = try await chunks(path, for: make())
+        let alone = try await hold(make(), chunks: audio, paced: false, pipeline: nil)
+        outcome.decodeSeconds = alone.heardSeconds
+        let pipeline = pipelined ? CleanupPipeline(formatter: formatter) : nil
+        let whole = try await hold(make(), chunks: audio, paced: paced, pipeline: pipeline)
+        outcome.heard = whole.text
+        outcome.repeatable = whole.text == alone.text
+        outcome.typed = await typed(whole.text, formatter: formatter, pipeline: pipeline)
+        outcome.tailSeconds = seconds(clock.now - whole.releasedAt)
+        outcome.piecesCleanedWhileHeld = pipeline?.chunkCount ?? 0
+        return duration(audio)
     }
 
     /// One hold as the controller consumes it: stable text feeds the cleanup pipeline while
@@ -348,10 +384,12 @@ enum Bench {
         return DictionaryStore.shared.corrector.apply(to: cleaned).text
     }
 
-    private static func runCommand(_ argv: [String], audio: String) throws -> String {
+    private static func runCommand(_ argv: [String], audio: String, output: String? = nil) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = argv.map { $0.replacingOccurrences(of: "{audio}", with: audio) }
+        process.arguments = argv.map {
+            $0.replacingOccurrences(of: "{audio}", with: audio).replacingOccurrences(of: "{output}", with: output ?? "")
+        }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.standardError

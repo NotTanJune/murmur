@@ -162,6 +162,17 @@ heard the same as stock Parakeet on 118 of 173 recordings, returned nothing for 
 "No." and "Okay.", and its Core ML build has no clean mode, so fillers reach the cleanup.
 Better only in noise; the model was deleted.
 
+**Clear** (Desert Ant Labs speech enhancement, a fine-tuned DeepFilterNet 3, SDK
+`desert-ant-core` v4.3.0, model v0.3.0) in front of recognition. Measured on 2026-11-21 with
+`bench/` as a `preprocess` candidate over 175 recordings, Bark Clean streaming, S1-mini
+General, loudness mastering bypassed. Typed word errors against the corrections, current /
+`clear-natural` / `clear-studio`: 3.99 / 10.02 / 11.02% clean, 1.29 / 9.80 / 10.91% paced,
+11.13 / 40.16 / 40.90% at 5 dB babble plus pink noise. Release to typed median 270, 353 and
+365 ms; Clear itself 67 ms a clip. It returned nothing for "Okay.", "No." and "And she said.".
+It is tuned for podcast sound, not recognition, and keeps babble because babble is speech.
+Its licence (Desert Ant Labs Source-Available 1.0) is not GPL-compatible and its SDK checks
+in with `events.desertant.com` on every model load. Everything was deleted.
+
 ## Benchmarking models
 
 `bench/` (see its README) runs candidate models against the current setup, which it reads

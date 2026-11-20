@@ -290,6 +290,9 @@ def score(results, runs, exclude, snr):
             f"{sum(len(FILLERS.findall(r['results'][n]['heard'])) for r in rows)} / {sum(len(FILLERS.findall(r['results'][n]['typed'])) for r in rows)}"
             for n in names) + " |")
         table.append("| Decode, engine alone, median | " + " | ".join(median_ms([r["results"][n]["decodeSeconds"] for r in rows]) for n in names) + " |")
+        if any(r["results"][n].get("preprocessSeconds") is not None for r in rows for n in names):
+            table.append("| Preprocess, whole clip, median | " + " | ".join(
+                median_ms([r["results"][n].get("preprocessSeconds") for r in rows]) for n in names) + " |")
         table.append("| Errors | " + " | ".join(str(sum(1 for r in rows if r["results"][n].get("error"))) for n in names) + " |")
     lines += head + table
 

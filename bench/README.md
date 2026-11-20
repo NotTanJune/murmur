@@ -47,6 +47,16 @@ scored on accuracy only; its timing is the command's wall time on the whole clip
  "command": ["uv", "run", "/path/to/transcribe.py", "{audio}"]}
 ```
 
+An audio filter (denoise, dereverb) is a `preprocess` command that writes `{output}` from
+`{audio}`, the recording as stored. The current engine, cleanup and dictionary then run on
+its output. If the command prints a number, that is its processing time in seconds,
+reported on its own row and not added to the release wait; otherwise its wall time counts.
+
+```json
+{"name": "clear-studio", "kind": "preprocess",
+ "command": ["/path/to/clear-cli", "clear-studio", "{audio}", "{output}"]}
+```
+
 ## What runs
 
 `bench.py` picks the recordings the run log kept audio for, writes a job file and runs the
