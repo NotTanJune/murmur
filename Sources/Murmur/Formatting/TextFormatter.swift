@@ -27,6 +27,11 @@ struct RuleBasedFormatter: TextFormatter {
         if text.isEmpty { return text }
 
         text = replace(fillerPattern, in: text, with: "")
+        // Before capitalisation: a pause period's lowercase next word is the signal it keys on,
+        // and a spelled letter's period would otherwise capitalise the word after it.
+        text = TranscriptRepair.joinSpelledLetters(text)
+        text = TranscriptRepair.dropPausePeriods(text)
+        text = TranscriptRepair.writeNumerals(text)
         text = applySpokenPunctuation(text)
         text = tidyWhitespace(text)
         text = capitaliseSentenceStarts(text)

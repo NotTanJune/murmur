@@ -3,9 +3,10 @@ import MurmurDictionary
 
 /// What a history run can teach the model, and where that came from.
 ///
-/// An edit of a rules-cleaned transcript is a transcript: the user fixed what was heard. An
-/// edit of an S1-mini or Apple Intelligence output is a rewrite, so those runs may only
-/// contribute through the dictionary, which is applied to the engine's raw text.
+/// A label is always what was said, in Bark's own form. On a rules-cleaned run the typed
+/// text is that transcript, so the history edit starts from it. S1-mini and Apple
+/// Intelligence rewrite, so their rows are corrected against the engine's raw text instead:
+/// the edit opens on `rawText`, and the row shows the correction once there is one.
 enum TrainingLabel {
     enum Source: String, Sendable {
         case edit
@@ -17,9 +18,21 @@ enum TrainingLabel {
         let source: Source
     }
 
-    /// Whether the history edit field is a transcript correction for this run.
+    /// Whether the run can be corrected by hand. A model-cleaned run needs its raw text;
+    /// runs filed before that was kept have nothing to correct against.
     static func editAllowed(_ run: DictationRun) -> Bool {
-        run.cleanup == nil
+        run.cleanup == nil || !(run.rawText ?? "").isEmpty
+    }
+
+    /// The transcript an edit starts from and is compared with.
+    static func editBase(_ run: DictationRun) -> String {
+        run.cleanup == nil ? run.text : (run.rawText ?? "")
+    }
+
+    /// What the history row shows: the correction once there is one, on every kind of run.
+    /// A corrected row that went back to its uncorrected text read as the edit being lost.
+    static func displayText(_ run: DictationRun) -> String {
+        run.label ?? run.text
     }
 
     static func resolve(_ run: DictationRun, corrector: DictionaryCorrector) -> Resolved? {

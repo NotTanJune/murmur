@@ -31,6 +31,16 @@ enum PushToTalkKey: String, CaseIterable, Sendable {
         }
     }
 
+    /// The key's usage on the HID keyboard page, for `PhysicalKeyWatcher`. fn is a vendor
+    /// usage that differs between keyboards and has none here.
+    var hidUsage: UInt32? {
+        switch self {
+        case .rightOption: 0xE6  // kHIDUsage_KeyboardRightAlt
+        case .fn: nil
+        case .rightCommand: 0xE7  // kHIDUsage_KeyboardRightGUI
+        }
+    }
+
     var displayName: String {
         switch self {
         case .rightOption: "Right ⌥"
@@ -91,9 +101,14 @@ final class HotkeyMonitor: @unchecked Sendable {
     private var localMonitor: Any?
     private var isPressed = false
     private var watchdog: DispatchSourceTimer?
-    /// The watchdog trusts `CGEventSource.keyState` only after it has reported this hold as
-    /// down at least once, so a process that cannot read key state never fakes a release.
+    /// The keyboard itself, below every event tap. The watchdog's first source.
+    private let physicalKey = PhysicalKeyWatcher()
+    /// The watchdog trusts a source only after it has reported this hold as down at least
+    /// once, so a process that cannot read key state never fakes a release. Kept per source
+    /// for the log: the system key table read "up" through whole holds on 2026-11-13.
     private var watchdogSawDown = false
+    private var deviceSawDown = false
+    private var tableSawDown = false
     private var watchdogUpReadings = 0
 
     /// Interval between hardware key-state checks while the key is held.
@@ -140,6 +155,7 @@ final class HotkeyMonitor: @unchecked Sendable {
         }
 
         let key = self.key
+        physicalKey.watch(usage: key.hidUsage)
         withLock {
             isPressed = CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key.keyCode))
         }
@@ -168,6 +184,7 @@ final class HotkeyMonitor: @unchecked Sendable {
             return monitors
         }
         stopWatchdog()
+        physicalKey.stop()
 
         if let globalMonitor = monitors.0 {
             NSEvent.removeMonitor(globalMonitor)
@@ -209,9 +226,10 @@ final class HotkeyMonitor: @unchecked Sendable {
             startWatchdog()
         } else {
             // Whether the keyboard itself ever reported this hold as down. False on every
-            // hold means the watchdog is blind (no Input Monitoring), not that it is idle.
-            let hardwareSawDown = withLock { watchdogSawDown }
-            Log.hotkey.info("push-to-talk release received (\(source, privacy: .public)); keyboard reported the hold: \(hardwareSawDown, privacy: .public)")
+            // hold means the watchdog is blind (no Input Monitoring, or the key is produced by
+            // another app and no keyboard sends it), not that it is idle.
+            let (sawDown, device, table) = withLock { (watchdogSawDown, deviceSawDown, tableSawDown) }
+            Log.hotkey.info("push-to-talk release received (\(source, privacy: .public)); keyboard reported the hold: \(sawDown, privacy: .public) (device \(device, privacy: .public), key table \(table, privacy: .public), devices open \(self.physicalKey.isWatching, privacy: .public))")
             stopWatchdog()
         }
         action?()
@@ -253,6 +271,8 @@ final class HotkeyMonitor: @unchecked Sendable {
             let previous = watchdog
             watchdog = timer
             watchdogSawDown = false
+            deviceSawDown = false
+            tableSawDown = false
             watchdogUpReadings = 0
             return previous
         }
@@ -271,10 +291,14 @@ final class HotkeyMonitor: @unchecked Sendable {
 
     private func checkHeldKey() {
         let key = self.key
-        let down = CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key.keyCode))
+        let device = physicalKey.isDown
+        let table = CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key.keyCode))
+        let down = device || table
 
         let release = withLock { () -> Bool in
             guard isPressed else { return false }
+            if device { deviceSawDown = true }
+            if table { tableSawDown = true }
             if down {
                 watchdogSawDown = true
                 watchdogUpReadings = 0

@@ -55,8 +55,17 @@ enum TextInjector {
         return (subrole as? String) == kAXSecureTextFieldSubrole as String
     }
 
+    /// Apps whose focused field recently refused an accessibility insert.
+    private static var pasteOnly = PasteOnlyApps()
+
     static func insert(_ text: String) async -> Bool {
         guard !text.isEmpty, !Task.isCancelled else { return false }
+
+        let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let app, pasteOnly.contains(app, at: Date()) {
+            Log.inject.info("pasting: \(app, privacy: .public) refused an accessibility insert recently")
+            return await insertViaPasteboard(text)
+        }
 
         switch insertViaAccessibility(text) {
         case .inserted:
@@ -64,6 +73,7 @@ enum TextInjector {
             return true
         case .unverified(let reason):
             Log.inject.info("accessibility insert not verified (\(reason, privacy: .public)); falling back to paste")
+            if let app { pasteOnly.note(app, at: Date()) }
             return await insertViaPasteboard(text)
         }
     }
@@ -250,5 +260,26 @@ enum TextInjector {
             return item
         }
         _ = pasteboard.writeObjects(items)
+    }
+}
+
+/// Remembers, for a few minutes each, the apps where an accessibility insert just failed.
+///
+/// A terminal or an Electron app fails the same way on every dictation: the attempt asks the
+/// app for its focused element, whether the selection can be set, sometimes writes and
+/// reads the selection back, and then pastes anyway. That measured up to 50 ms before the
+/// paste (2026-11-13). The memory is short because the answer belongs to a field, not an
+/// app: a browser's address bar takes the insert and a page's editor may not.
+struct PasteOnlyApps {
+    static let memory: TimeInterval = 600
+    private var refusedAt: [String: Date] = [:]
+
+    mutating func note(_ app: String, at time: Date) {
+        refusedAt[app] = time
+    }
+
+    func contains(_ app: String, at time: Date) -> Bool {
+        guard let refused = refusedAt[app] else { return false }
+        return time.timeIntervalSince(refused) < Self.memory
     }
 }

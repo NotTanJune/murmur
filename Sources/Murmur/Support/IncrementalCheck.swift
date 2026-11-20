@@ -1,14 +1,18 @@
 import AVFoundation
 import Foundation
+import Synchronization
 
-/// `Murmur --incremental-check <audio-file>`: plays a recording through the incremental Bark
-/// engine the way a hold would (16 kHz mono, 100 ms buffers), printing each window as it
-/// lands, then the release tail, and the batch engine's text on the same audio for
-/// comparison. Exercises the real sliding-window recognizer and the real model without a
-/// microphone; what it cannot check is the hotkey or capture path.
+/// `Murmur --incremental-check <audio-file> [--fast] [--no-anticipation]`: plays a recording through the
+/// incremental Bark engine the way a hold would (16 kHz mono, 100 ms buffers), printing each
+/// window as it lands, then the release tail, and the batch engine's text on the same audio
+/// for comparison. Exercises the real windowed recognizer and the real model without a
+/// microphone; what it cannot check is the hotkey or capture path. `--fast` feeds without
+/// pacing: the text is the same, because a window's words depend only on its samples, but
+/// every window then decodes at release and the tail time means nothing. `--no-anticipation`
+/// turns off the decode at a pause, to compare its text with the ordinary release decode.
 @MainActor
 enum IncrementalCheck {
-    static func run(path: String) async -> Bool {
+    static func run(path: String, paced: Bool = true, anticipating: Bool = true) async -> Bool {
         let started = Date()
         await StreamingModelPreparation.shared.load(.barkClean)?.value
         guard StreamingModelPreparation.shared.state(for: .barkClean) == .ready else {
@@ -28,7 +32,12 @@ enum IncrementalCheck {
         print(String(format: "%.1fs of audio in %d buffers", seconds, chunks.count))
 
         // Incremental: feed, watching partials, then finish.
-        let incremental = IncrementalParakeetEngine(models: .barkClean)
+        let made = Mutex<OverlapWindowRecognizer?>(nil)
+        let incremental = IncrementalParakeetEngine(models: .barkClean, makeRecognizer: {
+            let recognizer = OverlapWindowRecognizer(anticipatesRelease: anticipating)
+            made.withLock { $0 = recognizer }
+            return recognizer
+        })
         let stream: AsyncThrowingStream<TranscriptionChunk, Error>
         do {
             stream = try await incremental.start()
@@ -57,14 +66,16 @@ enum IncrementalCheck {
         // every window into the release tail and measure nothing.
         for chunk in chunks {
             await incremental.feed(chunk)
-            try? await Task.sleep(for: .milliseconds(50))
+            if paced { try? await Task.sleep(for: .milliseconds(50)) }
         }
         let fedIn = Date().timeIntervalSince(feedStart)
         let release = Date()
         await incremental.finish()
         let final = await printer.value
         let tail = Date().timeIntervalSince(release)
-        print(String(format: "incremental: fed over %.1fs (2× real time), release tail %.2fs", fedIn, tail))
+        let reused = await made.withLock { $0 }?.reusedAtRelease ?? false
+        print(String(format: "incremental: fed over %.1fs (%@), release tail %.2fs, %@", fedIn, paced ? "2× real time" : "unpaced", tail,
+                     reused ? "reused the decode made at the last pause" : "decoded at release"))
         print("  " + (final ?? "(none)"))
 
         // Batch, on identical audio.

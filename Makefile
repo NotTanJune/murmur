@@ -3,6 +3,7 @@
 #   make            release .app bundle, same as `make app`
 #   make install    build, copy to /Applications and launch
 #   make test       SwiftPM tests
+#   make bench      benchmark CANDIDATES="bench/candidates/x.json" against the current setup
 #   make build      SwiftPM compile only; CONFIG=debug gives a debug build
 #   make icon       regenerate Resources/AppIcon.icns
 #   make clean      remove all build output
@@ -33,7 +34,7 @@ find-identity = $(shell security find-identity -v -p codesigning 2>/dev/null \
                   | grep "$(1)" | head -1 | sed -E 's/.*"(.*)".*/\1/')
 SIGN_ID := $(or $(call find-identity,Developer ID Application),$(call find-identity,Apple Development),-)
 
-.PHONY: all build xcbuild test app run install clean icon
+.PHONY: all build xcbuild test app run install clean icon bench
 
 all: app
 
@@ -48,8 +49,16 @@ xcbuild:
 		-destination 'platform=macOS,arch=arm64' -derivedDataPath "$(XCODE_DD)" \
 		-skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
 
+# Settings tests write throwaway `murmur-tests-<uuid>` domains. Emptying one still leaves an
+# empty plist, and cfprefsd writes it back even after a test deletes it, so sweep afterwards.
 test:
-	swift test --scratch-path "$(SCRATCH)"
+	swift test --scratch-path "$(SCRATCH)"; status=$$?; rm -f "$(HOME)"/Library/Preferences/murmur-tests-*.plist; exit $$status
+
+# Candidate models against whatever the installed app is set to; see bench/README.md.
+PASSES := clean,paced,noisy
+bench:
+	@test -n "$(CANDIDATES)" || { echo 'usage: make bench CANDIDATES="bench/candidates/x.json" [PASSES=clean,paced,noisy]'; exit 1; }
+	uv run bench/bench.py $(CANDIDATES) --passes $(PASSES)
 
 # Run by hand when the artwork changes. It stays out of `app` because it renders ten PNGs.
 icon:

@@ -10,9 +10,24 @@ struct S1MiniFormatter: TextFormatter {
     var engine: S1MiniEngine = .shared
     private let fallback = RuleBasedFormatter()
 
+    /// Utterances this short go to the rule pass alone. There is nothing in three words for
+    /// the model to restructure, it costs 0.11 to 0.20 s there (8 of 100 holds, 2026-11-13),
+    /// and it rewrites what it does not recognise: "NUS." came back as "Nus.". Only the
+    /// General profile, whose output the rule pass matches; the others restyle even a word.
+    static let rulesOnlyWords = 3
+
+    static func rulesSuffice(for text: String, profile: CleanupProfile) -> Bool {
+        profile == .general && text.split(whereSeparator: \.isWhitespace).count <= rulesOnlyWords
+    }
+
     func format(_ raw: String) async -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Bark's pause periods and spelled letters go before the model sees the text: handed
+        // "had. recognition" it capitalises the word instead of removing the period, and
+        // handed "m. c. p. s." it writes "M.C.P.S.".
+        let trimmed = TranscriptRepair.dropPausePeriods(
+            TranscriptRepair.joinSpelledLetters(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
         guard !trimmed.isEmpty else { return trimmed }
+        if Self.rulesSuffice(for: trimmed, profile: profile) { return await fallback.format(trimmed) }
 
         // After an idle unload the model reloads at the press, in parallel with speaking. A
         // short hold can end before that finishes; wait for it rather than silently giving
@@ -48,7 +63,9 @@ struct S1MiniFormatter: TextFormatter {
                 Log.speech.info("S1-mini output rejected — using rule-based cleanup")
                 return await fallback.format(trimmed)
             }
-            return cleaned
+            // S1-mini writes numerals only some of the time on Bark's already-punctuated
+            // input; this makes it every time.
+            return TranscriptRepair.writeNumerals(cleaned)
         } catch {
             if case S1MiniError.budgetExceeded = error {
                 await engine.noteTimeout(words: words, elapsed: ContinuousClock.now - startedAt)

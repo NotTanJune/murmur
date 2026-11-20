@@ -42,22 +42,6 @@ struct IncrementalParakeetEngineTests {
         #expect(rest.last?.isFinal == true)
     }
 
-    @Test("Seams drop what the next window re-decoded", arguments: [
-        ("my phone and my MacBook", DecodedWindow(text: "book", startsWord: false), "my phone and my MacBook"),
-        ("my phone and my MacBook", DecodedWindow(text: "book and that's it.", startsWord: false), "my phone and my MacBook and that's it."),
-        ("my phone and my MacBook", DecodedWindow(text: "Book is slow.", startsWord: true), "my phone and my MacBook is slow."),
-        ("so they don't feel blind", DecodedWindow(text: "blindsided by it.", startsWord: true), "so they don't feel blindsided by it."),
-        ("send it to Mac", DecodedWindow(text: "Book users.", startsWord: false), "send it to MacBook users."),
-        ("I think.", DecodedWindow(text: "that's fair.", startsWord: true), "I think. that's fair."),
-        ("over on the bill this quarter.", DecodedWindow(text: ", mostly because", startsWord: false), "over on the bill this quarter. mostly because"),
-        ("send it to Mac", DecodedWindow(text: ", then", startsWord: false), "send it to Mac, then"),
-        ("go to", DecodedWindow(text: "today's meeting", startsWord: true), "go to today's meeting"),
-        ("", DecodedWindow(text: "First words", startsWord: true), "First words"),
-    ])
-    func seams(previous: String, window: DecodedWindow, expected: String) {
-        #expect(IncrementalParakeetEngine.compose(previous, adding: window) == expected)
-    }
-
     @Test("An empty recording yields one empty final chunk and never finishes the recognizer")
     func emptyRecording() async throws {
         let recognizer = ScriptedWindowRecognizer(windows: [], final: "hallucination")

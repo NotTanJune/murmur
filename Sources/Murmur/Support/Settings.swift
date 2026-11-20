@@ -168,7 +168,12 @@ enum BarkDecoderChoice: Hashable, Sendable {
 @MainActor
 @Observable
 final class Settings {
-    static let shared = Settings()
+    /// The app's own defaults. The `bench/` runner runs under `swift test`, whose process
+    /// domain holds whatever earlier tests wrote, so it names a copy of the app's domain in
+    /// `MURMUR_SETTINGS_DOMAIN` instead.
+    static let shared = Settings(
+        defaults: ProcessInfo.processInfo.environment["MURMUR_SETTINGS_DOMAIN"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    )
 
     var pushToTalkKey: PushToTalkKey {
         didSet { defaults.set(pushToTalkKey.rawValue, forKey: Keys.pushToTalkKey) }

@@ -101,7 +101,8 @@ struct FoundationModelFormatter: TextFormatter {
     // MARK: Formatting
 
     func format(_ raw: String) async -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = TranscriptRepair.dropPausePeriods(
+            TranscriptRepair.joinSpelledLetters(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
         if trimmed.isEmpty { return "" }
 
         guard Self.isAvailable else {
@@ -121,7 +122,8 @@ struct FoundationModelFormatter: TextFormatter {
             Log.speech.info("Apple Intelligence output rejected, using rule-based cleanup")
             return await fallback.format(trimmed)
         }
-        return reply
+        // The guard above counts digits as invented words, so numerals come after it.
+        return TranscriptRepair.writeNumerals(reply)
     }
 
     private struct TimedOut: Error, CustomStringConvertible {

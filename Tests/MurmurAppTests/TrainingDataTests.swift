@@ -158,17 +158,39 @@ struct TrainingLabelTests {
         return run
     }
 
-    @Test("An edit wins on rules-cleaned runs; cleaned rewrites fall back to the dictionary")
+    @Test("An edit wins over the dictionary, on rules-cleaned and model-cleaned runs alike")
     func priority() {
         let edited = run(cleanup: nil, raw: "open cloud code", label: "Open Claude Code now")
         #expect(TrainingLabel.resolve(edited, corrector: corrector)?.text == "Open Claude Code now")
         #expect(TrainingLabel.resolve(edited, corrector: corrector)?.source == .edit)
 
-        let s1 = run(cleanup: "S1-mini · General", raw: "open cloud code", label: "Rewritten by hand")
-        #expect(!TrainingLabel.editAllowed(s1))
-        let resolved = TrainingLabel.resolve(s1, corrector: corrector)
-        #expect(resolved?.source == .dictionary)
-        #expect(resolved?.text == "open Claude Code")
+        let s1 = run(cleanup: "S1-mini · General", raw: "open cloud code", label: "open Claude Code now")
+        #expect(TrainingLabel.editAllowed(s1))
+        #expect(TrainingLabel.resolve(s1, corrector: corrector)?.source == .edit)
+        #expect(TrainingLabel.resolve(s1, corrector: corrector)?.text == "open Claude Code now")
+    }
+
+    @Test("A model-cleaned run is corrected against what Bark heard, and then shows the correction")
+    func modelCleanedRunsEditTheRawText() {
+        let s1 = run(cleanup: "S1-mini · General", raw: "send it by friday no wait thursday", label: nil)
+        #expect(TrainingLabel.editBase(s1) == "send it by friday no wait thursday")
+        #expect(TrainingLabel.displayText(s1) == "x")
+
+        // Once corrected, the row shows the correction, as a rules-cleaned row does.
+        let labelled = run(cleanup: "S1-mini · General", raw: "send it by friday", label: "send it by Friday")
+        #expect(TrainingLabel.displayText(labelled) == "send it by Friday")
+
+        // Rules-cleaned: the typed text is the transcript, so the edit starts there and shows.
+        let rules = run(cleanup: nil, raw: "open cloud code", label: "Open Claude Code")
+        #expect(TrainingLabel.editBase(rules) == "x")
+        #expect(TrainingLabel.displayText(rules) == "Open Claude Code")
+    }
+
+    @Test("A model-cleaned run from before raw text was kept cannot be corrected")
+    func noRawTextNoEdit() {
+        let old = run(cleanup: "S1-mini · General", raw: nil, label: "anything")
+        #expect(!TrainingLabel.editAllowed(old))
+        #expect(TrainingLabel.resolve(old, corrector: corrector) == nil)
     }
 
     @Test("No edit and no dictionary hit means no label")

@@ -128,7 +128,10 @@ actor S1MiniEngine {
     // MARK: - Helper process
 
     private func launch(phase: @escaping @Sendable (S1MiniModelStore.Phase?) -> Void) async throws {
-        guard let executable = Bundle.main.executableURL else { throw S1MiniError.helperUnavailable }
+        // The `bench/` runner lives in a test process, whose own executable has no
+        // `--s1-server`, so it names the installed app's binary instead.
+        let override = ProcessInfo.processInfo.environment["MURMUR_S1_HELPER"].map { URL(fileURLWithPath: $0) }
+        guard let executable = override ?? Bundle.main.executableURL else { throw S1MiniError.helperUnavailable }
         let started = Date()
         let process = Process()
         process.executableURL = executable

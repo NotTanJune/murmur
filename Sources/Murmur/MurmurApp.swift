@@ -91,7 +91,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let index = CommandLine.arguments.firstIndex(of: "--incremental-check"),
            CommandLine.arguments.indices.contains(index + 1) {
             let path = CommandLine.arguments[index + 1]
-            Task { @MainActor in exit(await IncrementalCheck.run(path: path) ? EXIT_SUCCESS : EXIT_FAILURE) }
+            let paced = !CommandLine.arguments.contains("--fast")
+            let anticipating = !CommandLine.arguments.contains("--no-anticipation")
+            Task { @MainActor in
+                exit(await IncrementalCheck.run(path: path, paced: paced, anticipating: anticipating) ? EXIT_SUCCESS : EXIT_FAILURE)
+            }
             return
         }
         if CommandLine.arguments.contains("--cleanup-check") {
@@ -109,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = DictionaryStore.shared
 
         hud = HUDPanel(controller: controller)
+        Sounds.preload()
 
         let hasAccessibility = Permissions.hasAccessibility
         let hasInputMonitoring = Permissions.hasInputMonitoring

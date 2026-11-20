@@ -140,6 +140,67 @@ terms live in `THIRD_PARTY.md`.
 
 ---
 
+## Tried and not kept
+
+**FluidAudio's vocabulary rescoring** (`VocabularyBoostingSession`, a Parakeet CTC 110M pass
+that swaps transcript words for dictionary terms the audio fits better). Measured on
+2026-11-13 over 82 recordings cut into 161 stretches, with the dictionary's 94 terms and
+default thresholds: it changed 99 stretches and made 196 replacements, about 20 of them
+right ("Kelpy" to "Kelpie", "Erickson" to "Ericsson", "excalibra" to "Excalidraw") and the
+rest wrong ("not" to ".NET" eight times, "model" and "context" to "Codex", "app" to "API",
+"run" to "Bun"). It did not recover "NUS" from "in U S", and cost 0.21 s per stretch. The
+right ones are names a dictionary correction already fixes. Short terms that sound like
+common words are what break it, so a retry would need a list of long, distinctive names only
+and its own measurement.
+
+**Fluid Speech Pro** (FluidVoice, `FluidVoice-Labs/fluid-speech-pro-coreml` at `3b9d38a9`,
+a Parakeet v3 fine-tune, CC BY 4.0). Measured on 2026-11-20 with `bench/` over 173
+recordings (63.8 min, 29 corrected), S1-mini General. Typed word errors against the
+corrections: Bark 1.29%, Parakeet 3.14%, Fluid 3.26% paced; at 5 dB babble plus pink noise
+Bark 11.99%, Parakeet 11.10%, Fluid 8.62%. Release to typed median 273, 326 and 340 ms. It
+heard the same as stock Parakeet on 118 of 173 recordings, returned nothing for "Yeah.",
+"No." and "Okay.", and its Core ML build has no clean mode, so fillers reach the cleanup.
+Better only in noise; the model was deleted.
+
+## Benchmarking models
+
+`bench/` (see its README) runs candidate models against the current setup, which it reads
+from the installed app's Settings at run time, so adopting a model makes it the next
+baseline. It is a `swift test` target that imports the app's code and is skipped without a
+job file; it never ships in the app. Three seams in the app serve it and nothing else:
+`ParakeetModels.Source.folder` (a Parakeet v3-layout folder, never downloads);
+`MURMUR_S1_HELPER`, which points `S1MiniEngine` at the installed app's binary because a test
+process has no `--s1-server`; and `MURMUR_SETTINGS_DOMAIN`, which points `Settings.shared` at
+a copy of the app's domain, because the test process's own domain holds values earlier tests
+wrote (it said `engine = apple` on 2026-11-20). Core ML would not reuse the app's compiled
+models from the test process, so the runner keeps its own cache under `Benchmarks/ane-cache`
+and must never be linked to the app's. Fetch candidates with `bench/fetch.py`, which pins
+and verifies every file.
+
+## Bark Clean against Parakeet v3
+
+Measured on 2026-11-13 over 85 recordings (28.6 min, 27 corrected), S1-mini General, paced:
+
+- **Speed is the same.** One architecture, one conversion: 49.7 s against 49.6 s of decoding
+  for all of it. Release to typed text, median 247 ms for Bark and 279 ms for Parakeet (322
+  against 443 ms on holds over 30 s), because Parakeet hands the cleanup more words.
+- **Parakeet returns nothing for some short utterances.** "Yeah." twice, "Okay." and "One
+  thousand fifty nine." came back empty, streaming and on release alike. Bark typed all four.
+- **Parakeet is verbatim and the cleanup hides most of it.** It heard 116 fillers and typed
+  none. False starts and "like" mostly survive, and once S1-mini cut a clause of 13 words
+  that began with one.
+- **Names are level once the dictionary has run.** Of 29 names and acronyms the corrections
+  fixed, Parakeet heard 17 as written and Bark 1; typed, both got 23. Parakeet alone wrote
+  "Playwright", "unslop" and "NUS"; Bark alone wrote "Jev", "compaction" and "NTU".
+- Against the corrections Bark's typed text has 31 word errors in 2,495 and Parakeet's 86,
+  but the corrections are edits of Bark's own text, so that count favours Bark. By place, 21
+  differences are shared, Bark has 9 more (6 mishearings) and Parakeet 33 more: 7 are
+  spelling ("workflow", "database"), 15 are words kept or cut around a false start, and 11
+  are mishearings ("dry" for "drive", "n to" for "NTU", "writed").
+
+These numbers give no reason to move the default off Bark. Its fine-tune is what drops
+fillers and keeps one-word answers, and those are what a switch would lose.
+
 ## Not built yet
 
 1. **Command Mode.** Holding a second key over selected text would rewrite it on request, such as
@@ -190,17 +251,28 @@ a press while the previous hold is still finishing starts capture at once. The n
 `engine.start()` waits on `engineIdle` (the shared streaming sessions and Parakeet's one
 model must not overlap), and delivery waits on `deliveryTail` so text lands in the order
 spoken. Compare mode does not overlap. `HotkeyMonitor` takes down/up from the event's
-device-dependent modifier bit, never by alternating, and a watchdog polls
-`CGEventSource.keyState` to release a hold whose key-up was missed; it only trusts that
-reading after seeing the key down once. That reading needs Input Monitoring (requested at
-launch; `CGPreflightListenEventAccess`), and every release logs `keyboard reported the hold:
-true/false` so a blind watchdog shows up. On 2026-11-03 WindowServer's own KeyboardEvent log
+device-dependent modifier bit, never by alternating, and a watchdog releases a hold whose
+key-up was missed; it only trusts a source after that source has seen the key down once.
+It has two sources: `PhysicalKeyWatcher`, which reads the key's own element from the
+keyboards' HID reports (below every event tap, matched to that one usage so no other key
+reaches the process), and `CGEventSource.keyState`. The second alone read "up" through
+every hold checked on 2026-11-13, so the watchdog had never been able to fire. Reading the
+keyboards needs Input Monitoring, and `Permissions.hasInputMonitoring` asks IOKit
+(`IOHIDCheckAccess`), whose answer decides whether the keyboards open. On 2026-11-13 it said
+yes and they opened, although the system's permission database listed only Accessibility
+for Murmur; why the key table read "up" regardless is not known. Every release logs `keyboard reported
+the hold: true/false (device, key table, devices open)` so a blind watchdog shows up; false
+with devices open means no keyboard sends that key (it is produced by another app). On 2026-11-03 WindowServer's own KeyboardEvent log
 showed no Right ⌘ release for 27 s while the user had let go, so the session kept ⌘ held and a
 trackpad click became ⌘-click before the paste. Active event taps on that Mac (Vorssaint with
 keyboard debounce, openlogi-agent) can swallow a key-up. `HotkeyMonitor.releaseIfStuck` posts
 the missing key-up when the keyboard says up but the session says held, after a watchdog
 release and before every delivery. `RunLog` does all file I/O and dashboard rendering
 on one serial queue and publishes snapshots to `RunStore`; keep it off the main actor.
+The three interface sounds play through `Sounds` on a queue of their own: `NSSound.play()`
+held the main thread for 0.22 to 0.30 s on every press, ahead of the model wake and the
+engine start. `TextInjector` remembers for ten minutes an app that refused an accessibility
+insert (`PasteOnlyApps`) and pastes there directly.
 History expires: unsaved runs older than `RunLog.retention` (30 days) are pruned on every
 history change, at launch and hourly. `DictationRun.isSaved` (the row's Save chip) exempts
 a run; lines written before the field existed decode as unsaved.
@@ -218,13 +290,41 @@ inside the trained values; the model card warns it hallucinates otherwise, which
 `S1MiniModelStore` pins commit `88f6b158` (the repo has no `v1` tag despite its card),
 verifies size and SHA-256, converts BF16 to 4-bit affine g64 in-app (measured bit-identical
 to `mlx_lm.convert`) and deletes the original. The cleanup guard exempts numerals and a short
-list of colloquial expansions for S1-mini only. Cleanup never gates recording. A cleanup that
+list of colloquial expansions for S1-mini only. Cleanup never gates recording. In the General profile an utterance
+of three words or fewer takes the rule pass alone (`S1MiniFormatter.rulesSuffice`): the model
+costs 0.11 to 0.20 s there and rewrote "NUS." as "Nus.". A cleanup that
 arrives while S1-mini is still loading waits for it (`S1MiniEngine.waitUntilReady`); if the
 helper fails or isn't installed, it falls back to the rule pass. `make app` builds with `xcodebuild` because SwiftPM's
 command line can't compile MLX's Metal kernels, and copies every SwiftPM resource bundle into
 `Contents/Resources`; a missing `mlx-swift_Cmlx.bundle` fails at the first GPU call, and a
 missing generated bundle traps in `Bundle.module`. `Murmur --cleanup-check` verifies the
 installed bundle end to end without a microphone.
+
+`TranscriptRepair` (added 2026-11-08) runs under every cleanup engine and fixes three habits of
+Bark's decoder measured on the run log. At a short pause Bark writes a period and leaves the
+next word lowercase (123 times against 208 real sentence ends it capitalised itself, in batch
+and streaming alike, so it is the model and not the window seam); `dropPausePeriods` removes a
+period between a word of two or more letters and a lowercase word, sparing spelled letters,
+"e.g.", "etc.", "vs.", ellipses and decimals. It runs in the rule pass before capitalisation
+and on the input to S1-mini and Apple Intelligence, which otherwise capitalise the word.
+`CleanupPipeline` likewise does not cut a piece at such a period. Bark Clean never writes
+digits, and S1-mini writes them only sometimes on Bark's already-punctuated text, so
+`writeNumerals` runs after every engine: ten and above and every multi-word number become
+digits with thousands separators (`six thousand` → `6,000`), `point` makes a decimal, two
+tens-groups read as a year or model number (`twenty twenty-six` → `2026`, `ten eighty` →
+`1080`), a bare string of digits stays a string (`one two three` → `1 2 3`), and a lone word
+under ten stays a word unless `to`, `through` or `or` joins it to a number that converted
+(`six to eleven` → `6 to 11`). Ordinals and anything the grammar does not recognise stay as
+spoken. Bark also spells acronyms out in three styles ("m. c. p.", "N T U", "x y z"), and
+S1-mini then wrote "M.C.P.S." or "H-T-M-L"; `joinSpelledLetters` (2026-11-13) joins a run of
+two or more into one uppercase word before the pause periods are dropped, in the rule pass
+and on the input to both models. A bare "a" or "I" joins only beside bare letters, a
+lowercase "s" closing a dotted run of four or more is a plural ("MCPs"; three letters
+ending in "s" are an acronym, as in NUS and AWS), and "i. e." and "e. g."
+are left alone. Dictionary triggers written as spaced letters ("C L I") still match the
+joined word, because the corrector allows nothing between trigger words. Apple Intelligence's guard counts digits as invented words, so numerals come after it.
+Pause-stutter repeats ("where. Where the", "Then, then") are left alone: without the audio
+they cannot be told from a real sentence start, and they are what the decoder fine-tune is for.
 
 Capture never uses the system default input. `MicrophonePolicy` picks the HyperX SoloCast
 when connected, otherwise the built-in mic, and nothing else (no Bluetooth, iPhone or other
@@ -299,27 +399,48 @@ Long holds no longer pay for their length at release (added 2026-10-31). Three p
 
 - **Incremental Bark/Parakeet** (`IncrementalParakeetEngine`, default via
   `Settings.transcribeTiming = .whileSpeaking`; "On release" keeps the old `ParakeetEngine`
-  batch path). It wraps FluidAudio's `SlidingWindowAsrManager` loaded with the **same**
-  `AsrModels` the batch engine holds (`ParakeetModels.loadedModels()`), never its no-argument
-  `loadModels()`, which would download NVIDIA's weights over Bark's. The manager is single-use
-  (its input stream is created in `init`), so one is made per hold. Windows are 11 s with 2 s
-  context each side and land about every 11 s; each partial chunk carries `stable`, the text
-  of every window so far. The engine composes the transcript itself from the windows
-  (`compose(_:adding:)`) instead of taking the recognizer's final string: each window's first
-  token says whether it starts a word (Bark's vocabulary marks that with a leading space, not
-  "▁"; FluidAudio accepts both and so does this), and three seam rules drop what the 2 s of
-  overlap re-decoded: a glued fragment equal to the previous word's ending ("MacBook" +
-  "book" typed "MacBookbook" on 2026-11-01), a first word equal to the last word or its
-  ending, and a cut-off word that prefixes the next ("blind blindsided"). Windows flushed at
-  release go into the final text, never into a partial. Measured on 50 s of synthesized
-  speech on an M2 on 2026-11-06: release tail 0.17 s against the batch engine's 0.32 s for
-  the whole file (an earlier 57 s clip measured 0.10 s against 0.34 s). Other
-  seam artifacts remain ("All Also", "I think. that's fair"), so the setting stays
-  user-visible. Compare mode still uses batch.
-  `Murmur --incremental-check <audio-file>` runs both engines on a file at 2× real time.
+  batch path). Its recognizer is Murmur's own `OverlapWindowRecognizer`, an `AsrManager`
+  loaded with the **same** `AsrModels` the batch engine holds (`ParakeetModels.loadedModels()`),
+  never a no-argument `loadModels()`, which would download NVIDIA's weights over Bark's. A
+  window is 2 s of earlier audio, an 11 s centre and 2 s of later audio (15 s, the model's
+  input), decoded on its own from a fresh decoder state through the public
+  `AsrManager.transcribe`, exactly as the batch engine decodes a 15 s clip, so a window's
+  text depends only on its samples. `WindowSeam.join` joins consecutive windows on a word
+  both decoded within a second of the boundary between their centres (aimed half a second
+  past it, where the earlier window still has 1.5 s of audio ahead), taking everything
+  before that word from the earlier window and the rest from the later one; with no word in
+  common it cuts by time on word midpoints. Words within a second of the next boundary are
+  held back, so `stable` never changes. At release the audio left over (2 to 13 s once any
+  window has been decoded) is one last window. **Do not go back to FluidAudio's
+  `SlidingWindowAsrManager`.** It decodes each window to its last sample, keeps that text and
+  removes the next window's copy as a duplicate, and Bark closes audio that stops mid-speech
+  with the half word it heard plus a period, so the kept copy was the broken one:
+  "inference.ringement", "act.tions", "to. do" (26 in 27 labelled runs, 2026-11-08 to
+  11-13), and at release it cut again at every 11 s of leftover with no later audio, which
+  put one in the last seconds of nearly every long hold. Replayed on 78 recordings
+  (27 min) on 2026-11-13: 8 glued tokens before, none after, and every window-end period
+  gone; word error against the 27 labels 4.09% before, 3.69% after, batch 4.28%. Release
+  tail on a 22.8 s clip 0.18 s (0.24 s before). The engine's old seam rules
+  (`compose`, "MacBookbook") went with the old recognizer. Compare mode still uses batch.
+  `Murmur --incremental-check <audio-file>` runs both engines on a file at 2× real time;
+  `--fast` skips the pacing and gives the same text.
+- **The last window is decoded at a pause** (`OverlapWindowRecognizer.anticipate`, added
+  2026-11-13). The key comes up a median 0.50 s after the talking stops (81 recordings), so
+  once the audio has been quiet for 0.26 s the audio so far is decoded exactly as release
+  would decode it; if the key then comes up with only silence in between, that text is the
+  result and release decodes nothing. Speech after the pause discards it. Silence is judged
+  against the hold itself: the room is the quietest 0.2 s so far, speech the 95th percentile
+  of 20 ms levels, and without a tenfold range between them the early decode stays off. Do
+  not loosen that: an earlier rule (three times the 10th percentile) took the first 0.4 s of
+  a quiet 0.8 s recording for the whole of it and typed "Yeah." for "Okay.". Bark's wording
+  shifts a little with how much trailing silence it is given, in either direction, so an
+  early decode is not word-for-word the release decode; `--incremental-check --fast` with and
+  without `--no-anticipation` is the comparison to rerun after any change here.
 - **Cleanup pipeline** (`CleanupPipeline`, General profile only): finished sentences from
   `stable` are cleaned while the key is held, at least 12 words per piece, each through the
-  normal formatter with its guard, so one rejected piece falls back alone. At release the
+  normal formatter with its guard, so one rejected piece falls back alone. A piece is
+  never cut on a period that is the last stable word: what follows is not known yet, and
+  cutting there typed "to. Do" at a pause. At release the
   final transcript must still begin with the pipelined words verbatim or the whole text is
   cleaned in one pass. Email, Notes and Message place greetings, bullets and the dropped
   final period from the whole text, so they are not pipelined. Measured on an idle M2:
@@ -338,14 +459,30 @@ Long holds no longer pay for their length at release (added 2026-10-31). Three p
 Training loop (added 2026-11-01). Every non-compare hold keeps its audio; `RunLog.record(_:audio:)`
 writes `Recordings/<id>.flac` on the history queue and deletes it with the run. `DictationRun`
 gained `rawText`, `label`, `hasAudio`, `exportedAt`; a labelled run (history edit, or a
-dictionary hit) with unexported audio outlives the 30 days. Edits are transcript corrections
-only on rules-cleaned runs (`TrainingLabel.editAllowed`); S1-mini and Apple Intelligence runs
-contribute only through the dictionary applied to `rawText`. Settings → Training exports
+dictionary hit) with unexported audio outlives the 30 days. A label is always what was said,
+in Bark's form. On a rules-cleaned run the history edit starts from the typed text and the
+row then shows the correction. S1-mini and Apple Intelligence rewrite, so their rows are
+corrected against `rawText` (`TrainingLabel.editBase`): the editor opens on what Bark heard
+under a "Heard" eyebrow, and once corrected the row shows the correction with a Labelled tag
+(a row that reverted to the typed text read as the edit being lost). The row's copy button
+copies what the row shows, `TrainingLabel.displayText`. Until
+2026-11-09 those rows had no edit at all, which left the loop dead with S1-mini on (11 of 14
+recorded runs could not be labelled). A model-cleaned run without `rawText` stays uneditable. Settings → Training exports
 `Training/export-<date>.zip` (`TrainingExport`), and installs a fine-tuned decoder + joint
 pair (`CustomDecoderSlot`, verified by size and SHA-256 and by `baseRevision ==
 BarkModelStore.revision`; a folder with an encoder is refused). `loadBarkClean(slot:)` loads
 the pair from the slot and the encoder from stock, so a switch is a 0.3 s reload with no
-Neural Engine recompile. `training/bark_decoder_finetune.ipynb` is the Colab side; its Core ML
+Neural Engine recompile. `training/finetune_local.py` (2026-11-13) runs the same fine-tune on the Mac's CPU from the
+run log in place, in three stages (`prepare`, `train`, `export`), and marks nothing as
+exported. It cuts recordings into segments of at most 14 s, because the transducer loss on a
+90 s recording needs about 11 GB, and builds each segment's target as the stock model's own
+text with only the user's edits laid over it: the untouched words of a correction are the
+old streaming engine's wording and would teach noise. `export --stock` plus
+`--decoder-check` proved the Core ML conversion (0 words differing). The first run, on 27
+corrected recordings, exported nothing: the model either barely moved or memorised
+(`training/README.md` has the table). The stock joint's `token_prob` is the softmax
+probability of the chosen token, not the raw logit the notebook used to write.
+`training/bark_decoder_finetune.ipynb` is the Colab side; its Core ML
 export cells must be checked against the stock package's `metadata.json` on the first run, and
 `Murmur --decoder-check <slot> <audio>` is how.
 

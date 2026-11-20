@@ -120,6 +120,9 @@ actor ParakeetModels {
         case barkCleanStock
         /// Bark Clean with a fine-tuned decoder and joint from `CustomDecoderSlot`, by slot name.
         case barkCleanCustom(String)
+        /// A Parakeet v3-layout folder installed by something outside the app (the `bench/`
+        /// runner's candidates), with the joint file it names. Never downloads.
+        case folder(URL, joint: String)
 
         var label: String {
             switch self {
@@ -127,6 +130,7 @@ actor ParakeetModels {
             case .barkClean: "Bark Clean"
             case .barkCleanStock: "Bark Clean (stock)"
             case .barkCleanCustom: "Bark Clean (fine-tuned)"
+            case .folder(let url, _): url.lastPathComponent
             }
         }
     }
@@ -160,7 +164,7 @@ actor ParakeetModels {
 
     private var loaded: AsrManager?
     /// The `AsrModels` behind `loaded`, kept so the incremental engine can wrap the same
-    /// weights in a `SlidingWindowAsrManager` without loading anything again.
+    /// weights in its own `AsrManager` without loading anything again.
     private var models: AsrModels?
     private var loadTask: Task<(AsrManager, AsrModels), Error>?
 
@@ -211,6 +215,7 @@ actor ParakeetModels {
             case .barkClean: try await Self.loadBarkClean(slot: selectedDecoder)
             case .barkCleanStock: try await Self.loadBarkClean(slot: .stock)
             case .barkCleanCustom(let name): try await Self.loadBarkClean(slot: .custom(name))
+            case .folder(let url, let joint): try await Self.loadFolder(url, joint: joint)
             }
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
@@ -263,7 +268,24 @@ actor ParakeetModels {
             Log.speech.info("Bark Clean: using fine-tuned decoder \(name, privacy: .public)")
         }
         Log.speech.info("Bark Clean: loading models (the first load compiles for the Neural Engine, about a minute)")
+        return try await loadComponents(from: directory, pair: pair, joint: "JointDecisionv3.mlmodelc")
+    }
 
+    /// Same hand load as Bark, so FluidAudio's loader can't purge the folder and fetch stock
+    /// v3 into it. Never downloads.
+    private static func loadFolder(_ directory: URL, joint: String) async throws -> AsrModels {
+        let needed = ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", joint, "parakeet_vocab.json"]
+        let missing = needed.filter { !FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path) }
+        guard missing.isEmpty else {
+            throw TranscriptionError.modelInstallFailed("\(directory.path) is missing \(missing.joined(separator: ", "))")
+        }
+        Log.speech.info("\(directory.lastPathComponent, privacy: .public): loading models")
+        return try await loadComponents(from: directory, pair: directory, joint: joint)
+    }
+
+    /// Loads a v3-layout folder: preprocessor, encoder and vocabulary from `directory`, the
+    /// decoder and joint from `pair`.
+    private static func loadComponents(from directory: URL, pair: URL, joint jointName: String) async throws -> AsrModels {
         func load(_ name: String, from folder: URL, _ units: MLComputeUnits) async throws -> MLModel {
             let configuration = MLModelConfiguration()
             configuration.computeUnits = units
@@ -276,7 +298,7 @@ actor ParakeetModels {
         let preprocessor = try await load("Preprocessor.mlmodelc", from: directory, .cpuOnly)
         let encoder = try await load("Encoder.mlmodelc", from: directory, .cpuAndNeuralEngine)
         let decoder = try await load("Decoder.mlmodelc", from: pair, .cpuAndNeuralEngine)
-        let joint = try await load("JointDecisionv3.mlmodelc", from: pair, .cpuAndNeuralEngine)
+        let joint = try await load(jointName, from: pair, .cpuAndNeuralEngine)
 
         let data = try Data(contentsOf: directory.appendingPathComponent("parakeet_vocab.json"))
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: String] else {

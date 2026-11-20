@@ -58,4 +58,14 @@ if #available(macOS 26, *) {
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     )
+    // The model benchmark, not a test: it imports the app's code the way the tests do and
+    // runs only when `bench/bench.py` hands it a job. See bench/README.md.
+    package.targets.append(
+        .testTarget(
+            name: "MurmurBench",
+            dependencies: ["Murmur", .product(name: "FluidAudio", package: "FluidAudio")],
+            path: "bench/runner",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        )
+    )
 }

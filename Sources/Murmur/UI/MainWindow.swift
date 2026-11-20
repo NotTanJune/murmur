@@ -340,7 +340,7 @@ private struct TranscriptionList: View {
     private var totalWords: Int {
         store.runs.reduce(0) { total, run in
             guard run.group == nil else { return total }
-            return total + (run.label ?? run.text).split(whereSeparator: \.isWhitespace).count
+            return total + TrainingLabel.displayText(run).split(whereSeparator: \.isWhitespace).count
         }
     }
 
@@ -461,6 +461,9 @@ private struct TranscriptionRow: View {
 
             VStack(alignment: .leading, spacing: DS.Space.snug) {
                 if isEditing {
+                    // A model-cleaned row is corrected against what Bark heard, which is
+                    // not the text shown; the eyebrow says which one this is.
+                    if run.cleanup != nil { Eyebrow(text: "Heard") }
                     TextField("Corrected transcript", text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DS.Font.body)
@@ -474,7 +477,7 @@ private struct TranscriptionRow: View {
                         .onSubmit { commitEdit() }
                         .onExitCommand { isEditing = false }
                 } else {
-                    Text(run.label ?? run.text)
+                    Text(TrainingLabel.displayText(run))
                         .font(DS.Font.body)
                         .foregroundStyle(DS.Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
@@ -569,7 +572,7 @@ private struct TranscriptionRow: View {
             if isEditing {
                 commitEdit()
             } else {
-                draft = run.label ?? run.text
+                draft = run.label ?? TrainingLabel.editBase(run)
                 isEditing = true
             }
         } label: {
@@ -585,13 +588,14 @@ private struct TranscriptionRow: View {
         isEditing = false
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         // Unchanged text is not a correction; clear any earlier label in that case.
-        RunLog.setLabel(trimmed == run.text ? nil : trimmed, for: run)
+        RunLog.setLabel(trimmed == TrainingLabel.editBase(run) ? nil : trimmed, for: run)
     }
 
     private var copyButton: some View {
         Button {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(run.text, forType: .string)
+            // What the row shows: a corrected run copies its correction, not the typed text.
+            NSPasteboard.general.setString(TrainingLabel.displayText(run), forType: .string)
             didCopy = true
             onCopied()
             Task {

@@ -42,7 +42,14 @@ final class CleanupPipeline {
             return
         }
         let fresh = words[consumed.count...]
-        guard let cut = fresh.lastIndex(where: Self.endsSentence) else { return }
+        // A sentence end followed by a lowercase word is not one: Bark writes a period at a
+        // pause and leaves the next word lowercase, and cutting there would hand the formatter
+        // "had." and "recognition" as two sentences. At the end of the stable text the next
+        // word is unknown, so a period there waits for the next window; cutting on it typed
+        // "to. Do" whenever the stable text happened to end on a pause.
+        guard let cut = fresh.indices.dropLast().last(where: { i in
+            Self.endsSentence(fresh[i]) && !Self.startsLowercase(fresh[i + 1])
+        }) else { return }
         let chunk = Array(fresh[...cut])
         guard chunk.count >= Self.minimumChunkWords else { return }
         consumed.append(contentsOf: chunk)
@@ -78,6 +85,11 @@ final class CleanupPipeline {
 
     static func words(_ text: String) -> [String] {
         text.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    /// Whether the word's first letter is lowercase, the mark of a pause period before it.
+    static func startsLowercase(_ word: String) -> Bool {
+        word.first(where: \.isLetter)?.isLowercase ?? false
     }
 
     /// A word that closes a sentence, allowing a trailing quote or bracket.

@@ -2,38 +2,29 @@ import AVFoundation
 import FluidAudio
 import Foundation
 
-/// A recognizer that decodes fixed windows of audio while it is still being fed.
+/// A recognizer that decodes windows of audio while it is still being fed.
 ///
 /// The seam exists so the engine can be tested with a scripted fake; the production
-/// conformer wraps FluidAudio's `SlidingWindowAsrManager`.
+/// conformer is `OverlapWindowRecognizer`.
 protocol WindowedRecognizer: Actor {
     func load(_ models: AsrModels) async throws
     func start() async throws
     func stream(_ buffer: AVAudioPCMBuffer) async
-    /// Each decoded window as it lands, in order. Ends after `cancel()`.
+    /// The words each window settled, in order. Ends after `cancel()`.
     var windows: AsyncStream<DecodedWindow> { get }
-    /// Flushes the audio not yet decoded; its windows arrive on `windows` first. The
-    /// returned text is the recognizer's own join of every token, used only when no window
-    /// was reported.
+    /// Decodes the audio not yet decoded; its words arrive on `windows` first. The returned
+    /// text is the recognizer's own join of everything, used only when no window was reported.
     func finish() async throws -> String
     func cancel() async
 }
 
-/// One decoded window of audio.
+/// The words one window added to the transcript: whole words that no later window revises.
 struct DecodedWindow: Sendable, Equatable {
     let text: String
-    /// False when the window's first token continues the word the previous window ended on
-    /// (no SentencePiece word boundary), so the texts glue rather than join with a space.
-    let startsWord: Bool
-
-    init(text: String, startsWord: Bool = true) {
-        self.text = text
-        self.startsWord = startsWord
-    }
 }
 
-/// Parakeet / Bark decoded in 11 s windows during the hold, so release only processes the
-/// trailing partial window. Uses the same already-loaded `AsrModels` as `ParakeetEngine`.
+/// Parakeet / Bark decoded in windows during the hold, so release only decodes the audio
+/// since the last one. Uses the same already-loaded `AsrModels` as `ParakeetEngine`.
 actor IncrementalParakeetEngine: TranscriptionEngine {
     private let models: ParakeetModels
     private let loadModels: @Sendable () async throws -> AsrModels?
@@ -53,7 +44,7 @@ actor IncrementalParakeetEngine: TranscriptionEngine {
     init(
         models: ParakeetModels = .shared,
         loadModels: (@Sendable () async throws -> AsrModels?)? = nil,
-        makeRecognizer: @escaping @Sendable () -> any WindowedRecognizer = { SlidingWindowRecognizer() }
+        makeRecognizer: @escaping @Sendable () -> any WindowedRecognizer = { OverlapWindowRecognizer() }
     ) {
         self.models = models
         self.loadModels = loadModels ?? { try await models.loadedModels() }
@@ -157,112 +148,8 @@ actor IncrementalParakeetEngine: TranscriptionEngine {
         let cleaned = ParakeetEngine.cleanTranscript(window.text)
         guard !cleaned.isEmpty else { return }
         windowCount += 1
-        composed = Self.compose(composed, adding: DecodedWindow(text: cleaned, startsWord: window.startsWord))
+        composed = composed.isEmpty ? cleaned : composed + " " + cleaned
         guard !finishing else { return }
         continuation?.yield(TranscriptionChunk(text: composed, isFinal: false, stable: composed))
     }
-
-    /// Joins the next window onto the transcript, removing what the seam re-decoded.
-    ///
-    /// Each window is decoded with two seconds of the previous one as context, and the
-    /// recognizer drops tokens it has already emitted by their timestamps. Near a boundary the
-    /// timing is loose enough that the last word sometimes comes back: "MacBook" + "book",
-    /// glued because the token had no word boundary, typed "MacBookbook"; "blind" +
-    /// "blindsided" when the first window ended mid-word. Three narrow rules at the seam only:
-    ///
-    /// 1. A glued fragment that equals the end of the previous word is the previous word's
-    ///    ending again: dropped.
-    /// 2. A first word equal to the last word, or to its ending ("MacBook" then "Book"),
-    ///    ignoring case and punctuation: dropped.
-    /// 3. A last word of four or more letters that is a prefix of the first word is a cut-off
-    ///    start of that word: the cut-off is dropped.
-    nonisolated static func compose(_ text: String, adding window: DecodedWindow) -> String {
-        let addition = window.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !addition.isEmpty else { return text }
-        guard !text.isEmpty else { return addition }
-
-        var words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        var incoming = addition.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let last = words.last, let first = incoming.first else { return text }
-        let lastCore = core(last)
-        let firstCore = core(first)
-
-        if !window.startsWord {
-            // Rule 1: the fragment repeats the ending of the word it would extend, or is
-            // punctuation landing on a word that already has some ("quarter." + ",").
-            let repeatsEnding = !firstCore.isEmpty && lastCore.lowercased().hasSuffix(firstCore.lowercased())
-            let doublesPunctuation = firstCore.isEmpty && last != lastCore
-            if repeatsEnding || doublesPunctuation {
-                incoming.removeFirst()
-                return incoming.isEmpty ? text : text + " " + incoming.joined(separator: " ")
-            }
-            return text + addition
-        }
-
-        if !lastCore.isEmpty, firstCore.count >= 3 || firstCore.lowercased() == lastCore.lowercased(),
-           lastCore.lowercased().hasSuffix(firstCore.lowercased()) {
-            // Rule 2. Keep the earlier copy: it carries any punctuation the sentence needs.
-            incoming.removeFirst()
-        } else if lastCore.count >= 4, firstCore.count > lastCore.count,
-                  firstCore.lowercased().hasPrefix(lastCore.lowercased()),
-                  last == lastCore {
-            // Rule 3, only when the cut-off word carries no punctuation of its own.
-            words.removeLast()
-        }
-        return (words + incoming).joined(separator: " ")
-    }
-
-    /// The word without surrounding punctuation.
-    private nonisolated static func core(_ word: String) -> String {
-        word.trimmingCharacters(in: .punctuationCharacters.union(.symbols))
-    }
-}
-
-/// Production recognizer: one single-use `SlidingWindowAsrManager` per recording.
-/// Always loaded with caller-supplied models; the no-argument `loadModels()` would download
-/// NVIDIA's weights over Bark's.
-actor SlidingWindowRecognizer: WindowedRecognizer {
-    private let manager = SlidingWindowAsrManager(config: .default)
-    private var updates: AsyncStream<DecodedWindow>?
-    private var vocabulary: [Int: String] = [:]
-
-    func load(_ models: AsrModels) async throws {
-        vocabulary = models.vocabulary
-        try await manager.loadModels(models)
-    }
-
-    func start() async throws {
-        // Subscribing registers the update continuation, so do it before audio flows.
-        let source = await manager.transcriptionUpdates
-        let vocabulary = self.vocabulary
-        updates = AsyncStream<DecodedWindow> { continuation in
-            let task = Task {
-                for await update in source {
-                    // A token that starts a word carries the boundary marker: SentencePiece's
-                    // "▁", or a leading space in the vocabulary Bark and Parakeet v3 ship.
-                    // FluidAudio accepts both; so does this. A first token without one
-                    // continues the previous window's last word.
-                    let firstToken = update.tokenIds.first.flatMap { vocabulary[$0] }
-                    let startsWord = firstToken.map {
-                        $0.hasPrefix(ASRConstants.sentencePieceWordBoundary) || $0.hasPrefix(" ")
-                    } ?? true
-                    continuation.yield(DecodedWindow(text: update.text, startsWord: startsWord))
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-        try await manager.startStreaming(source: .microphone)
-    }
-
-    func stream(_ buffer: AVAudioPCMBuffer) async {
-        // Awaited so buffers reach the manager in the order they were captured.
-        nonisolated(unsafe) let buffer = buffer
-        await manager.streamAudio(buffer)
-    }
-
-    var windows: AsyncStream<DecodedWindow> { updates ?? AsyncStream { $0.finish() } }
-
-    func finish() async throws -> String { try await manager.finish() }
-    func cancel() async { await manager.cancel() }
 }

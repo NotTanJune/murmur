@@ -138,3 +138,25 @@ struct CleanupTests {
         #expect(s1 == rules)
     }
 }
+
+struct ShortUtteranceTests {
+    @Test("Three words or fewer take the rule pass in the General profile; longer text and other profiles take the model")
+    func rulesSuffice() {
+        #expect(S1MiniFormatter.rulesSuffice(for: "NUS.", profile: .general))
+        #expect(S1MiniFormatter.rulesSuffice(for: "Yes, do that.", profile: .general))
+        #expect(!S1MiniFormatter.rulesSuffice(for: "Yes, go do that.", profile: .general))
+        #expect(!S1MiniFormatter.rulesSuffice(for: "Thanks", profile: .message))
+    }
+
+    @Test("An app that refused an accessibility insert is pasted into directly for ten minutes")
+    func pasteOnlyMemory() {
+        var apps = PasteOnlyApps()
+        let now = Date(timeIntervalSinceReferenceDate: 0)
+        #expect(!apps.contains("com.example.terminal", at: now))
+        apps.note("com.example.terminal", at: now)
+        #expect(apps.contains("com.example.terminal", at: now.addingTimeInterval(599)))
+        #expect(!apps.contains("com.example.terminal", at: now.addingTimeInterval(601)))
+        #expect(!apps.contains("com.example.notes", at: now))
+    }
+}
+

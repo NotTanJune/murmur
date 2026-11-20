@@ -143,11 +143,6 @@ final class DictationController {
     /// The format key capture is running with, or nil while the microphone is closed. With
     /// the always-open option this stays set between holds.
     private var captureKey: String?
-    /// Loaded once, so the start tick plays the instant the key goes down rather than after
-    /// a file load. It plays at the press, not when the microphone is confirmed open: a
-    /// tick that trails the press by the mic's startup time makes people start talking
-    /// before it, which reads as lag even when nothing is lost.
-    private let startSound = NSSound(named: "Tink")
     private let makeEngine: @Sendable () async -> any TranscriptionEngine
     private let models: StreamingModelPreparation
 
@@ -423,10 +418,7 @@ final class DictationController {
         }
 
         let afterCapture = Date()
-        if Settings.shared.soundEnabled, let startSound {
-            startSound.stop()
-            startSound.play()
-        }
+        if Settings.shared.soundEnabled { Sounds.play(.start) }
         let afterSound = Date()
         // Models released while idle start loading now, alongside recording.
         if !comparing {
@@ -722,7 +714,7 @@ final class DictationController {
             report("Text insertion failed. Check transcription history to copy the result.")
             return
         }
-        if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
+        if Settings.shared.soundEnabled { Sounds.play(.delivered) }
     }
 
     private func cancelDictation() {
@@ -788,7 +780,7 @@ final class DictationController {
             }
         }
 
-        if Settings.shared.soundEnabled { NSSound(named: "Glass")?.play() }
+        if Settings.shared.soundEnabled { Sounds.play(.compared) }
     }
 
     /// `processSeconds` is measured from key release, not from capture start: that is the
