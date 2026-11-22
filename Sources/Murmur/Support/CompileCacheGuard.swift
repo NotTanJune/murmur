@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MurmurKit
 
 /// Keeps Core ML's Neural Engine compile cache where macOS won't purge it.
 ///

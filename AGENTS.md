@@ -11,7 +11,8 @@ Murmur is push-to-talk dictation for macOS, built with Swift 6 and SwiftUI. A he
 on release the cleaned-up text goes into the focused app. Speech comes from Apple `SpeechAnalyzer`
 or from Bark and Parakeet through FluidAudio. Cleanup comes from rules, S1-mini through MLX, or Apple
 Intelligence. The app is in daily use. A Windows port in C# lived in `windows/` until 2026-11-03; it
-was removed for good and remains in git history.
+was removed for good and remains in git history. An iPhone app and a dictation keyboard live in
+`ios/` (see "iOS keyboard" below).
 
 ---
 
@@ -52,7 +53,7 @@ state. The old VU meter hit this; the current `LevelMeter` avoids `Canvas` entir
 
 ## Design system
 
-`Sources/Murmur/UI/DesignSystem.swift` defines every colour, size, radius, duration
+`Sources/MurmurDesign/DesignSystem.swift` defines every colour, size, radius, duration
 and motion token; `Components.swift` builds the shared pieces from them. **Views must not
 contain literal values.** If a component needs a number that isn't a token, add the token
 rather than inlining it.
@@ -212,14 +213,188 @@ Measured on 2026-11-13 over 85 recordings (28.6 min, 27 corrected), S1-mini Gene
 These numbers give no reason to move the default off Bark. Its fine-tune is what drops
 fillers and keeps one-word answers, and those are what a switch would lose.
 
+## Shared code
+
+`Package.swift` has three library products besides the Mac executable. `MurmurKit` holds what
+the Mac and the iPhone both run: the text pipeline (`TextFormatter`, `TranscriptRepair`,
+`CleanupPipeline`, `TranscriptFinisher`), the Bark and Parakeet engines and window seams,
+`Settings`, `RunLog`, `RecordingStore`, the training export and import, and `CrashMarker`.
+`MurmurDictionary` is the corrector and `MurmurDesign` is the design system. Pieces that exist
+only for macOS input stay in `Sources/Murmur`: the hotkey, capture, injection, the main window,
+S1-mini and its helper, and the check commands.
+
+`MurmurEnvironment` says where storage and settings live. The iPhone app and keyboard call
+`MurmurEnvironment.configure` (through `PhoneEnvironment.configure()`). **The Mac's `main.swift`
+never does.** Unconfigured, the Mac uses `Application Support/Murmur` and the standard defaults,
+or the suite named in `MURMUR_SETTINGS_DOMAIN`; configuring it would defeat that seam and the
+`bench/` runner with it. `configure` must run once, before anything reads `Settings.shared` or a
+store, because they pin the first answer; a second or late call is logged as a fault and trips
+an assertion in debug builds.
+
+Settings → Training on the Mac has an "Import from iPhone" button (`TrainingImport`). It unzips
+an export from the phone with `/usr/bin/ditto`, which iOS does not have, and merges the runs
+into the Mac's history and recordings.
+
+## iOS keyboard
+
+Added 2026-11-22. `ios/project.yml` is an XcodeGen spec for two targets: `MurmurPhone`, the app
+(tabs Setup, History, Dictionary and Settings), and `MurmurKeyboard`, the keyboard extension it
+embeds. The deployment target is iOS 26.0. The keyboard is dictation only: a talk key, a
+history panel, punctuation and number pages, space, delete, return, globe, hide and an emoji
+panel. It has no letters. S1-mini never runs on the phone, so the rule pass and Apple
+Intelligence are its cleanup engines, and the phone defaults to Bark Clean where the Mac
+defaults to Apple.
+
+**Capture runs in WebKit, and Apple may close the path.** A keyboard extension cannot record:
+it lacks the entitlement, so `AVAudioEngine` and audio queues fail inside it. A `WKWebView` in
+the keyboard's own view hierarchy can still call `getUserMedia`, because WebKit records in its
+own media process under the containing app's microphone permission. `WebMicrophone` hosts a
+1x1 web view, and its page posts base64 Float32 samples back over a script message handler.
+Several details are load-bearing:
+
+- The view stays in the hierarchy at `alpha` 0.01. Hidden or removed, WebKit throttles it.
+- The page loads from `https://murmur-keyboard.invalid/`, which is never fetched; the https
+  origin only gives `getUserMedia` its secure context.
+- The `AudioContext` is created when capture starts and not before: creating one can take
+  audio focus or move a Bluetooth route while the keyboard is merely on screen.
+- The page reports the context's own rate, which was 48 kHz in the spike and can arrive at
+  other rates, for example a Bluetooth headset's 16 kHz. `PCMConverter` resamples to the
+  engine's format, so nothing assumes a rate.
+- **Heartbeat dead-man's switch.** Swift calls `murmurHeartbeat()` every second, and the page
+  ends capture if none arrives for 3 s. A keyboard that froze or was killed does not leave the
+  microphone open.
+- `start()` ends with a reason if no audio message arrives within 3 s (Full Access off, or the
+  app's microphone permission missing). The deadline is cancelled by the first `audio`
+  message, not by the page's `started`, so a context that starts and delivers nothing fails too.
+  The page also ends on a track ending, the `AudioContext`
+  leaving `running`, an interrupted audio session or `pagehide`, and a terminated WebKit
+  content process ends capture and reloads the page. Every failure reaches `onEnded` with a
+  reason; nothing is swallowed, because a silent failure here looks like a dead key.
+- The keyboard needs `RequestsOpenAccess` (Full Access) in its `Info.plist`; without it the
+  "no audio within 3 s" deadline is what the user sees.
+
+The technique was shown by Raycast in November 2026. `stephancill/ios-keyboard-dictation` and
+Hex's keyboard (both MIT) were read for it; the code here is Murmur's own, as the provenance
+rule above requires. Do not paste from either.
+
+**Spike results** (2026-11-22, iPhone 15 Pro, iOS 27.2.1, from a throwaway target that has
+since been deleted): WebKit capture ran inside the keyboard at 48 kHz. Bark Clean's first load
+took 84.8 s (the Neural Engine compile) and left a 33 MB footprint; an Apple-engine hold peaked
+at 41 MB. About 56 s of dictation with Bark read as accurate with good punctuation. That is one
+device and one run. The real keyboard's memory with Bark loaded during a long hold has not been
+measured.
+
+**App Group layout.** Both targets declare `group.ai.pivotstudio.murmur`. `PhoneEnvironment`
+points `MurmurEnvironment` at `Library/Application Support/Murmur` inside that container and at
+a `UserDefaults` suite of the same name, and registers `engine = barkClean` as a default (a
+stored choice wins). **`PhoneEnvironment.configure()` must be the first statement in both entry
+points** (`MurmurPhoneApp.init` and `KeyboardViewController.init(nibName:bundle:)`), followed by
+`RunLog.prepare()`. The keyboard's controller can be made more than once in one process, so a
+repeat call is a no-op in `PhoneEnvironment`. Unsigned builds and a missing entitlement fall
+back to the process's own Application Support, so the app and keyboard then see different
+folders; the Setup tab reports `PhoneEnvironment.isShared`. Besides the Mac's files, the shared
+root holds `bark-loading` (the crash marker) and `keyboard-status.json` (`KeyboardStatus`,
+which the keyboard writes at each appearance and Bark state change and the Setup tab reads).
+Without Full Access the keyboard has no shared container, so its status never reaches the app:
+Setup shows "Not reported yet" with a hint to turn on Allow Full Access, and the "Full Access
+off" branch is defensive.
+
+**Settings are re-read, not cached.** The app and the keyboard share a `UserDefaults` suite but
+not memory, and `Settings.shared` is a snapshot built in `init`. A keyboard that stays alive
+would keep the values it launched with (`keepRecordings` after the app's Training toggle turned
+it off, the engine, cleanup and timing). `Settings.reloadFromDefaults()` re-reads every key,
+assigns without writing back and does not call `onAppearanceChange`; the keyboard calls it at
+the top of `keyboardAppeared` and at the start of each press. A press also re-evaluates Bark when
+the engine setting changed: leaving Bark reports `off` (a loaded or loading model stays in
+memory), and returning to it reports the earlier load's state or starts one. The keyboard also
+calls `DictionaryStore.reload()` at each appearance, because a keyboard that ran before the app
+first launched has no working watcher on a dictionary file the app seeds later.
+
+Entitlements are declared under `entitlements.properties` in `project.yml`, and XcodeGen writes
+the checked-in `.entitlements` files from it. Left out, the files come out empty, which happened
+in the spike's first build and drops the App Group. `ios/Local.xcconfig` (the signing team), the
+generated `Murmur.xcodeproj` and the two `Info.plist` files are git-ignored.
+
+**The run log has two writers.** The keyboard and the app both write `runs.jsonl`. Every change
+runs under `NSFileCoordinator`, first re-reads the file if the other process changed it, then
+applies itself, then posts the Darwin notification `ai.pivotstudio.murmur.runs-changed` only
+when the change wrote to the file;
+`RunLog.prepare()` observes it and reloads. The notification carries no sender, so a process
+hears its own writes and reloads an unchanged file. An append is coordinated for merging and a
+rewrite with no options; both exclude other writers. If coordination is refused the change is
+applied anyway and logged, because losing a dictation from history is worse than an
+uncoordinated write. Runs from the phone carry `source = .phone`.
+
+**The crash marker.** iOS kills a keyboard that uses too much memory, with no callback. If Bark
+was the cause, loading it on the next appearance would kill the keyboard every time.
+`KeyboardDictation` therefore arms `CrashMarker` (the `bark-loading` file) before Bark loads,
+and:
+
+- disarms it after a Bark hold has been typed and recorded;
+- disarms it when the load finishes while the keyboard is hidden, because nothing else would
+  clear it;
+- disarms it when the keyboard goes away after Bark has loaded, but only if this process armed
+  it;
+- disarms it when the load throws;
+- **leaves it armed** if the keyboard goes away mid-load, since the load is the riskiest window.
+
+A marker already armed at launch (`wasArmedAtLaunch`) means the last process died loading Bark.
+`KeyboardEngineChoice` then picks Apple's transcriber, the history row names the engine as
+Apple with Bark "stopped last time", and the marker stays armed until the Setup tab's "Try Bark
+again" button clears it. Do not clear it from the keyboard: the next launch would load Bark
+into the same kill. `wasArmedAtLaunch` is a per-process snapshot, so at each appearance the
+keyboard also asks `CrashMarker.isArmed`, which reads the file now: if this process did not arm
+the marker and the file is gone, the app cleared it, and Bark is allowed again (subject to the
+engine setting) with the real state reported. The Setup tab treats the marker as a death only
+when the keyboard's last reported Bark state is not `loading` or `ready`, or when it says
+`loading` but its `lastSeen` is older than `SetupStatus.loadingStaleAfter` (2 minutes), which is
+a keyboard that died mid-load. Bark does not gate a press. While it loads or
+is not downloaded, Apple's transcriber takes the hold, as `Utterance.standIn` does on the Mac.
+
+**Holds.** Touch-down starts recording at once. A quick tap locks recording on and the next tap
+ends it; a long touch is a hold and ends on release (`HoldGesture`). A hold ends by itself at
+`KeyboardDictation.maxHoldSeconds` (300 s) and finishes as if the key had come up, because the
+engine, the recording and the run log each keep a copy of the audio in memory. A hold still in
+flight when the keyboard disappears is abandoned: nothing is typed and no run is filed. A press
+is ignored while the last hold finishes or its engine is being wound down, and the key dims to
+say so. If a release's finish or an abandon's teardown has not completed
+`KeyboardDictation.teardownTimeoutSeconds` (20 s) later, a watchdog logs a fault, drops the hold,
+clears the busy state and writes nothing (no text, no run); a stuck engine would otherwise leave
+the key dead for the life of the process. Holds are not pipelined on the phone. A hold uses
+`CleanupPipeline` only with Apple Intelligence on and the General profile, fed with the engine's
+stable text as on the Mac. A failed hold shows "Microphone unavailable" with an "Open Murmur"
+button when the microphone is the cause and "Dictation failed. Try again." otherwise; the cause
+goes to the log, not onto the key. The history panel lists the newest 30 runs.
+
+**The key is a HUD, with no text.** While recording, the main key becomes the Mac's HUD: a dark
+capsule with red `Waveform` bars that follow the input level. The user removed the live words
+that briefly showed on it on 2026-11-22. Do not bring them back.
+
+**Building.** Output goes under `~/Library/Caches/MurmurBuild/ios`, never the repo.
+
+```bash
+make ios-project   # XcodeGen: ios/Murmur.xcodeproj and the two Info.plists
+make ios-build     # unsigned, generic/platform=iOS, both targets, no simulator
+make ios-install   # Release, signed with ios/Local.xcconfig, installed on the first physical iPhone
+```
+
+`ios-build` (Debug) is the check an agent runs; `ios-install` builds Release and installs from
+`Release-iphoneos`. **Run `ios-install` only when the user asks.** It
+installs on their phone and needs the phone unlocked and trusted. Never use a simulator. What
+the keyboard does on a device (capture, Bark's memory, the marker) is unverified until the user
+runs it, and a report should say so. `swift Tools/makeicon.swift --ios <file.png>` writes the
+iPhone icon, which lives at `ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
+
 ## Not built yet
 
 1. **Command Mode.** Holding a second key over selected text would rewrite it on request, such as
    "make this more formal."
-2. **Onboarding.** A first-run window would walk through the macOS permissions.
+2. **Onboarding on the Mac.** A first-run window would walk through the macOS permissions. The
+   iPhone app already has this as its Setup tab.
 3. **Notarization.** The app is signed with a Developer ID but not notarized for
    distribution.
 4. **Automatic profiles.** The cleanup profile is chosen by hand, not from the focused app.
+5. **Letters on the iPhone keyboard.** It has the talk key and no letters.
 
 ## Murmur streaming options and verification
 

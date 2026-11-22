@@ -1,4 +1,5 @@
 import Testing
+import MurmurKit
 @testable import Murmur
 
 @MainActor

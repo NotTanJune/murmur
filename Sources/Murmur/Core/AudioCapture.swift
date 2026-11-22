@@ -2,6 +2,7 @@ import AVFoundation
 import AudioToolbox
 import CoreAudio
 import Foundation
+import MurmurKit
 
 /// Captures microphone audio and converts it on the fly to the format the speech engine asked for.
 ///

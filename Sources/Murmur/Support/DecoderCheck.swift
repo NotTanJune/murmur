@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MurmurKit
 
 /// `Murmur --decoder-check <slot-folder> <audio-file>`: transcribes the file with the stock
 /// decoder pair and with the given fine-tuned pair over the same encoder, and prints both.

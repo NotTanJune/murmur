@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
+import MurmurKit
 @testable import Murmur
 
 /// The model benchmark's Swift half. `bench/bench.py` writes a job file and runs this

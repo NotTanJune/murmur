@@ -1,5 +1,6 @@
 import AVFoundation
 import Testing
+import MurmurKit
 @testable import Murmur
 
 @Suite struct CaptureRouterTests {

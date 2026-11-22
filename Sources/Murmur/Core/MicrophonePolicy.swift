@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import MurmurKit
 
 /// One Core Audio device that can record.
 struct AudioInputDevice: Equatable, Sendable {

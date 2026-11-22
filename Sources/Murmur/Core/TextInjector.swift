@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import MurmurKit
 
 /// Puts text into whichever field has keyboard focus.
 ///

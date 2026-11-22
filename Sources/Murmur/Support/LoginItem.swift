@@ -1,4 +1,5 @@
 import Foundation
+import MurmurKit
 import ServiceManagement
 
 /// Opens Murmur at login through `SMAppService.mainApp`, listed in System Settings → General →

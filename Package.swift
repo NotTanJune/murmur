@@ -3,7 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "Murmur",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
+    products: [
+        .library(name: "MurmurKit", targets: ["MurmurKit"]),
+        .library(name: "MurmurDictionary", targets: ["MurmurDictionary"]),
+        .library(name: "MurmurDesign", targets: ["MurmurDesign"]),
+    ],
     dependencies: [
         // Core ML speech models on the Neural Engine. Apple's transcriber is the default
         // engine and does not use this package.
@@ -22,10 +27,28 @@ let package = Package(
             path: "Sources/MurmurDictionary",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // The platform-neutral text pipeline, shared by the Mac app and the iOS keyboard.
+        .target(
+            name: "MurmurKit",
+            dependencies: [
+                "MurmurDictionary",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ],
+            path: "Sources/MurmurKit",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The ink-on-paper design tokens and shared views, used by the Mac app and the iOS targets.
+        .target(
+            name: "MurmurDesign",
+            path: "Sources/MurmurDesign",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "Murmur",
             dependencies: [
                 "MurmurDictionary",
+                "MurmurKit",
+                "MurmurDesign",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
@@ -38,6 +61,12 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .testTarget(
+            name: "MurmurKitTests",
+            dependencies: ["MurmurKit", .product(name: "FluidAudio", package: "FluidAudio")],
+            path: "Tests/MurmurKitTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "MurmurDictionaryTests",
@@ -53,7 +82,7 @@ if #available(macOS 26, *) {
     package.targets.append(
         .testTarget(
             name: "MurmurAppTests",
-            dependencies: ["Murmur", .product(name: "FluidAudio", package: "FluidAudio")],
+            dependencies: ["Murmur", "MurmurKit", .product(name: "FluidAudio", package: "FluidAudio")],
             path: "Tests/MurmurAppTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
@@ -63,7 +92,7 @@ if #available(macOS 26, *) {
     package.targets.append(
         .testTarget(
             name: "MurmurBench",
-            dependencies: ["Murmur", .product(name: "FluidAudio", package: "FluidAudio")],
+            dependencies: ["Murmur", "MurmurKit", .product(name: "FluidAudio", package: "FluidAudio")],
             path: "bench/runner",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

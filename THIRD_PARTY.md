@@ -27,6 +27,8 @@ Versions are the ones pinned in `Package.resolved`.
 
 Fraunces (by Undercase Type, Phaedra Charles and Flavia Zimbardi) and Figtree ship in
 `Resources/Fonts/` under the SIL Open Font License 1.1. Their license texts sit beside them.
+EB Garamond Italic (by Georg Duffner and Octavio Pardo) draws the app icon's "m"; it sits in
+`Tools/Fonts/` under the same license, with its license text, and does not ship in the app.
 
 ## Model weights
 

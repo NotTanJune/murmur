@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import MurmurKit
 
 /// Presses and releases Wispr Flow's push-to-talk key so one recording can feed Wispr and the
 /// local engines at once.

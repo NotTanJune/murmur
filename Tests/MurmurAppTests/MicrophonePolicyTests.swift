@@ -1,6 +1,7 @@
 import CoreAudio
 import Foundation
 import Testing
+import MurmurKit
 @testable import Murmur
 
 @Suite struct MicrophonePolicyTests {

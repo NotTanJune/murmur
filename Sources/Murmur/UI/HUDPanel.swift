@@ -1,4 +1,6 @@
 import AppKit
+import MurmurDesign
+import MurmurKit
 import SwiftUI
 
 /// The listening capsule's window.

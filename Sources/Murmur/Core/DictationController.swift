@@ -2,6 +2,7 @@ import MurmurDictionary
 import AVFoundation
 import AppKit
 import Foundation
+import MurmurKit
 import Observation
 
 /// Builds the engine named by the current setting. It lives at file scope because a static
@@ -19,7 +20,7 @@ func engineForCurrentSetting() async -> any TranscriptionEngine {
 @MainActor
 func engine(for choice: SpeechEngineChoice) -> any TranscriptionEngine {
     switch choice {
-    case .apple: AppleSpeechEngine()
+    case .apple: AppleSpeechEngine.biasedByDictionary()
     case .parakeet:
         Settings.shared.transcribeTiming == .whileSpeaking
             ? IncrementalParakeetEngine(models: .shared) : ParakeetEngine()
@@ -664,23 +665,18 @@ final class DictationController {
         let raw = utterance.transcript
         guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let cleaned: String
-        if !Settings.shared.cleanupEnabled {
-            cleaned = raw
-        } else if let pipeline = utterance.cleanupPipeline {
-            cleaned = await pipeline.finish(transcript: raw) {
-                await formatter(for: utterance).format(raw)
-            }
+        let finished = await TranscriptFinisher.finish(
+            raw: raw,
+            cleanupEnabled: Settings.shared.cleanupEnabled,
+            formatter: formatter(for: utterance),
+            pipeline: utterance.cleanupPipeline,
+            corrector: DictionaryStore.shared.corrector
+        )
+        if Settings.shared.cleanupEnabled, let pipeline = utterance.cleanupPipeline {
             Log.speech.info("cleanup pipeline: \(pipeline.chunkCount) piece(s) cleaned while held")
-        } else {
-            cleaned = await formatter(for: utterance).format(raw)
         }
-
-        // The dictionary always runs last, whatever the cleanup setting: engine biasing only
-        // raises the odds of the right word, and this pass is what guarantees it.
-        let applied = DictionaryStore.shared.corrector.apply(to: cleaned)
-        let output = applied.text
-        let corrections = applied.applied
+        let output = finished.text
+        let corrections = finished.applied
         if !corrections.isEmpty {
             Log.speech.info("dictionary applied \(corrections.count, privacy: .public) correction(s)")
         }

@@ -15,3 +15,9 @@ models/
 
 # Coverage output
 *.profraw
+
+# iOS app and keyboard: generated project and plists, local signing team
+ios/Local.xcconfig
+ios/*.xcodeproj/
+ios/App/Info.plist
+ios/Keyboard/Info.plist

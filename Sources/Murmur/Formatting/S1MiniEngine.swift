@@ -1,4 +1,5 @@
 import Foundation
+import MurmurKit
 
 /// The app's handle on S1-mini, which runs in a helper process (`S1MiniServer`).
 ///

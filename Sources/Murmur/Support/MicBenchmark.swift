@@ -1,6 +1,7 @@
 import AVFoundation
 import Darwin
 import Foundation
+import MurmurKit
 
 /// `Murmur --mic-benchmark <output-file>`: what an always-open microphone would cost.
 ///

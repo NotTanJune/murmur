@@ -1,6 +1,9 @@
 import AppKit
 import MurmurDictionary
+import MurmurDesign
+import MurmurKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings — appearance, hotkey, model and cleanup. A tab of the main window rather than a
 /// separate window: ⌘, and the menu bar and the sidebar both switch to it (`MainNavigation`).
@@ -14,6 +17,8 @@ struct SettingsPanel: View {
     @State private var s1Mini = S1MiniPreparation.shared
     @State private var store = RunStore.shared
     @State private var trainingMessage: String?
+    @State private var isImportingRuns = false
+    @State private var isMergingRuns = false
     @State private var slots = CustomDecoderSlot.installed()
     @State private var opensAtLogin = LoginItem.isEnabled
 
@@ -184,6 +189,14 @@ struct SettingsPanel: View {
                         Note(text: String(format: "%.1f minutes of corrected speech since the last export.", pending.seconds / 60))
                     }
 
+                    Eyebrow(text: "Import")
+                    Button(isMergingRuns ? "Importing…" : "Import from iPhone…") { isImportingRuns = true }
+                        .buttonStyle(KeyButtonStyle(kind: .secondary))
+                        .disabled(isMergingRuns)
+                        .fileImporter(isPresented: $isImportingRuns, allowedContentTypes: [.zip]) { result in
+                            Task { await importRuns(result) }
+                        }
+
                     Eyebrow(text: "Decoder")
                     ChoiceKeys(
                         options: [BarkDecoderChoice.stock] + slots.map { BarkDecoderChoice.custom($0) },
@@ -288,6 +301,21 @@ struct SettingsPanel: View {
             NSWorkspace.shared.activateFileViewerSelecting([summary.zip])
         } catch {
             trainingMessage = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Merges a zip exported on the iPhone into history. The unzip and audio copies run off
+    /// the main actor; the button shows "Importing…" meanwhile.
+    private func importRuns(_ picked: Result<URL, any Error>) async {
+        isMergingRuns = true
+        defer { isMergingRuns = false }
+        do {
+            let url = try picked.get()
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            trainingMessage = try await TrainingImport.merge(zip: url).summary
+        } catch {
+            trainingMessage = "Import failed: \(error.localizedDescription)"
         }
     }
 

@@ -1,4 +1,6 @@
 import AppKit
+import MurmurDesign
+import MurmurKit
 import SwiftUI
 
 /// Started from `main.swift`, which first diverts helper invocations.
@@ -12,7 +14,7 @@ struct MurmurApp: App {
             NSAlert(error: error).runModal()
             exit(EXIT_FAILURE)
         }
-        Settings.shared.applyAppearance()
+        Settings.shared.bindAppearanceToApp()
     }
 
     var body: some Scene {
@@ -139,7 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Load history and write the dashboard in the background, so a long history never
-        // delays launch or the first press.
+        // delays launch or the first press. The dashboard is Mac UI, so the history queue
+        // renders it through this hook; iOS installs none.
+        RunLog.renderDashboard = { runs, compareMode, keyRawValue in
+            let key = (PushToTalkKey(rawValue: keyRawValue) ?? .rightOption).displayName
+            try? DashboardHTML.render(runs: runs, compareMode: compareMode, key: key)
+                .write(to: RunLog.dashboardURL, atomically: true, encoding: .utf8)
+        }
         RunLog.prepare()
 
         // Compare mode bypasses the recording gate, so it warms Parakeet directly rather than

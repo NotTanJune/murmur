@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.hid
+import MurmurKit
 
 /// Whether one key is held, read from the keyboards' own HID reports.
 ///

@@ -1,4 +1,5 @@
 import Foundation
+import MurmurKit
 
 /// `Murmur --cleanup-check`: loads S1-mini from the installed bundle, cleans fixed
 /// transcripts through the production formatter, and prints what happened.

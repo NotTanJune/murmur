@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+import MurmurKit
 
 /// The modifier key that holds the microphone open while it is down.
 enum PushToTalkKey: String, CaseIterable, Sendable {

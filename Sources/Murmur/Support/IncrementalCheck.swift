@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Synchronization
+import MurmurKit
 
 /// `Murmur --incremental-check <audio-file> [--fast] [--no-anticipation]`: plays a recording through the
 /// incremental Bark engine the way a hold would (16 kHz mono, 100 ms buffers), printing each

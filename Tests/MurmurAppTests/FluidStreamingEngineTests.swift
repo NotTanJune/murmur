@@ -1,6 +1,7 @@
 import AVFoundation
 import FluidAudio
 import Testing
+import MurmurKit
 @testable import Murmur
 
 struct FluidStreamingEngineTests {

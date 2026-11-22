@@ -1,0 +1,107 @@
+# The iOS app and its keyboard extension. `make ios-project` generates ios/Murmur.xcodeproj
+# (git-ignored) and the two Info.plists; the entitlements files are checked in. The text
+# pipeline, speech engines, settings and run log come from the repo's SwiftPM package.
+name: Murmur
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Base.xcconfig
+  Release: Base.xcconfig
+packages:
+  Murmur:
+    path: ..
+
+targets:
+  MurmurPhone:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: ["Info.plist"]
+      - path: Shared
+      # The design system's faces, the same files the Mac bundles. `UIAppFonts` below
+      # registers them; `DS.Font` falls back to SF for any face that does not resolve.
+      - path: ../Resources/Fonts
+        includes: ["*.ttf", "OFL-*.txt"]
+        buildPhase: resources
+      # The starter dictionary `DictionaryStore.shared` seeds from on first launch, as on the Mac.
+      - path: ../Resources/default-dictionary.txt
+        buildPhase: resources
+    dependencies:
+      - package: Murmur
+        product: MurmurKit
+      - package: Murmur
+        product: MurmurDictionary
+      - package: Murmur
+        product: MurmurDesign
+      - target: MurmurKeyboard
+    entitlements:
+      path: App/MurmurPhone.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.ai.pivotstudio.murmur
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Murmur
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIAppFonts:
+          - Figtree[wght].ttf
+          - Fraunces[SOFT,WONK,opsz,wght].ttf
+          - Fraunces-Italic[SOFT,WONK,opsz,wght].ttf
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.pivotstudio.murmur.ios
+            CFBundleURLSchemes:
+              - murmur
+        NSMicrophoneUsageDescription: Murmur records your voice while you hold the dictation key, then types what you said.
+        NSSpeechRecognitionUsageDescription: Murmur turns your voice into text on this iPhone.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.pivotstudio.murmur.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  MurmurKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Keyboard
+        excludes: ["Info.plist"]
+      - path: Shared
+    dependencies:
+      - package: Murmur
+        product: MurmurKit
+      - package: Murmur
+        product: MurmurDictionary
+      - package: Murmur
+        product: MurmurDesign
+    entitlements:
+      path: Keyboard/MurmurKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.ai.pivotstudio.murmur
+    info:
+      path: Keyboard/Info.plist
+      properties:
+        CFBundleDisplayName: Murmur
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        NSMicrophoneUsageDescription: Murmur records your voice while you hold the dictation key, then types what you said.
+        NSSpeechRecognitionUsageDescription: Murmur turns your voice into text on this iPhone.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            RequestsOpenAccess: true
+            PrimaryLanguage: en-US
+            IsASCIICapable: true
+            PrefersRightToLeft: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.pivotstudio.murmur.ios.keyboard
+        APPLICATION_EXTENSION_API_ONLY: YES

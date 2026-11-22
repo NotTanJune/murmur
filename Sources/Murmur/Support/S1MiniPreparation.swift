@@ -1,4 +1,5 @@
 import Foundation
+import MurmurKit
 import Observation
 
 /// Load state for S1-mini, shown in Settings and the menu.

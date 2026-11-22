@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MurmurKit
 import Observation
 
 /// Keeps the speech and cleanup models in memory only while they're being used.

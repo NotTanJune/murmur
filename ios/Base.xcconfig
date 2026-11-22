@@ -1,0 +1,6 @@
+// Shared settings for both iOS targets. The signing team lives in Local.xcconfig, which git ignores.
+SWIFT_VERSION = 6.0
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+TARGETED_DEVICE_FAMILY = 1
+CODE_SIGN_STYLE = Automatic
+#include? "Local.xcconfig"

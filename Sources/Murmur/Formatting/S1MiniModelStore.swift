@@ -1,4 +1,5 @@
 import Foundation
+import MurmurKit
 
 /// S1-mini by Superwhisper on disk, as the 4-bit MLX build Murmur actually runs.
 ///

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MurmurKit
 
 struct ComparisonResult: Sendable {
     let engine: String
@@ -24,7 +25,7 @@ enum EngineComparison {
         onResult: @MainActor (ComparisonResult) -> Void = { _ in }
     ) async -> [ComparisonResult] {
         var engines: [(name: String, engine: any TranscriptionEngine)] = [
-            ("Apple", AppleSpeechEngine()),
+            ("Apple", AppleSpeechEngine.biasedByDictionary()),
             ("Parakeet", ParakeetEngine()),
         ]
 

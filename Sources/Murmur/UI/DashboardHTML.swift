@@ -1,3 +1,4 @@
+import MurmurKit
 import Foundation
 
 /// The legacy HTML results page. The in-app comparison window replaced it, but the app

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MurmurKit
 
 /// One line of the helper protocol, in either direction. Every field is optional so one
 /// type covers startup progress, readiness, requests and replies.

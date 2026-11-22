@@ -7,6 +7,9 @@
 #   make build      SwiftPM compile only; CONFIG=debug gives a debug build
 #   make icon       regenerate Resources/AppIcon.icns
 #   make clean      remove all build output
+#   make ios-project  generate ios/Murmur.xcodeproj with XcodeGen
+#   make ios-build    compile the iPhone app and its keyboard, unsigned
+#   make ios-install  signed build, installed on the connected iPhone
 
 EXEC   := Murmur
 CONFIG := release
@@ -34,7 +37,7 @@ find-identity = $(shell security find-identity -v -p codesigning 2>/dev/null \
                   | grep "$(1)" | head -1 | sed -E 's/.*"(.*)".*/\1/')
 SIGN_ID := $(or $(call find-identity,Developer ID Application),$(call find-identity,Apple Development),-)
 
-.PHONY: all build xcbuild test app run install clean icon bench
+.PHONY: all build xcbuild test app run install clean icon bench ios-project ios-build ios-install
 
 all: app
 
@@ -107,3 +110,31 @@ install: app
 
 clean:
 	@rm -rf .build "$(STAGE)" "$(SCRATCH)" "$(XCODE_DD)"
+
+# The iPhone app and its keyboard extension (ios/project.yml). Output stays under
+# ~/Library/Caches like the Mac build. ios-build is unsigned and builds both targets, because
+# MurmurPhone embeds MurmurKeyboard; no simulator is involved.
+IOS_DD := $(STAGE)/ios
+
+ios-project:
+	cd ios && xcodegen generate --quiet
+
+ios-build: ios-project
+	nice -n 10 xcodebuild build -project ios/Murmur.xcodeproj -scheme MurmurPhone \
+		-destination 'generic/platform=iOS' -derivedDataPath "$(IOS_DD)" -jobs 4 \
+		-skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
+
+# Signed with the team in ios/Local.xcconfig, then installed on the first physical iPhone
+# `devicectl` lists. Needs the phone unlocked and trusted. A Release build: it is what the user
+# runs every day, so it has optimisation on and no debug-only assertions or testability.
+ios-install: ios-project
+	@set -e; \
+	mkdir -p "$(STAGE)"; \
+	xcrun devicectl list devices --json-output "$(STAGE)/devices.json" >/dev/null; \
+	udid="$$(python3 -c 'import json,sys; d=[x for x in json.load(open(sys.argv[1]))["result"]["devices"] if x["hardwareProperties"].get("deviceType")=="iPhone" and x["hardwareProperties"].get("reality")=="physical"]; print(d[0]["hardwareProperties"]["udid"] if d else "")' "$(STAGE)/devices.json")"; \
+	test -n "$$udid" || { echo "no physical iPhone found by devicectl"; exit 1; }; \
+	echo "installing on $$udid"; \
+	nice -n 10 xcodebuild build -project ios/Murmur.xcodeproj -scheme MurmurPhone \
+		-destination "id=$$udid" -configuration Release -derivedDataPath "$(IOS_DD)" -jobs 4 \
+		-skipMacroValidation -skipPackagePluginValidation -allowProvisioningUpdates; \
+	xcrun devicectl device install app --device "$$udid" "$(IOS_DD)/Build/Products/Release-iphoneos/MurmurPhone.app"

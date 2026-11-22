@@ -1,6 +1,8 @@
 import MurmurDictionary
 import AppKit
 import SwiftUI
+import MurmurDesign
+import MurmurKit
 
 /// The app's main window: a sidebar on the chrome colour and an inset content pane.
 ///
@@ -510,6 +512,9 @@ private struct TranscriptionRow: View {
             Text(([run.engine] + (run.cleanup.map { [$0] } ?? [])).joined(separator: " · "))
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Color.inkSecondary)
+            if run.source == .phone {
+                Tag(text: "Phone")
+            }
             if run.label != nil {
                 Tag(text: "Labelled", isHighlighted: true)
             }

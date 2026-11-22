@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import MurmurKit
 
 /// Keeps the Mac's default input on the microphone `MicrophonePolicy` allows (the SoloCast,
 /// otherwise the built-in mic), for every app, not only Murmur.

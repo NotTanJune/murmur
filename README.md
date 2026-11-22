@@ -123,12 +123,14 @@ tccutil reset Accessibility ai.pivotstudio.murmur
 ```
 Sources/Murmur/
 ├── Core/            hotkey, capture, routing, injection, DictationController
-├── Transcription/   engines and model stores
-├── Formatting/      rules, S1-mini, Apple Intelligence, cleanup pipeline
-├── Dictionary/      dictionary file and store
-├── Support/         settings, run log, recordings, training, check commands
-└── UI/              design system, main window, settings, HUD
+├── Transcription/   Mac-only engines (streaming, Wispr reader)
+├── Formatting/      S1-mini and its helper
+├── Support/         Mac storage and settings extensions, permissions, check commands
+└── UI/              components, main window, settings, HUD
+Sources/MurmurKit/          text pipeline, engines, settings and run log shared with the iPhone
 Sources/MurmurDictionary/   corrector, no app dependencies
+Sources/MurmurDesign/       design system shared with the iPhone
+ios/                        iPhone app and dictation keyboard (make ios-project, make ios-build)
 training/                   Colab fine-tuning notebook
 promo/                      Remotion source for the promo video and banner
 docs/diagrams/              Excalidraw sources for the diagrams above
@@ -137,7 +139,7 @@ docs/diagrams/              Excalidraw sources for the diagrams above
 ## Not built yet
 
 - Command Mode: hold a second key over selected text and say "make this more formal"
-- A first-run window for the permissions
+- A first-run window for the permissions on the Mac (the iPhone app has a Setup tab)
 - Picking the cleanup profile from the focused app
 - Notarization and a downloadable release
 

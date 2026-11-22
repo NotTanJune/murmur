@@ -1,5 +1,7 @@
 import MurmurDictionary
 import AppKit
+import MurmurDesign
+import MurmurKit
 import SwiftUI
 
 /// Where entries are added, edited, deleted and searched.

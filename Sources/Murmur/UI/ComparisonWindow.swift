@@ -1,43 +1,6 @@
 import SwiftUI
-
-/// Feeds the comparison window, which updates live without a manual refresh.
-@MainActor @Observable
-final class RunStore {
-    static let shared = RunStore()
-
-    private(set) var runs: [DictationRun] = []
-
-    private init() { RunLog.refresh() }
-
-    /// Asks the history queue to republish. The file is read once, in the background.
-    func reload() {
-        RunLog.refresh()
-    }
-
-    /// Called by `RunLog` on the main queue, in the order its changes were made.
-    func apply(_ snapshot: [DictationRun]) {
-        runs = snapshot
-    }
-
-    /// The comparison groups, newest first.
-    var comparisons: [[DictationRun]] {
-        var order: [String] = []
-        var groups: [String: [DictationRun]] = [:]
-        for run in runs {
-            guard let group = run.group else { continue }
-            if groups[group] == nil { order.append(group) }
-            groups[group, default: []].append(run)
-        }
-        return order
-            .compactMap { groups[$0] }
-            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
-    }
-
-    /// Recordings made outside a comparison, newest first. Storage is oldest first.
-    var singles: [DictationRun] {
-        runs.filter { $0.group == nil }.reversed()
-    }
-}
+import MurmurDesign
+import MurmurKit
 
 struct ComparisonWindow: View {
     @Bindable var controller: DictationController

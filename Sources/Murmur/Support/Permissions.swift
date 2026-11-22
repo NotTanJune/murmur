@@ -3,6 +3,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 import IOKit.hid
+import MurmurKit
 
 /// Murmur needs two grants, and neither can be worked around:
 /// - **Microphone** (required): without it nothing can be captured.

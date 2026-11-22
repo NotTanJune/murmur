@@ -2,6 +2,7 @@ import AVFoundation
 import CoreML
 import FluidAudio
 import Foundation
+import MurmurKit
 
 actor FluidStreamingEngine: TranscriptionEngine {
     private let manager: any StreamingAsrManager

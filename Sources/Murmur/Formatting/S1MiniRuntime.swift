@@ -4,6 +4,7 @@ import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
 import MLXNN
+import MurmurKit
 import Tokenizers
 
 /// S1-mini by Superwhisper on the GPU through MLX. Runs only inside the helper process
