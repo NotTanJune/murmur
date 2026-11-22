@@ -77,7 +77,9 @@ struct KeyboardView: View {
     }
 
     private func height(for panel: Panel) -> CGFloat {
-        guard panel == .emoji else { return DS.Keyboard.height }
+        // History gets the emoji panel's height too: a list of dictations needs the room more
+        // than the key page's 168 pt, which fitted only two and a half rows.
+        guard panel == .emoji || panel == .history else { return DS.Keyboard.height }
         return verticalSizeClass == .compact ? DS.Keyboard.emojiPanelHeightCompact : DS.Keyboard.emojiPanelHeight
     }
 

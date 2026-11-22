@@ -385,8 +385,10 @@ public enum DS {
         /// History panel: gap between rows, row insets, header inset, how many runs it lists.
         public static let historySpacing: CGFloat = 6
         public static let historyRowInsetX: CGFloat = 10
-        public static let historyRowInsetY: CGFloat = 8
+        public static let historyRowInsetY: CGFloat = 10
         public static let historyHeaderInset: CGFloat = 6
+        /// The history header's row, which the list scrolls under.
+        public static let historyHeaderHeight: CGFloat = 32
         public static let historyRowLines = 2
         public static let historyLimit = 30
         /// The failure message's inset around its action, and the action's own insets.
