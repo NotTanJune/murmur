@@ -13,7 +13,6 @@
 		0A9E142C4EFB1EA50986E6EE /* KeyboardDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */; };
 		0CD2FD9057C11DE0465CE040 /* PaperSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77AD40E510C435FAF1832387 /* PaperSurfaces.swift */; };
 		1647FBC2FFFA09F46B5480F1 /* MurmurKit in Frameworks */ = {isa = PBXBuildFile; productRef = A18116404CC54213587C1B9E /* MurmurKit */; };
-		16D0EAC33A8656F57689068B /* HapticPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28058C24FF75794B12C116E7 /* HapticPattern.swift */; };
 		16F516DCF742C2CC59D5405F /* EmojiRecents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */; };
 		1750A0C86B022FCC1FA58796 /* EmojiPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */; };
 		1ADE187A14E113757E6D3A18 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B037767311A660B55ED78B1F /* Assets.xcassets */; };
@@ -24,12 +23,11 @@
 		2FEFEA7D43053CAA0F2DB358 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25F40E2A1DF0B99651CB330 /* HistoryView.swift */; };
 		30B6E5C442A23591EBAE77E0 /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF331963D1F614BA7BA95B4B /* KeyboardViewController.swift */; };
 		33AEC39CA8F91AD5F0E46421 /* MurmurDictionary in Frameworks */ = {isa = PBXBuildFile; productRef = 176678EA5F54B6EF771BEFCE /* MurmurDictionary */; };
+		37DAE145E9CFB54CE70E6DE7 /* HapticPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */; };
 		394DC21E4ADEAFA03ED8628E /* LicencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5228D240776177D7572CA1C1 /* LicencesView.swift */; };
 		3EC85E110CD28B6DC22071BF /* MurmurDesign in Frameworks */ = {isa = PBXBuildFile; productRef = 46A5889A52A8B6301FAC3C74 /* MurmurDesign */; };
-		44712C95FA9FA62029F49493 /* HapticPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0377712432E8819AB84A6061 /* HapticPlayer.swift */; };
 		45D3ED531B23908012FCEC65 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */; };
 		48BC99FB2C5937FA6F985D24 /* PhoneEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948F6A3F144F06B9915ED311 /* PhoneEnvironment.swift */; };
-		5D99157CDA56D644865558F6 /* HapticPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0377712432E8819AB84A6061 /* HapticPlayer.swift */; };
 		601461B10C67E87B3B13F988 /* KeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B806E79B87FA2CD3DA1A5B73 /* KeyboardView.swift */; };
 		674BC8199AD64774F1662A17 /* PaperControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC70C22B23C15159705E5A9 /* PaperControls.swift */; };
 		68AB6F53955A1D3944120F95 /* EBGaramond-Italic[wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */; };
@@ -38,8 +36,6 @@
 		825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		85D49F3E1052BF98F55A0BDF /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */; };
 		A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
-		B022D1B1EAA7BC1C20F1875C /* HapticPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28058C24FF75794B12C116E7 /* HapticPattern.swift */; };
-		B123A1E0C106E5AB5F348DB6 /* HapticLabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601ADF4A43A32047522C9913 /* HapticLabView.swift */; };
 		C50636D3C218B0882040FE74 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31985D17A48C0DE2D931F5F7 /* SettingsView.swift */; };
 		CFC6312F6BF4B81C29226FCE /* MurmurPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80051BCE7D8D7FDB936C586D /* MurmurPhoneApp.swift */; };
 		D4BB1D5042988A06EB9976BF /* Figtree[wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8D7B74B437D59CA05B2641AA /* Figtree[wght].ttf */; };
@@ -82,14 +78,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0377712432E8819AB84A6061 /* HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPlayer.swift; sourceTree = "<group>"; };
 		05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MurmurKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A9BEF73481F2C13EAA83A63 /* MurmurPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MurmurPhone.entitlements; sourceTree = "<group>"; };
+		0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPlayer.swift; sourceTree = "<group>"; };
 		121DC8A1B9D710897A9B4651 /* TrainingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingView.swift; sourceTree = "<group>"; };
 		1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPanel.swift; sourceTree = "<group>"; };
 		1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiRecents.swift; sourceTree = "<group>"; };
-		28058C24FF75794B12C116E7 /* HapticPattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPattern.swift; sourceTree = "<group>"; };
 		28781C7AD37BB629020F20B3 /* MurmurPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MurmurPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "EBGaramond-Italic[wght].ttf"; sourceTree = "<group>"; };
 		2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardStatus.swift; sourceTree = "<group>"; };
@@ -98,7 +93,6 @@
 		38A18EA29BB2B0F49BD4945B /* OFL-Figtree.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "OFL-Figtree.txt"; sourceTree = "<group>"; };
 		4AA1F9C6111308F82B26A3C2 /* default-dictionary.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "default-dictionary.txt"; sourceTree = "<group>"; };
 		5228D240776177D7572CA1C1 /* LicencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicencesView.swift; sourceTree = "<group>"; };
-		601ADF4A43A32047522C9913 /* HapticLabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticLabView.swift; sourceTree = "<group>"; };
 		697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMicrophone.swift; sourceTree = "<group>"; };
 		76C4212D9899DC66A521DBD3 /* DictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryView.swift; sourceTree = "<group>"; };
 		77AD40E510C435FAF1832387 /* PaperSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperSurfaces.swift; sourceTree = "<group>"; };
@@ -123,7 +117,7 @@
 		D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDictation.swift; sourceTree = "<group>"; };
 		EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHaptics.swift; sourceTree = "<group>"; };
 		F06BA022727CACEEB48B6606 /* EmojiGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiGrid.swift; sourceTree = "<group>"; };
-		"TEMP_EBD2AB69-351F-408E-A425-5FBE7CA4B52A" /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		"TEMP_37E36A3B-10EF-42F8-9EB7-EF9CB1775FE8" /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -181,8 +175,6 @@
 		2DB434EEFB0EF7330B954FCE /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				28058C24FF75794B12C116E7 /* HapticPattern.swift */,
-				0377712432E8819AB84A6061 /* HapticPlayer.swift */,
 				2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */,
 				948F6A3F144F06B9915ED311 /* PhoneEnvironment.swift */,
 			);
@@ -226,7 +218,6 @@
 			children = (
 				B037767311A660B55ED78B1F /* Assets.xcassets */,
 				76C4212D9899DC66A521DBD3 /* DictionaryView.swift */,
-				601ADF4A43A32047522C9913 /* HapticLabView.swift */,
 				A25F40E2A1DF0B99651CB330 /* HistoryView.swift */,
 				5228D240776177D7572CA1C1 /* LicencesView.swift */,
 				C9CB6ECCBC707799552D6FF6 /* ModelView.swift */,
@@ -266,6 +257,7 @@
 				F06BA022727CACEEB48B6606 /* EmojiGrid.swift */,
 				1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */,
 				1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */,
+				0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */,
 				C97162CCF31B94BBAE1B50B5 /* HistoryPanel.swift */,
 				D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */,
 				EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */,
@@ -286,10 +278,10 @@
 			path = Tools;
 			sourceTree = "<group>";
 		};
-		"TEMP_0262E9CC-59D2-478B-944E-A79288CCFE2B" /* ios */ = {
+		"TEMP_FE932273-8CAC-4D21-8A9B-886B624BE906" /* ios */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_EBD2AB69-351F-408E-A425-5FBE7CA4B52A" /* Base.xcconfig */,
+				"TEMP_37E36A3B-10EF-42F8-9EB7-EF9CB1775FE8" /* Base.xcconfig */,
 			);
 			path = ios;
 			sourceTree = "<group>";
@@ -418,8 +410,7 @@
 				FA3946BD78F0CFBFEED1270E /* EmojiGrid.swift in Sources */,
 				1750A0C86B022FCC1FA58796 /* EmojiPanel.swift in Sources */,
 				16F516DCF742C2CC59D5405F /* EmojiRecents.swift in Sources */,
-				B022D1B1EAA7BC1C20F1875C /* HapticPattern.swift in Sources */,
-				44712C95FA9FA62029F49493 /* HapticPlayer.swift in Sources */,
+				37DAE145E9CFB54CE70E6DE7 /* HapticPlayer.swift in Sources */,
 				FDC863CC1C38A1080E3E74D7 /* HistoryPanel.swift in Sources */,
 				0A9E142C4EFB1EA50986E6EE /* KeyboardDictation.swift in Sources */,
 				D9A1FC2FFD3379716940E553 /* KeyboardHaptics.swift in Sources */,
@@ -437,9 +428,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				2601D6A0DA90346093029450 /* DictionaryView.swift in Sources */,
-				B123A1E0C106E5AB5F348DB6 /* HapticLabView.swift in Sources */,
-				16D0EAC33A8656F57689068B /* HapticPattern.swift in Sources */,
-				5D99157CDA56D644865558F6 /* HapticPlayer.swift in Sources */,
 				2FEFEA7D43053CAA0F2DB358 /* HistoryView.swift in Sources */,
 				A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */,
 				394DC21E4ADEAFA03ED8628E /* LicencesView.swift in Sources */,
@@ -501,7 +489,7 @@
 		};
 		9191DF2C32DAEF5A429C8A63 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_EBD2AB69-351F-408E-A425-5FBE7CA4B52A" /* Base.xcconfig */;
+			baseConfigurationReference = "TEMP_37E36A3B-10EF-42F8-9EB7-EF9CB1775FE8" /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -572,7 +560,7 @@
 		};
 		CD9AB829B5233A7B770568EE /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_EBD2AB69-351F-408E-A425-5FBE7CA4B52A" /* Base.xcconfig */;
+			baseConfigurationReference = "TEMP_37E36A3B-10EF-42F8-9EB7-EF9CB1775FE8" /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

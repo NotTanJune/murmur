@@ -508,31 +508,24 @@ system sounds play while WebKit holds a recording session (`AVAudioSession` can 
 sounds during recording), in a keyboard extension with Full Access, and whether the tones are
 audible without being picked up by the microphone.
 
-**Haptics.** `KeyboardHaptics` gives a hold one firm tap (`UIImpactFeedbackGenerator`,
-`.medium`) at the same moment as the start tone (`playStartTone`), the system's success
-pattern (a double tap) right after `insert` succeeds, and its error pattern when a hold fails
-(`fail`, a release with no audio, the finish watchdog). The generators are attached to the
-keyboard's view (`init(style:view:)`); the start one is prepared right after the attach, so it is
-ready when the first samples arrive without the press waiting on it, and the outcome one at the
-release. Main actor only, and always after the attach or the insert, never ahead of them.
-`Settings.hapticsEnabled` (key `hapticsEnabled`, default on, re-read by `reloadFromDefaults`)
-gates them, as Settings tab → Haptics on the phone; the Mac ignores it. A keyboard extension
-plays haptics only with Full Access. Unverified on a device: whether they play at all while
-WebKit holds a recording session.
-
-**Haptic lab (temporary).** Settings → "Haptic lab (temporary)" lets the user design a start and a
-done pattern by feel on the phone, then copy the text (`start: tap@0 i0.70 s0.50 | buzz@40 i0.40
-s0.20 d120`, `done: ...`) and send it back. Files: `ios/App/HapticLabView.swift`,
-`ios/Shared/HapticPattern.swift` (model, text format, `HapticLabStore`),
-`ios/Shared/HapticPlayer.swift` (lazy `CHHapticEngine`), the "Haptic lab" row in
-`ios/App/SettingsView.swift`, the `DS.Phone.haptic*` tokens, and the lab hook in
-`ios/Keyboard/KeyboardHaptics.swift`. Keys in the shared defaults: `hapticLabStart` and
-`hapticLabDone` (JSON `HapticPattern`) and `hapticLabActive` (default false). With the switch on,
-`KeyboardHaptics` reads them at play time and plays the start and done patterns through Core
-Haptics, falling back to the generators on any error; the error pattern is unchanged, and
-`Settings.hapticsEnabled` still gates everything. Whether Core Haptics plays in the keyboard
-extension while WebKit records is unverified. Once the user picks patterns, hard-code them in
-`KeyboardHaptics` and delete every file and hook listed here.
+**Haptics.** `KeyboardHaptics` plays the user's own patterns through Core Haptics
+(`HapticPlayer`, one lazily made `CHHapticEngine`), at the same moment as the start tone
+(`playStartTone`) and right after `insert` succeeds. The user designed them by feel on the phone on
+2026-11-22, in a temporary in-app lab that has since been deleted: start `tap@0 i1.00 s0.50 |
+tap@70 i1.00 s0.50` (two firm taps 70 ms apart) and done `buzz@0 i1.00 s0.20 d50 | tap@80 i1.00
+s0.50 | tap@120 i1.00 s0.50` (a 50 ms soft buzz, then two taps). Do not change them without the
+user. If Core Haptics refuses a pattern or the engine fails, the UIKit generators stand in: a
+`.medium` impact for start, the system's success pattern for done. A failed hold (`fail`, a
+release with no audio, the finish watchdog) plays the system's error pattern. The generators are
+attached to the keyboard's view (`init(style:view:)`); the engine and the start generator are
+prepared right after the attach, and the outcome ones at the release. Main actor only, and always
+after the attach or the insert, never ahead of them. `Settings.hapticsEnabled` (key
+`hapticsEnabled`, default on, re-read by `reloadFromDefaults`) gates them, as Settings tab →
+Haptics on the phone; the Mac ignores it. A keyboard extension plays haptics only with Full
+Access. Unverified on a device: whether Core Haptics plays in the keyboard while WebKit holds a
+recording session (a silent success cannot be detected, so the fallback does not cover it). The
+lab's keys `hapticLabStart`, `hapticLabDone` and `hapticLabActive` may linger in the shared
+defaults on the user's phone; nothing reads them.
 
 **Readiness is shown on the key.** `KeyboardDictation.micState` is `off`, `warming` (opened, no
 samples yet), `live` or `failed`, and `heardAudio` is true once the current hold has its first

@@ -46,13 +46,10 @@ struct SettingsView: View {
                     )
                     ToggleRow(
                         title: "Haptics",
-                        note: "A tap when dictation starts and a double tap when the text is typed.",
+                        note: "A double tap when dictation starts, and a buzz then a double tap when the text is typed.",
                         isOn: $settings.hapticsEnabled
                     )
                 }
-
-                // TEMPORARY: the Haptic Lab. Delete with its files (AGENTS.md, "Haptic lab").
-                SettingsLink(title: "Haptic lab (temporary)", detail: nil) { HapticLabView() }
 
                 Card(title: "Appearance") {
                     ChoiceKeys(
