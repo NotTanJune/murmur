@@ -27,8 +27,10 @@ Versions are the ones pinned in `Package.resolved`.
 
 Fraunces (by Undercase Type, Phaedra Charles and Flavia Zimbardi) and Figtree ship in
 `Resources/Fonts/` under the SIL Open Font License 1.1. Their license texts sit beside them.
-EB Garamond Italic (by Georg Duffner and Octavio Pardo) draws the app icon's "m"; it sits in
-`Tools/Fonts/` under the same license, with its license text, and does not ship in the app.
+EB Garamond Italic (by Georg Duffner and Octavio Pardo) draws the app icon's "m" and sets the
+word "Murmur" on the iPhone keyboard's talk key. It sits in `Tools/Fonts/` under the same license,
+with its license text. It ships in the iPhone keyboard extension (and its license text in the
+iPhone app) and not in the Mac app.
 
 ## Model weights
 

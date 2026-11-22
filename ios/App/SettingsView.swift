@@ -30,6 +30,22 @@ struct SettingsView: View {
                     )
                 }
 
+                Card(title: "Microphone") {
+                    ToggleRow(
+                        title: "Keep microphone ready",
+                        note: "Dictation starts the moment you press. The microphone stays ready for 30 seconds after each dictation, and iOS shows its microphone indicator for that time. The next press after that opens it again, a moment slower. Audio is kept in memory for a fraction of a second and only saved when you dictate. With Bluetooth headphones, iOS may switch them to their call microphone while it is open.",
+                        isOn: $settings.alwaysOpenMic
+                    )
+                }
+
+                Card {
+                    ToggleRow(
+                        title: "Sounds",
+                        note: "A tone when dictation starts and when the text is typed.",
+                        isOn: $settings.soundEnabled
+                    )
+                }
+
                 Card(title: "Appearance") {
                     ChoiceKeys(
                         options: AppearanceChoice.allCases,

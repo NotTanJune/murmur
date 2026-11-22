@@ -30,8 +30,27 @@ final class KeyboardDictation {
         case dictation
     }
 
+    /// How far the microphone is from delivering audio, shown on the key before a press.
+    enum MicState: Equatable {
+        /// Not open: the setting is off, or the keyboard is not on screen.
+        case off
+        /// Opened, no samples yet.
+        case warming
+        /// Samples are flowing.
+        case live
+        /// The last open ended with an error, or never produced audio.
+        case failed
+    }
+
     private(set) var state: State = .idle
-    /// A short line for the talk key: which engine the next press uses and why.
+    /// The microphone's readiness. With "Keep microphone ready" on it opens at each appearance
+    /// and stays open until the keyboard goes away; off, it opens at the press.
+    private(set) var micState: MicState = .off
+    /// The current hold has received its first samples (the pre-roll counts), so the key can
+    /// tell "listening" from "pressed, but nothing heard yet".
+    private(set) var heardAudio = false
+    /// A short line for the talk key: which engine the next press uses and why. Empty when Bark
+    /// is ready or not in use.
     private(set) var engineNote = ""
     /// A quick tap locked recording on; the next tap ends it.
     private(set) var isLocked = false
@@ -74,6 +93,29 @@ final class KeyboardDictation {
     /// teardown does not clear the busy state of a later one.
     @ObservationIgnored private var teardownGeneration = 0
     @ObservationIgnored private var hold: Hold?
+    /// "Keep microphone ready", read at each appearance. A press after the setting changed uses
+    /// the old value until the keyboard next appears.
+    @ObservationIgnored private var keepsMicrophoneWarm = false
+    /// The page's sample rate for the current open; nil until it reports `started`.
+    @ObservationIgnored private var captureRate: Double?
+    /// Audio from just before a press, kept only while no hold listens. It never leaves memory
+    /// except as the start of the next hold's audio, and nothing older than the window is kept.
+    @ObservationIgnored private var preRoll = PreRollBuffer(maxSeconds: KeyboardDictation.preRollSeconds)
+    /// Touch-down to the first samples the last hold received, in ms (0 when the pre-roll
+    /// supplied them). Reported to the Setup tab through `KeyboardStatus`.
+    @ObservationIgnored private var lastStartLatencyMs: Int?
+    /// This process's Bark load and the warm-up decode after it, in seconds, and the last
+    /// delivered hold's release timings. Reported through `KeyboardStatus` and the log.
+    @ObservationIgnored private var barkLoadSeconds: Double?
+    @ObservationIgnored private var barkWarmupSeconds: Double?
+    @ObservationIgnored private var lastReleaseEngineMs: Int?
+    @ObservationIgnored private var lastReleaseCleanupMs: Int?
+    @ObservationIgnored private var lastReleaseEngine: String?
+    /// When the microphone was last reopened automatically, newest last, for the loop breaker.
+    @ObservationIgnored private var reopenTimes: [ContinuousClock.Instant] = []
+    @ObservationIgnored private var reopenTask: Task<Void, Never>?
+    /// Closes the warm microphone `warmIdleSeconds` after the last hold; restarted by every hold.
+    @ObservationIgnored private var idleCloseTask: Task<Void, Never>?
     /// True from an abandon until its engine has been wound down. A new press waits for it
     /// (it is treated as busy), so two holds never use the shared model at once.
     private var isTearingDown = false
@@ -84,6 +126,18 @@ final class KeyboardDictation {
     /// How long a release's finish or an abandon's teardown may run before the hold is dropped.
     /// A stuck engine would otherwise leave the talk key busy for the life of the process.
     static let teardownTimeoutSeconds: TimeInterval = 20
+    /// How much audio before a press a hold starts from, as the Mac's `CaptureRouter` does.
+    static let preRollSeconds: Double = 0.3
+    /// A warm microphone that stopped after delivering audio is reopened after this long, at
+    /// most `maxAutoReopens` times in `autoReopenWindow`.
+    static let autoReopenDelay: Duration = .seconds(1)
+    static let maxAutoReopens = 3
+    static let autoReopenWindow: Duration = .seconds(30)
+    /// With "Keep microphone ready" on, the microphone closes this long after the last hold
+    /// finished (or after the keyboard appeared, if no hold has run), and the next press opens
+    /// it cold. An open microphone keeps the Dynamic Island's indicator lit, so it does not stay
+    /// open for as long as the keyboard is up.
+    static let warmIdleSeconds: TimeInterval = 30
     @ObservationIgnored private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "speech")
 
     /// Everything one press owns. Audio flows microphone → `pending` (until both the page's
@@ -93,7 +147,16 @@ final class KeyboardDictation {
         let engine: any TranscriptionEngine
         let engineName: String
         let usesBark: Bool
+        /// The short name the Setup tab shows beside the release timings.
+        var releaseLabel = ""
         let pressed = Date()
+        /// Monotonic touch-down instant, taken before any settings or engine work, for the
+        /// start latency; `pressed` is a wall-clock date for the run.
+        let pressedAt: ContinuousClock.Instant
+        /// The hold has received its first samples, from the pre-roll or live.
+        var heardAudio = false
+        /// The start tone has played (or sounds are off) for this hold.
+        var startTonePlayed = false
         var released: Date?
         var captureRate: Double?
         var target: AVAudioFormat?
@@ -126,7 +189,8 @@ final class KeyboardDictation {
         /// the Mac.
         var pipeline: CleanupPipeline?
 
-        init(engine: any TranscriptionEngine, engineName: String, usesBark: Bool) {
+        init(engine: any TranscriptionEngine, engineName: String, usesBark: Bool, pressedAt: ContinuousClock.Instant) {
+            self.pressedAt = pressedAt
             self.engine = engine
             self.engineName = engineName
             self.usesBark = usesBark
@@ -150,6 +214,7 @@ final class KeyboardDictation {
         microphone.onStarted = { [weak self] rate in self?.captureStarted(rate: rate) }
         microphone.onSamples = { [weak self] samples, level in self?.received(samples, level: level) }
         microphone.onEnded = { [weak self] reason in self?.captureEnded(reason) }
+        microphone.onModeConfirmed = { [weak self] _ in self?.writeStatus() }
     }
 
     // MARK: Keyboard lifecycle
@@ -168,10 +233,32 @@ final class KeyboardDictation {
         // dictionary file the app seeds later.
         DictionaryStore.shared.reload()
         noteMarkerClearedByApp()
+        // A new process starts with no measurement; keep the last one the Setup tab shows.
+        if lastStartLatencyMs == nil || lastReleaseEngine == nil || barkLoadSeconds == nil {
+            let previous = KeyboardStatus.read()
+            if lastStartLatencyMs == nil { lastStartLatencyMs = previous?.lastStartLatencyMs }
+            // The last known load stays on the Setup tab until this process's own load completes.
+            if barkLoadSeconds == nil {
+                barkLoadSeconds = previous?.barkLoadSeconds
+                barkWarmupSeconds = previous?.barkWarmupSeconds
+            }
+            if lastReleaseEngine == nil {
+                lastReleaseEngineMs = previous?.lastReleaseEngineMs
+                lastReleaseCleanupMs = previous?.lastReleaseCleanupMs
+                lastReleaseEngine = previous?.lastReleaseEngine
+            }
+        }
         self.hasFullAccess = hasFullAccess
         isVisible = true
         // A failure message belongs to the last time the keyboard was up.
         if case .failed = state { state = .idle }
+        // The setting was just re-read above. On, the microphone opens now, ahead of the model
+        // work below, so a press finds it already delivering audio; off, it opens at the press.
+        keepsMicrophoneWarm = Settings.shared.alwaysOpenMic
+        if keepsMicrophoneWarm {
+            openMicrophone()
+            scheduleIdleClose()
+        }
         Task { await AppleSpeechEngine.prewarm() }
         loadBarkIfAllowed()
         writeStatus()
@@ -182,9 +269,13 @@ final class KeyboardDictation {
     /// so an abandoned hold leaves no text and no run.
     func keyboardDisappeared() {
         isVisible = false
+        reopenTask?.cancel()
+        idleCloseTask?.cancel()
+        idleCloseTask = nil
         if hold != nil { abandonHold(reason: "keyboard closed") }
         gesture.reset()
-        microphone.stop()
+        closeMicrophone()
+        micState = .off
         if case .failed = state {} else { state = .idle }
         // Going away normally means Bark did not kill this process, but only once it has loaded:
         // a keyboard that closes mid-load leaves the marker armed, since the load is the
@@ -229,17 +320,13 @@ final class KeyboardDictation {
         barkLoadStarted = true
         reportLoad(.loading)
         Task {
-            // A second keyboard in this process finds Bark already loaded; arming again would
-            // blame a later death on a load that is long finished.
-            if await ParakeetModels.barkClean.isLoaded {
-                barkReady = true
-                reportLoad(.ready)
-                return
-            }
-            Self.marker.arm()
-            Self.armedByThisProcess = true
             do {
-                _ = try await ParakeetModels.barkClean.loadedModels()
+                // Every controller in this process waits for the same load and warm-up, so none
+                // marks Bark ready, or runs a real hold on the shared models, while the
+                // warm-up decode is still using them.
+                let preparation = try await Self.barkPreparationTask().value
+                barkLoadSeconds = preparation.loadSeconds
+                barkWarmupSeconds = preparation.warmupSeconds
                 barkReady = true
                 reportLoad(.ready)
                 // The keyboard went away mid-load and left the marker armed. The load has now
@@ -249,22 +336,168 @@ final class KeyboardDictation {
                     Self.armedByThisProcess = false
                 }
             } catch {
-                Self.log.error("Bark failed to load: \(error.localizedDescription, privacy: .public)")
+                Self.log.error("Bark is not ready: \(error.localizedDescription, privacy: .public)")
                 reportLoad(.failed)
-                Self.marker.disarm()
-                Self.armedByThisProcess = false
             }
         }
     }
 
+    /// What one process's Bark preparation took: the model load and, when it ran, the warm-up
+    /// decode after it.
+    private struct BarkPreparation: Sendable {
+        let loadSeconds: Double
+        let warmupSeconds: Double?
+    }
+
+    private enum BarkPreparationError: LocalizedError {
+        case warmupTimedOut
+
+        var errorDescription: String? {
+            "the warm-up decode did not finish within \(Int(KeyboardDictation.warmupTimeoutSeconds)) s"
+        }
+    }
+
+    /// How long the warm-up decode may run before Bark is given up on for this process.
+    nonisolated static let warmupTimeoutSeconds: Double = 15
+
+    /// The process-wide preparation, created once. `ParakeetModels.isLoaded` turns true as soon
+    /// as the load returns, before the warm-up ends, so a second controller cannot use it as the
+    /// sign that Bark is ready; it waits on this task instead. Only this task arms the crash
+    /// marker. A failed load clears it so a later controller may try again; a warm-up timeout
+    /// stays cached, so a second warm-up never overlaps the one still running.
+    @ObservationIgnored private static var barkPreparation: Task<BarkPreparation, Error>?
+
+    private static func barkPreparationTask() -> Task<BarkPreparation, Error> {
+        if let barkPreparation { return barkPreparation }
+        let task = Task { () throws -> BarkPreparation in
+            marker.arm()
+            armedByThisProcess = true
+            let loadStarted = ContinuousClock.now
+            do {
+                _ = try await ParakeetModels.barkClean.loadedModels()
+            } catch {
+                barkPreparation = nil
+                marker.disarm()
+                armedByThisProcess = false
+                throw error
+            }
+            let loadSeconds = seconds(since: loadStarted)
+            // `manager()` has already decoded a second of silence on these models, which is the
+            // whole of the batch path, so the extra pass runs only for the windowed engine: it
+            // is the one that goes through `OverlapWindowRecognizer`'s own `AsrManager`. It runs
+            // with `barkReady` still false everywhere, so a press goes to Apple's transcriber
+            // and nothing else touches the models. The marker stays armed through it.
+            var warmupSeconds: Double?
+            if Settings.shared.transcribeTiming == .whileSpeaking {
+                let warmupStarted = ContinuousClock.now
+                guard await warmUpBark(timeout: warmupTimeoutSeconds) else {
+                    log.fault("Bark warm-up did not finish in \(Int(warmupTimeoutSeconds)) s; Bark stays off for this process")
+                    marker.disarm()
+                    armedByThisProcess = false
+                    throw BarkPreparationError.warmupTimedOut
+                }
+                warmupSeconds = seconds(since: warmupStarted)
+            }
+            let warmupText = warmupSeconds.map { String(format: "%.2f s", $0) } ?? "skipped"
+            log.info("Bark loaded in \(loadSeconds, format: .fixed(precision: 2))s, warm-up \(warmupText, privacy: .public)")
+            return BarkPreparation(loadSeconds: loadSeconds, warmupSeconds: warmupSeconds)
+        }
+        barkPreparation = task
+        return task
+    }
+
+    /// One throwaway decode of a second of silence through the engine a Bark hold would use
+    /// (`makeBarkEngine`), so the first real hold finds its recognizer and the Neural Engine's
+    /// compute plan already exercised. It goes through the hold's recognizer, which wraps the
+    /// same `AsrModels` in a manager of its own. A failure is logged and does not stop Bark from
+    /// being used: the first hold would then pay the cost, as it did before. Returns false only
+    /// when the decode had not finished after `timeout` seconds; it is an unstructured task
+    /// raced against a sleep, resumed once, because the decode does not honour cancellation.
+    private static func warmUpBark(timeout: Double) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            let sleeper = Task {
+                try? await Task.sleep(for: .seconds(timeout))
+                // A cancelled sleep means the decode finished first.
+                guard !Task.isCancelled else { return }
+                once.resume(false)
+            }
+            Task {
+                await decodeSilence()
+                once.resume(true)
+                sleeper.cancel()
+            }
+        }
+    }
+
+    private static func decodeSilence() async {
+        let engine = makeBarkEngine(Settings.shared)
+        do {
+            let frames: AVAudioFrameCount = 16_000
+            guard let format = await engine.preferredInputFormat(),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
+                  let channel = buffer.floatChannelData?[0] else {
+                log.error("Bark warm-up skipped: no silence buffer")
+                return
+            }
+            buffer.frameLength = frames
+            channel.update(repeating: 0, count: Int(frames))
+            let transcripts = try await engine.start()
+            let reader = Task { for try await _ in transcripts {} }
+            await engine.feed(AudioChunk(buffer: buffer))
+            await engine.finish()
+            try await reader.value
+        } catch {
+            await engine.finish()
+            log.error("Bark warm-up failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Resumes a checked continuation at most once, from whichever of two tasks gets there first.
+    private final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+
+        init(_ continuation: CheckedContinuation<Bool, Never>) {
+            self.continuation = continuation
+        }
+
+        func resume(_ value: Bool) {
+            lock.lock()
+            let pending = continuation
+            continuation = nil
+            lock.unlock()
+            pending?.resume(returning: value)
+        }
+    }
+
+    /// The engine a Bark hold uses: windowed while speaking, or one decode at release.
+    private static func makeBarkEngine(_ settings: Settings) -> any TranscriptionEngine {
+        settings.transcribeTiming == .whileSpeaking
+            ? IncrementalParakeetEngine(models: .barkClean) : ParakeetEngine(models: .barkClean)
+    }
+
+    private static func seconds(since start: ContinuousClock.Instant) -> Double {
+        let elapsed = ContinuousClock.now - start
+        return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+    }
+
     private static func note(for state: KeyboardStatus.BarkState) -> String {
         switch state {
-        case .loading: "Apple · Bark loading"
-        case .notDownloaded: "Apple · Bark not downloaded"
-        case .stoppedLastTime: "Apple · Bark stopped last time"
-        case .failed: "Apple · Bark failed to load"
+        case .loading: "Loading Bark · Apple until ready"
+        case .notDownloaded: "Bark not downloaded · using Apple"
+        case .stoppedLastTime: "Bark stopped last time · using Apple"
+        case .failed: "Bark failed to load · using Apple"
         case .ready, .off: ""
         }
+    }
+
+    /// The line under "Murmur" while idle: what is not ready yet, or nil when everything is.
+    /// The microphone comes first because it decides whether the next press hears anything.
+    var readinessCaption: String? {
+        if micState == .warming { return "Starting microphone…" }
+        if micState == .failed { return "Microphone paused · press to start" }
+        return engineNote.isEmpty ? nil : engineNote
     }
 
     /// Records how this process's Bark load stands. It is reported as `off` when the setting
@@ -285,15 +518,23 @@ final class KeyboardDictation {
     }
 
     private func writeStatus() {
-        KeyboardStatus(barkState: barkState.rawValue, hasFullAccess: hasFullAccess, lastSeen: Date()).write()
+        KeyboardStatus(
+            barkState: barkState.rawValue, hasFullAccess: hasFullAccess, lastSeen: Date(),
+            lastStartLatencyMs: lastStartLatencyMs,
+            barkLoadSeconds: barkLoadSeconds, barkWarmupSeconds: barkWarmupSeconds,
+            lastReleaseEngineMs: lastReleaseEngineMs, lastReleaseCleanupMs: lastReleaseCleanupMs,
+            lastReleaseEngine: lastReleaseEngine,
+            captureMode: microphone.confirmedMode?.rawValue
+        ).write()
     }
 
     // MARK: Touches on the talk key
 
     /// Touch down starts recording at once, so a hold loses nothing to the tap check.
     func touchDown() {
+        let instant = ContinuousClock.now
         switch gesture.touchDown(at: Date(), busy: hold != nil || isTearingDown) {
-        case .start: pressDown()
+        case .start: pressDown(at: instant)
         case .lock, .finish, .none: break
         }
     }
@@ -319,7 +560,7 @@ final class KeyboardDictation {
 
     // MARK: Hold
 
-    private func pressDown() {
+    private func pressDown(at pressedAt: ContinuousClock.Instant) {
         guard hold == nil, !isTearingDown else { return }
         // The app may have changed a setting since the keyboard appeared (Training, engine).
         let settings = Settings.shared
@@ -332,14 +573,14 @@ final class KeyboardDictation {
         let name: String
         switch choice {
         case .bark:
-            engine = settings.transcribeTiming == .whileSpeaking
-                ? IncrementalParakeetEngine(models: .barkClean) : ParakeetEngine(models: .barkClean)
+            engine = Self.makeBarkEngine(settings)
             name = SpeechEngineChoice.barkClean.displayName
         case .apple:
             engine = AppleSpeechEngine(dictionaryPhrases: { await MainActor.run { DictionaryStore.shared.biasPhrases } })
             name = Self.appleName(settings: settings, barkState: barkState)
         }
-        let hold = Hold(engine: engine, engineName: name, usesBark: choice == .bark)
+        let hold = Hold(engine: engine, engineName: name, usesBark: choice == .bark, pressedAt: pressedAt)
+        hold.releaseLabel = choice == .bark ? "Bark" : (settings.engine == .barkClean ? "Apple (standing in for Bark)" : "Apple")
         // As the Mac: the pipeline only with Apple Intelligence on, and only in the General
         // profile (Email and Notes place greetings from the whole text).
         if Self.usesAppleIntelligence(settings), settings.cleanupProfile == .general {
@@ -348,8 +589,20 @@ final class KeyboardDictation {
         }
         self.hold = hold
         isLocked = false
+        heardAudio = false
         state = .recording(level: 0)
-        microphone.start()   // open the microphone first; the engine catches up from `pending`
+        // A hold is in progress: the idle clock starts again when it is over.
+        idleCloseTask?.cancel()
+        idleCloseTask = nil
+        // Listen first; the engine catches up from `pending`. A warm microphone hands over its
+        // pre-roll here, a cold one opens now.
+        let micWasLive = micState == .live
+        attachMicrophone(to: hold)
+        // The start tone says "go ahead and talk", so it plays only once the microphone hears:
+        // here when it was already live (a warm microphone, `.warming` has no audio yet and
+        // waits), otherwise at the hold's first live samples (`noteHeard`). After the attach,
+        // as on the Mac, and dispatched off the main actor so it cannot delay capture.
+        if micWasLive || hold.heardAudio { playStartTone(hold) }
 
         hold.limit = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.maxHoldSeconds))
@@ -418,7 +671,7 @@ final class KeyboardDictation {
         hold.released = Date()
         hold.limit?.cancel()
         isLocked = false
-        microphone.stop()
+        releaseMicrophone()
         state = .finishing
         hold.finishWatchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.teardownTimeoutSeconds))
@@ -429,19 +682,136 @@ final class KeyboardDictation {
     }
 
     private func captureStarted(rate: Double) {
-        guard let hold else { return }
+        captureRate = rate
+        // A released hold has its rate already; a reopen during `.finishing` (a route change
+        // from 48 kHz to 16 kHz, say) must not relabel samples it has converted or pending.
+        guard let hold, hold.released == nil else { return }
         hold.captureRate = rate
         makeConverterIfReady(hold)
     }
 
+    /// One block from the page, which arrives whether or not a hold is listening. A hold in
+    /// progress takes it; between holds it goes into the pre-roll, when the microphone is kept
+    /// warm, and is otherwise dropped.
     private func received(_ samples: [Float], level: Float) {
-        guard let hold, hold.released == nil else { return }
+        // The page reports its rate before any audio; without it the samples mean nothing.
+        guard let rate = captureRate else { return }
+        if micState != .live { micState = .live }
+        guard let hold, hold.released == nil else {
+            if keepsMicrophoneWarm { preRoll.append(samples, rate: rate) }
+            return
+        }
         state = .recording(level: level)
         if let converter = hold.converter {
             if let buffer = converter.convert(samples) { hold.send(buffer) }
         } else {
             hold.pending.append(samples)
         }
+        if !hold.heardAudio { noteHeard(hold, fromPreRoll: false) }
+    }
+
+    /// The hold has its first samples. The key turns from waiting to listening, and the time
+    /// from touch-down is recorded (0 when the pre-roll supplied them).
+    private func noteHeard(_ hold: Hold, fromPreRoll: Bool) {
+        hold.heardAudio = true
+        if !fromPreRoll { playStartTone(hold) }
+        heardAudio = true
+        let elapsed = ContinuousClock.now - hold.pressedAt
+        let milliseconds = fromPreRoll ? 0 : Int((elapsed / .milliseconds(1)).rounded())
+        let source = fromPreRoll ? "pre-roll" : "live"
+        Self.log.info("start latency \(milliseconds, privacy: .public) ms (\(source, privacy: .public))")
+        // Written after the press has been handled, and only when the number changed: with a
+        // warm microphone it is 0 every time.
+        guard lastStartLatencyMs != milliseconds else { return }
+        lastStartLatencyMs = milliseconds
+        Task { writeStatus() }
+    }
+
+    /// The start tone, once per hold, when sounds are on.
+    private func playStartTone(_ hold: Hold) {
+        guard !hold.startTonePlayed else { return }
+        hold.startTonePlayed = true
+        if Settings.shared.soundEnabled { KeyboardSounds.play(.start) }
+    }
+
+    /// Gives a new hold the microphone. Open or opening: the hold takes the pre-roll now and
+    /// live samples as they arrive, including ones that have not arrived yet. Not open (the
+    /// setting is off, or an earlier open failed): it opens at this press.
+    private func attachMicrophone(to hold: Hold) {
+        switch micState {
+        case .live, .warming:
+            if let captureRate { hold.captureRate = captureRate }
+            let preRollSeconds = preRoll.seconds
+            let (samples, rate) = preRoll.drain()
+            Self.log.info("attached to a \(self.micState == .live ? "live" : "warming", privacy: .public) microphone with \(preRollSeconds, format: .fixed(precision: 3)) s of pre-roll")
+            if !samples.isEmpty, let rate {
+                hold.captureRate = rate
+                hold.pending.append(samples)
+                noteHeard(hold, fromPreRoll: true)
+            }
+        case .off, .failed:
+            openMicrophone()
+        }
+    }
+
+    /// Opens the microphone from scratch. A fresh open starts with no rate and no pre-roll.
+    private func openMicrophone() {
+        guard micState == .off || micState == .failed else { return }
+        reopenTask?.cancel()
+        reopenTask = nil
+        captureRate = nil
+        _ = preRoll.drain()
+        micState = .warming
+        microphone.open()
+    }
+
+    /// Closes the microphone, whatever the setting, and drops the pre-roll with it. A failure
+    /// the page reported stays visible in `micState` until the next open.
+    private func closeMicrophone() {
+        microphone.close()
+        captureRate = nil
+        _ = preRoll.drain()
+        if micState != .failed { micState = .off }
+    }
+
+    /// A hold is over: the microphone stays open for the next press when it is kept warm.
+    private func releaseMicrophone() {
+        if !keepsMicrophoneWarm { closeMicrophone() }
+    }
+
+    /// Restarts the clock that closes a warm microphone `warmIdleSeconds` from now. Nothing
+    /// is scheduled while a hold is in flight, with the setting off, or off screen; the end of
+    /// each hold calls it again. The close is not a failure: the microphone goes to `off`, the
+    /// caption shows nothing, and the next press opens it cold (`attachMicrophone`).
+    private func scheduleIdleClose() {
+        idleCloseTask?.cancel()
+        idleCloseTask = nil
+        guard keepsMicrophoneWarm, isVisible, hold == nil else { return }
+        idleCloseTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.warmIdleSeconds))
+            guard !Task.isCancelled, let self else { return }
+            self.closeIdleMicrophone()
+        }
+    }
+
+    private func closeIdleMicrophone() {
+        idleCloseTask = nil
+        // Never reopen here and never close under a hold.
+        guard isVisible, hold == nil else { return }
+        // A hold's engine is still being wound down: the hold is over, so count from now again.
+        if isTearingDown {
+            scheduleIdleClose()
+            return
+        }
+        // A pending automatic reopen would open the microphone with no idle clock behind it
+        // (a microphone that ended just before this deadline leaves `failed` and a reopen).
+        // The idle window is over, so the reopen goes; the failed state and its message stay
+        // until a press.
+        reopenTask?.cancel()
+        reopenTask = nil
+        guard micState == .live || micState == .warming else { return }
+        Self.log.info("microphone idle for \(Int(Self.warmIdleSeconds)) s; closing it")
+        closeMicrophone()
     }
 
     private func makeConverterIfReady(_ hold: Hold) {
@@ -459,12 +829,55 @@ final class KeyboardDictation {
 
     private func captureEnded(_ reason: String) {
         let message = "microphone unavailable: \(reason)"
-        guard let hold else {
-            Self.log.error("\(message, privacy: .public)")
+        // Had this open delivered audio? A microphone that worked and then stopped (a content
+        // process kill, a call or Siri, a lapsed heartbeat, backgrounding) is transient; one
+        // that never delivered audio is a permissions problem.
+        let hadAudio = micState == .live
+        // The page has already stopped; what it heard before is not worth keeping.
+        micState = .failed
+        captureRate = nil
+        _ = preRoll.drain()
+        if let hold, hold.released == nil {
+            // A hold still listening cannot finish without its audio. The permissions message
+            // is for a microphone that never delivered any; one that worked and stopped is a
+            // generic failure, and the key reopens it as it does when idle.
+            fail(hold, hadAudio ? .dictation : .microphone, message)
+            if hadAudio { scheduleReopen() }
+            return
+        }
+        Self.log.error("\(message, privacy: .public)")
+        // A hold that is already released has its audio complete and `finish` is typing it, so
+        // the microphone ending now must not abandon a dictation the user has finished.
+        if hold == nil, !hadAudio {
             state = .failed(.microphone)
             return
         }
-        fail(hold, .microphone, message)
+        if hadAudio { scheduleReopen() }
+    }
+
+    /// Reopens a warm microphone that stopped after working, once, a second later. At most
+    /// `maxAutoReopens` times in `autoReopenWindow`, so something that keeps taking the
+    /// microphone away is not fought in a loop (as the Mac's loop breaker); after that only a
+    /// press reopens it.
+    private func scheduleReopen() {
+        guard keepsMicrophoneWarm, isVisible else { return }
+        let now = ContinuousClock.now
+        reopenTimes.removeAll { now - $0 > Self.autoReopenWindow }
+        guard reopenTimes.count < Self.maxAutoReopens else {
+            Self.log.error("microphone ended \(Self.maxAutoReopens) times in \(Int(Self.autoReopenWindow / .seconds(1))) s; waiting for a press")
+            return
+        }
+        reopenTimes.append(now)
+        reopenTask?.cancel()
+        reopenTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.autoReopenDelay)
+            guard !Task.isCancelled, let self else { return }
+            guard self.isVisible, self.keepsMicrophoneWarm, self.micState == .failed else { return }
+            Self.log.info("reopening the microphone")
+            self.openMicrophone()
+            // A reopen after the idle clock ran out has no clock behind it otherwise.
+            if self.idleCloseTask == nil { self.scheduleIdleClose() }
+        }
     }
 
     private func finish(_ hold: Hold) async {
@@ -485,6 +898,9 @@ final class KeyboardDictation {
         } catch {
             Self.log.error("\(hold.engineName, privacy: .public) transcription failed: \(error.localizedDescription, privacy: .public)")
         }
+        // Release to the engine's final text: the engine's tail, plus any setup the release
+        // still waited on.
+        let engineDoneAt = Date()
         guard self.hold === hold else { return }
 
         let settings = Settings.shared
@@ -512,6 +928,7 @@ final class KeyboardDictation {
             // A gone proxy (its view controller was deallocated) means nowhere to type: the
             // hold is dropped, not filed as delivered.
             if let deliveredAt = insert(finished.text) {
+                if settings.soundEnabled { KeyboardSounds.play(.done) }
                 var run = DictationRun(
                     date: released,
                     engine: hold.engineName,
@@ -525,6 +942,10 @@ final class KeyboardDictation {
                 run.rawText = raw
                 run.source = .phone
                 RunLog.record(run, audio: hold.recorded)
+                noteReleaseTimings(
+                    engine: hold.releaseLabel,
+                    engineSeconds: engineDoneAt.timeIntervalSince(released),
+                    cleanupSeconds: readyAt.timeIntervalSince(engineDoneAt))
                 if hold.usesBark {
                     Self.marker.disarm()
                     Self.armedByThisProcess = false
@@ -540,14 +961,28 @@ final class KeyboardDictation {
         hold.recorded.removeAll(keepingCapacity: false)
         self.hold = nil
         if case .failed = state {} else { state = .idle }
+        scheduleIdleClose()
+    }
+
+    /// Where a delivered hold's release time went: the engine, then cleanup and the dictionary.
+    /// Written to the status file for the Setup tab and to the log.
+    private func noteReleaseTimings(engine: String, engineSeconds: Double, cleanupSeconds: Double) {
+        let engineMs = Int((engineSeconds * 1000).rounded())
+        let cleanupMs = Int((cleanupSeconds * 1000).rounded())
+        lastReleaseEngine = engine
+        lastReleaseEngineMs = engineMs
+        lastReleaseCleanupMs = cleanupMs
+        Self.log.info("release: \(engineMs) ms speech (\(engine, privacy: .public)) + \(cleanupMs) ms cleanup")
+        writeStatus()
     }
 
     private func fail(_ hold: Hold, _ kind: Failure, _ message: String) {
         guard self.hold === hold else { return }
         Self.log.error("hold failed: \(message, privacy: .public)")
-        microphone.stop()
+        releaseMicrophone()
         state = .failed(kind)
         abandonHold(reason: message)
+        scheduleIdleClose()
     }
 
     /// Whether this hold's text goes through Apple Intelligence: cleanup on, the engine chosen
@@ -580,11 +1015,12 @@ final class KeyboardDictation {
         teardownGeneration += 1
         isTearingDown = false
         if self.hold === hold {
-            microphone.stop()
+            releaseMicrophone()
             self.hold = nil
             gesture.reset()
             isLocked = false
             state = .failed(.dictation)
+            scheduleIdleClose()
         }
     }
 

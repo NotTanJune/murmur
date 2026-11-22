@@ -7,6 +7,8 @@ import UIKit
 /// proxy, the globe key's event handling, the responder chain); the keys live in `KeyboardView`.
 final class KeyboardViewController: UIInputViewController {
     private let microphone = WebMicrophone()
+    /// The keyboard's height; the emoji panel raises it and ABC puts it back.
+    private var heightConstraint: NSLayoutConstraint?
     private lazy var dictation = KeyboardDictation(
         microphone: microphone,
         proxy: { [weak self] in self?.textDocumentProxy }
@@ -44,6 +46,7 @@ final class KeyboardViewController: UIInputViewController {
                 delete: { [weak self] in self?.textDocumentProxy.deleteBackward() },
                 newline: { [weak self] in self?.textDocumentProxy.insertText("\n") },
                 dismiss: { [weak self] in self?.dismissKeyboard() },
+                setHeight: { [weak self] in self?.setKeyboardHeight($0) },
                 globe: { [weak self] view, event in self?.handleInputModeList(from: view, with: event) },
                 openMurmur: { [weak self] in self?.openMurmur() },
                 showsGlobe: { [weak self] in self?.needsInputModeSwitchKey ?? false },
@@ -59,6 +62,7 @@ final class KeyboardViewController: UIInputViewController {
         // win a conflict instead of breaking one of ours at runtime.
         let height = view.heightAnchor.constraint(equalToConstant: DS.Keyboard.height)
         height.priority = UILayoutPriority(999)
+        heightConstraint = height
         NSLayoutConstraint.activate([
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -67,6 +71,13 @@ final class KeyboardViewController: UIInputViewController {
             height,
         ])
         host.didMove(toParent: self)
+    }
+
+    /// Changes the height constraint and lays it out at once, before the SwiftUI content resizes.
+    private func setKeyboardHeight(_ height: CGFloat) {
+        guard heightConstraint?.constant != height else { return }
+        heightConstraint?.constant = height
+        view.layoutIfNeeded()
     }
 
     override func viewWillAppear(_ animated: Bool) {

@@ -5,10 +5,14 @@ import SwiftUI
 public struct Waveform: View {
     let level: Float
     let isActive: Bool
+    let tint: Color
 
-    public init(level: Float, isActive: Bool) {
+    /// `tint` defaults to the recording red, so the Mac's HUD is unchanged. The iPhone key
+    /// draws the bars in a neutral tone until the microphone has delivered audio.
+    public init(level: Float, isActive: Bool, tint: Color = DS.Color.record) {
         self.level = level
         self.isActive = isActive
+        self.tint = tint
     }
 
     private static let barCount = DS.HUD.waveformBarCount
@@ -24,7 +28,7 @@ public struct Waveform: View {
             HStack(alignment: .center, spacing: DS.HUD.waveformBarSpacing) {
                 ForEach(0..<Self.barCount, id: \.self) { index in
                     RoundedRectangle(cornerRadius: DS.HUD.waveformBarRadius, style: .continuous)
-                        .fill(DS.Color.record)
+                        .fill(tint)
                         .frame(
                             width: DS.HUD.waveformBarWidth,
                             height: height(for: index, at: t)

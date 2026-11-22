@@ -45,11 +45,6 @@ extension View {
                 }
             }
     }
-
-    /// The soft shadow of a surface that floats above the window: HUD, toasts, popovers.
-    func floatingShadow() -> some View {
-        shadow(color: DS.Color.shadow, radius: DS.Shadow.floatRadius, y: DS.Shadow.floatY)
-    }
 }
 
 /// A content card, optionally under an eyebrow title. Settings groups are built from these.

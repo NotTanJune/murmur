@@ -15,11 +15,6 @@ extension View {
             }
         }
     }
-
-    /// The soft shadow of a surface that floats above the page: toasts and sheets.
-    func floatingShadow() -> some View {
-        shadow(color: DS.Color.shadow, radius: DS.Shadow.floatRadius, y: DS.Shadow.floatY)
-    }
 }
 
 /// A page: a title, then a lazy column of content on the paper ground.

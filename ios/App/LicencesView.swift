@@ -42,6 +42,12 @@ struct LicencesView: View {
                     detail: "By the Figtree Project Authors."
                 )
                 FullLicence(resource: "OFL-Figtree")
+                entry(
+                    "EB Garamond Italic",
+                    license: "SIL Open Font License 1.1",
+                    detail: "By Georg Duffner and Octavio Pardo. Sets the word \u{201C}Murmur\u{201D} on the keyboard's talk key."
+                )
+                FullLicence(resource: "OFL-EBGaramond")
             }
         }
         .navigationBarTitleDisplayMode(.inline)

@@ -9,6 +9,25 @@ struct KeyboardStatus: Codable, Equatable {
     var barkState: String
     var hasFullAccess: Bool
     var lastSeen: Date
+    /// Touch-down to the first audio the last hold received, in milliseconds; 0 when the
+    /// pre-roll supplied it. Optional so a file written before this field existed still decodes.
+    var lastStartLatencyMs: Int?
+    /// This process's Bark load, in seconds. It is the model load as `ParakeetModels` does it,
+    /// including its own one-second warm-up pass, and ends before `barkWarmupSeconds` begins.
+    /// Optional, like every field below, so an older file still decodes.
+    var barkLoadSeconds: Double?
+    /// The throwaway decode through the hold's own engine that follows the load, in seconds.
+    var barkWarmupSeconds: Double?
+    /// The last delivered hold: release to the engine's final text, in milliseconds.
+    var lastReleaseEngineMs: Int?
+    /// The same hold: the engine's final text to the cleaned text (finisher and dictionary).
+    var lastReleaseCleanupMs: Int?
+    /// The engine that hold used, as the history names it.
+    var lastReleaseEngine: String?
+    /// How the keyboard's page captures audio, as it last delivered audio: `recordOnly` (nothing
+    /// connected to the audio output) or `playAndRecord` (the fallback, with the output
+    /// connected). Optional so a file written before this field existed still decodes.
+    var captureMode: String?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

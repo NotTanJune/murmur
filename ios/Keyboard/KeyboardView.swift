@@ -9,6 +9,8 @@ struct KeyboardActions {
     let delete: () -> Void
     let newline: () -> Void
     let dismiss: () -> Void
+    /// Resizes the keyboard; the emoji panel is taller than the key page.
+    let setHeight: (CGFloat) -> Void
     let globe: (UIView, UIEvent) -> Void
     let openMurmur: () -> Void
     let showsGlobe: () -> Bool
@@ -52,6 +54,7 @@ struct KeyboardView: View {
         }
     }
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var panel: Panel = .keys
     @State private var page: Page = .punctuation
 
@@ -59,19 +62,37 @@ struct KeyboardView: View {
         Group {
             switch panel {
             case .keys: keys
-            case .emoji: EmojiPanel(actions: actions, close: { panel = .keys })
-            case .history: HistoryPanel(actions: actions, close: { panel = .keys })
+            case .emoji: EmojiPanel(actions: actions, close: { show(.keys) })
+            case .history: HistoryPanel(actions: actions, close: { show(.keys) })
             }
         }
         .padding(DS.Keyboard.padding)
-        .frame(height: DS.Keyboard.height)
+        .frame(height: panelHeight)
+        // Landscape can change the size class while the emoji panel is up.
+        .onChange(of: verticalSizeClass) { actions.setHeight(panelHeight) }
+    }
+
+    private func height(for panel: Panel) -> CGFloat {
+        guard panel == .emoji else { return DS.Keyboard.height }
+        return verticalSizeClass == .compact ? DS.Keyboard.emojiPanelHeightCompact : DS.Keyboard.emojiPanelHeight
+    }
+
+    private var panelHeight: CGFloat { height(for: panel) }
+
+    /// The keyboard's own height changes first and is laid out, then the SwiftUI frame follows.
+    /// Growing, the content is never one pass taller than its container. Shrinking (the emoji
+    /// panel closing), the container is already short and the old, taller content is clipped for
+    /// that one pass before the frame catches up.
+    private func show(_ next: Panel) {
+        actions.setHeight(height(for: next))
+        panel = next
     }
 
     private var keys: some View {
         VStack(spacing: DS.Keyboard.rowSpacing) {
             HStack(spacing: DS.Keyboard.keySpacing) {
                 IconKey(symbol: "clock.arrow.circlepath", fill: .clear, width: DS.Keyboard.historyWidth, label: "Recent dictations") {
-                    panel = .history
+                    show(.history)
                 }
                 TalkKey(dictation: dictation, actions: actions)
             }
@@ -94,7 +115,7 @@ struct KeyboardView: View {
                 TextKey(title: page.nextTitle, fill: DS.Keyboard.functionKey, width: DS.Keyboard.functionKeyWidth) {
                     page = page.next
                 }
-                IconKey(symbol: "face.smiling", fill: DS.Keyboard.functionKey, label: "Emoji") { panel = .emoji }
+                IconKey(symbol: "face.smiling", fill: DS.Keyboard.functionKey, label: "Emoji") { show(.emoji) }
                 IconKey(symbol: "keyboard.chevron.compact.down", fill: DS.Keyboard.functionKey, label: "Hide keyboard", action: actions.dismiss)
                 TextKey(title: "", fill: DS.Keyboard.letterKey, width: nil, label: "Space") { actions.insert(" ") }
                 ReturnKey(actions: actions)
@@ -106,9 +127,12 @@ struct KeyboardView: View {
 // MARK: Talk key
 
 /// Murmur's key. Touch down starts recording; a quick tap locks it on and a second tap ends
-/// it; a hold ends on release. While recording it becomes the Mac's HUD: a dark capsule with
-/// red bars that follow the input level, and no text. Otherwise it reads "Murmur", dimmed
-/// while the last hold is still finishing, because a press then is ignored.
+/// it; a hold ends on release. The capsule is Liquid Glass tinted brown (`talkGlassTint`). While
+/// recording it becomes the Mac's HUD: bars that follow the input level, and no text; the bars
+/// are flat and grey until the hold has heard audio, then red. Otherwise it reads "Murmur" in the
+/// app icon's italic and a soft orange (`DS.Keyboard.wordmark`), with a caption under it while the
+/// microphone or Bark is not ready, dimmed while the last hold is still finishing, because a
+/// press then is ignored.
 private struct TalkKey: View {
     let dictation: KeyboardDictation
     let actions: KeyboardActions
@@ -122,13 +146,17 @@ private struct TalkKey: View {
 
     var body: some View {
         ZStack {
-            ZStack {
-                Capsule().fill(isRecording ? DS.Color.hud : DS.Keyboard.letterKey)
-                keyLabel
-            }
+            // Liquid Glass tinted toward the HUD's brown, so the key lifts off the keyboard's
+            // backdrop in both appearances while the wordmark and the red bars keep their
+            // contrast. Not `.interactive()`: it would add its own touch tracking beside the
+            // DragGesture below, and the key already answers touch-down at once by changing state.
+            keyLabel
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in: .capsule)
             // The key itself is one button. The failure state's own button stays reachable.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(isRecording ? "Stop dictation" : "Dictate")
+            .accessibilityValue(isRecording ? (dictation.heardAudio ? "Listening" : "Starting") : (dictation.readinessCaption ?? ""))
             .accessibilityAddTraits(.isButton)
             // VoiceOver's double-tap is not a touch on the key, so it gets the tap-to-lock
             // meaning directly: the first one starts dictation and locks it, the next one ends it.
@@ -136,8 +164,6 @@ private struct TalkKey: View {
             .accessibilityHidden(isFailed)
             if isFailed { failure }
         }
-        .compositingGroup()
-        .shadow(color: isRecording ? .clear : DS.Keyboard.keyShadow, radius: 0, x: 0, y: DS.Keyboard.keyShadowOffset)
         .frame(height: DS.Keyboard.talkHeight)
         .contentShape(Capsule())
         .gesture(
@@ -178,14 +204,30 @@ private struct TalkKey: View {
     @ViewBuilder private var keyLabel: some View {
         switch dictation.state {
         case .recording(let level):
-            Waveform(level: level * DS.Keyboard.levelGain, isActive: true)
+            // Flat and neutral until the hold has audio, then red and following the level, so
+            // the bars never claim a microphone that is not yet hearing.
+            if dictation.heardAudio {
+                Waveform(level: level * DS.Keyboard.levelGain, isActive: true)
+            } else {
+                Waveform(level: 0, isActive: false, tint: DS.Keyboard.waveformFlat)
+            }
         case .failed:
-            EmptyView()
+            // A real view, not `EmptyView`: modifiers on an empty view render nothing, and the
+            // glass behind the failure message would vanish with them.
+            Color.clear
         case .idle, .finishing:
-            Text("Murmur")
-                .font(DS.Keyboard.talkFont)
-                .foregroundStyle(.primary)
-                .opacity(dictation.isBusy ? DS.Motion.disabledOpacity : 1)
+            VStack(spacing: DS.Keyboard.captionGap) {
+                Text("Murmur")
+                    .font(DS.Keyboard.wordmarkFont)
+                    .foregroundStyle(DS.Keyboard.wordmark)
+                if let caption = dictation.readinessCaption {
+                    Text(caption)
+                        .font(DS.Keyboard.captionFont)
+                        .foregroundStyle(DS.Keyboard.wordmarkCaption)
+                        .lineLimit(1)
+                }
+            }
+            .opacity(dictation.isBusy ? DS.Motion.disabledOpacity : 1)
         }
     }
 
@@ -200,17 +242,17 @@ private struct TalkKey: View {
         HStack(spacing: DS.Keyboard.messageGap) {
             Text(failureMessage)
                 .font(DS.Keyboard.messageFont)
-                .foregroundStyle(.primary)
+                .foregroundStyle(DS.Keyboard.onTalkKey)
                 .lineLimit(DS.Keyboard.messageLines)
                 .multilineTextAlignment(.leading)
             Button(action: actions.openMurmur) {
                 Text("Open Murmur")
                     .font(DS.Keyboard.messageActionFont)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(DS.Keyboard.onTalkAction)
                     .fixedSize()
                     .padding(.horizontal, DS.Keyboard.messageActionInsetX)
                     .padding(.vertical, DS.Keyboard.messageActionInsetY)
-                    .background(Capsule().fill(DS.Keyboard.functionKey))
+                    .background(Capsule().fill(DS.Keyboard.talkAction))
             }
             .buttonStyle(KeyPressStyle())
         }

@@ -26,6 +26,11 @@ targets:
       - path: ../Resources/Fonts
         includes: ["*.ttf", "OFL-*.txt"]
         buildPhase: resources
+      # The keyboard's wordmark font ships in the keyboard; its licence text also sits here so
+      # Settings -> Licences can show it.
+      - path: ../Tools/Fonts
+        includes: ["OFL-EBGaramond.txt"]
+        buildPhase: resources
       # The starter dictionary `DictionaryStore.shared` seeds from on first launch, as on the Mac.
       - path: ../Resources/default-dictionary.txt
         buildPhase: resources
@@ -73,6 +78,12 @@ targets:
       - path: Keyboard
         excludes: ["Info.plist"]
       - path: Shared
+      # The talk key's word is set in the app icon's face. The OFL requires its text to travel
+      # with the font. `UIAppFonts` below registers the TTF; `DS.Keyboard.wordmarkFont` falls
+      # back to SF italic if it does not resolve.
+      - path: ../Tools/Fonts
+        includes: ["EBGaramond-Italic*.ttf", "OFL-EBGaramond.txt"]
+        buildPhase: resources
     dependencies:
       - package: Murmur
         product: MurmurKit
@@ -93,6 +104,8 @@ targets:
         CFBundleVersion: "1"
         NSMicrophoneUsageDescription: Murmur records your voice while you hold the dictation key, then types what you said.
         NSSpeechRecognitionUsageDescription: Murmur turns your voice into text on this iPhone.
+        UIAppFonts:
+          - EBGaramond-Italic[wght].ttf
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController

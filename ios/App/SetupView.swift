@@ -19,6 +19,18 @@ final class SetupStatus {
     /// version does not know, which reads as "not in use".
     private(set) var keyboardBark: KeyboardStatus.BarkState?
     private(set) var keyboardReported = false
+    /// Touch-down to the first audio of the keyboard's last hold, in ms; nil before one.
+    private(set) var lastStartLatencyMs: Int?
+    /// The keyboard process's Bark load and warm-up, and where its last delivered hold's
+    /// release time went; nil until it has reported them.
+    private(set) var barkLoadSeconds: Double?
+    private(set) var barkWarmupSeconds: Double?
+    private(set) var lastReleaseEngineMs: Int?
+    private(set) var lastReleaseCleanupMs: Int?
+    private(set) var lastReleaseEngine: String?
+    /// How the keyboard's page last captured audio (`recordOnly` or `playAndRecord`); nil until
+    /// it has delivered audio and reported.
+    private(set) var captureMode: String?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -33,6 +45,13 @@ final class SetupStatus {
         speech = SFSpeechRecognizer.authorizationStatus()
         let reported = KeyboardStatus.read()
         keyboardReported = reported != nil
+        lastStartLatencyMs = reported?.lastStartLatencyMs
+        barkLoadSeconds = reported?.barkLoadSeconds
+        barkWarmupSeconds = reported?.barkWarmupSeconds
+        lastReleaseEngineMs = reported?.lastReleaseEngineMs
+        lastReleaseCleanupMs = reported?.lastReleaseCleanupMs
+        lastReleaseEngine = reported?.lastReleaseEngine
+        captureMode = reported?.captureMode
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -119,7 +138,7 @@ struct SetupView: View {
             Card(title: "Keyboard") {
                 SetupRow(
                     title: "Keyboard added",
-                    detail: status.keyboardAdded ? nil : "Settings, General, Keyboard, Keyboards, Add New Keyboard, Murmur.",
+                    detail: keyboardDetail,
                     isDone: status.keyboardAdded
                 ) {
                     if !status.keyboardAdded { OpenSettingsButton() }
@@ -131,11 +150,20 @@ struct SetupView: View {
                 ) {
                     if status.hasFullAccess != true { OpenSettingsButton() }
                 }
+                if let line = captureModeLine {
+                    Note(text: line)
+                }
             }
 
             Card(title: "Model") {
                 BarkModelRow()
                 if let line = keyboardEngineLine {
+                    Note(text: line)
+                }
+                if let line = barkTimingLine {
+                    Note(text: line)
+                }
+                if let line = releaseTimingLine {
                     Note(text: line)
                 }
             }
@@ -172,12 +200,49 @@ struct SetupView: View {
         }
     }
 
+    /// How to add the keyboard, or once it is added, how fast its last hold started listening.
+    private var keyboardDetail: String? {
+        guard status.keyboardAdded else {
+            return "Settings, General, Keyboard, Keyboards, Add New Keyboard, Murmur."
+        }
+        // 0 ms means the pre-roll supplied the audio, which only a warm microphone has.
+        return status.lastStartLatencyMs.map { $0 > 0 ? "Last start: \($0) ms" : "Last start: instant (warm microphone)" }
+    }
+
+    /// "Capture: record-only", from the keyboard's last report. Unknown values are not shown.
+    private var captureModeLine: String? {
+        switch status.captureMode {
+        case "recordOnly": "Capture: record-only"
+        case "playAndRecord": "Capture: play-and-record"
+        default: nil
+        }
+    }
+
     private var fullAccessDetail: String? {
         switch status.hasFullAccess {
         case true: nil
         case false: "Turn on Allow Full Access under Murmur in the keyboard list. The microphone needs it."
         case nil: "Not reported yet. If you've already opened the Murmur keyboard, turn on Allow Full Access."
         }
+    }
+
+    /// "Bark loaded in 1.8 s · warm-up 0.4 s", from the keyboard's last load.
+    private var barkTimingLine: String? {
+        guard let load = status.barkLoadSeconds else { return nil }
+        let loaded = "Bark loaded in \(Self.format(seconds: load))"
+        guard let warmup = status.barkWarmupSeconds else { return loaded }
+        return "\(loaded) · warm-up \(Self.format(seconds: warmup))"
+    }
+
+    /// "Last release: 120 ms speech + 30 ms cleanup (Bark)", from the keyboard's last hold.
+    private var releaseTimingLine: String? {
+        guard let speech = status.lastReleaseEngineMs, let cleanup = status.lastReleaseCleanupMs else { return nil }
+        let line = "Last release: \(speech) ms speech + \(cleanup) ms cleanup"
+        return status.lastReleaseEngine.map { "\(line) (\($0))" } ?? line
+    }
+
+    private static func format(seconds: Double) -> String {
+        seconds.formatted(.number.precision(.fractionLength(1))) + " s"
     }
 
     /// What the keyboard last said about Bark. Absent before the keyboard has run.
