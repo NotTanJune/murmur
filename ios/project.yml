@@ -1,5 +1,5 @@
 # The iOS app and its keyboard extension. `make ios-project` generates ios/Murmur.xcodeproj
-# (git-ignored) and the two Info.plists; the entitlements files are checked in. The text
+# and the two Info.plists, which are committed because Xcode Cloud builds the checked-in project; the entitlements files are checked in. The text
 # pipeline, speech engines, settings and run log come from the repo's SwiftPM package.
 name: Murmur
 options:
@@ -51,8 +51,11 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Murmur
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only Apple's standard encryption (HTTPS for the model download): exempt, so TestFlight
+        # builds need no export-compliance answer.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIAppFonts:
           - Figtree[wght].ttf
@@ -100,8 +103,8 @@ targets:
       path: Keyboard/Info.plist
       properties:
         CFBundleDisplayName: Murmur
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: Murmur records your voice while you hold the dictation key, then types what you said.
         NSSpeechRecognitionUsageDescription: Murmur turns your voice into text on this iPhone.
         UIAppFonts:
@@ -118,3 +121,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.pivotstudio.murmur.ios.keyboard
         APPLICATION_EXTENSION_API_ONLY: YES
+
+# A shared scheme, because Xcode Cloud only sees schemes stored in xcshareddata. Archive builds
+# Release; the keyboard is built with the app that embeds it.
+schemes:
+  MurmurPhone:
+    build:
+      targets:
+        MurmurPhone: all
+        MurmurKeyboard: all
+    run:
+      config: Debug
+    archive:
+      config: Release

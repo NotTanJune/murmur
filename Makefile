@@ -118,6 +118,9 @@ IOS_DD := $(STAGE)/ios
 
 ios-project:
 	cd ios && xcodegen generate --quiet
+	@# Xcode Cloud does not resolve packages itself; it reads the project's pinned versions.
+	mkdir -p ios/Murmur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+	cp Package.resolved ios/Murmur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 ios-build: ios-project
 	nice -n 10 xcodebuild build -project ios/Murmur.xcodeproj -scheme MurmurPhone \

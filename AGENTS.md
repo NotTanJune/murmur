@@ -403,8 +403,17 @@ first launched has no working watcher on a dictionary file the app seeds later.
 
 Entitlements are declared under `entitlements.properties` in `project.yml`, and XcodeGen writes
 the checked-in `.entitlements` files from it. Left out, the files come out empty, which happened
-in the spike's first build and drops the App Group. `ios/Local.xcconfig` (the signing team), the
-generated `Murmur.xcodeproj` and the two `Info.plist` files are git-ignored.
+in the spike's first build and drops the App Group. `ios/Local.xcconfig` (the signing team) is
+git-ignored. The generated `Murmur.xcodeproj` (with its shared `MurmurPhone` scheme and a copy of
+`Package.resolved` under `project.xcworkspace/xcshareddata/swiftpm`) and the two `Info.plist`
+files are committed, because Xcode Cloud builds the checked-in project and resolves no packages
+itself: after editing `project.yml` or `Package.resolved`, run `make ios-project` and commit the
+result. `ios/ci_scripts/ci_post_clone.sh` writes `Local.xcconfig` on Xcode Cloud from
+`CI_TEAM_ID` and `CI_BUILD_NUMBER` (TestFlight needs a rising build number) and turns off macro
+and plugin fingerprint checks. Both targets read `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION` from `Base.xcconfig`, and the app declares
+`ITSAppUsesNonExemptEncryption = false` (only HTTPS is used), so TestFlight asks no export
+question. The App Store Connect app is "Murmur", bundle ID `ai.pivotstudio.murmur.ios`.
 
 **The run log has two writers.** The keyboard and the app both write `runs.jsonl`. Every change
 runs under `NSFileCoordinator`, first re-reads the file if the other process changed it, then

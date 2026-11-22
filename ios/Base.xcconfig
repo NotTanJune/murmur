@@ -3,4 +3,8 @@ SWIFT_VERSION = 6.0
 IPHONEOS_DEPLOYMENT_TARGET = 26.0
 TARGETED_DEVICE_FAMILY = 1
 CODE_SIGN_STYLE = Automatic
+// The app and keyboard share one version. Xcode Cloud overrides the build number with its own
+// (ci_scripts/ci_post_clone.sh writes it into Local.xcconfig).
+MARKETING_VERSION = 0.1
+CURRENT_PROJECT_VERSION = 1
 #include? "Local.xcconfig"

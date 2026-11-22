@@ -16,8 +16,8 @@ models/
 # Coverage output
 *.profraw
 
-# iOS app and keyboard: generated project and plists, local signing team
+# iOS app and keyboard: the local signing team and Xcode's per-user state. The generated
+# project and plists are committed (Xcode Cloud builds them); regenerate with `make ios-project`.
 ios/Local.xcconfig
-ios/*.xcodeproj/
-ios/App/Info.plist
-ios/Keyboard/Info.plist
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
