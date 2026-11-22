@@ -189,7 +189,10 @@ struct EmojiPanel: View {
                 .accessibilityLabel(category.title)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
+            // The gap every other row keeps between keys: without it the selected category's
+            // fill met the delete key's edge when the last category (Flags) was selected.
             DeleteKey(height: DS.Keyboard.emojiBarHeight, action: actions.delete)
+                .padding(.leading, DS.Keyboard.keySpacing)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)

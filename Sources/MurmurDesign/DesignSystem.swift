@@ -377,6 +377,12 @@ public enum DS {
         public static let historyTitleFont = SwiftUI.Font.system(size: 13, weight: .semibold)
         public static let historyRowFont = SwiftUI.Font.system(size: 15)
         public static let historyActionFont = SwiftUI.Font.system(size: 15, weight: .medium)
+        #if canImport(UIKit)
+        /// The history list is a UIKit table (`HistoryList`), so its rows take UIKit faces at the
+        /// sizes of `historyRowFont` and `captionFont`.
+        public static let historyRowUIFont = UIFont.systemFont(ofSize: 15)
+        public static let historyTimeUIFont = UIFont.systemFont(ofSize: 11)
+        #endif
 
         /// The one-pixel drop under each key.
         public static let keyShadowOffset: CGFloat = 1

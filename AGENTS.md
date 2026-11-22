@@ -273,6 +273,16 @@ grid again the offset does not move the highlight away from the tapped section (
 sections cannot reach the leading edge). `EmojiPanel` keeps the title, the category bar and the
 tone row.
 
+**The history list is UIKit too.** `HistoryList` (`ios/Keyboard/HistoryList.swift`) is a
+`UITableView` inside `HistoryPanel`, which keeps the header and the empty state. The SwiftUI
+version, a `ScrollView` of `Button`s with `KeyPressStyle`, felt inaccurate on a device on
+2026-11-22: a short flick could end as a tap that typed a row and closed the panel, and the
+list did not follow the finger like a system list. That cause is inferred from how SwiftUI
+buttons arbitrate inside a scroll view, not traced on the device. The table reloads only when
+the rows change, so a SwiftUI pass never resets the scroll, and its iOS 26 edge effects are
+hidden as the SwiftUI list's were. The emoji category bar keeps `DS.Keyboard.keySpacing`
+before its delete key; without it the selected category's fill met the key's edge.
+
 **The keyboard's height constraint is required, and the panel fits the height it gets.** On
 2026-11-22 the emoji panel on an iPhone 15 Pro showed five rows with the top one cut in half,
 no section title and no category bar. The keyboard had stayed 168 pt (the key page) while

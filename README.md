@@ -28,6 +28,60 @@ permissions, then restart Murmur after the Accessibility one.
 Hold **Right ⌥** and talk. Settings > Push to talk can switch it to fn or Right ⌘. Give each
 dictation app on the Mac its own key, or two of them record and both type.
 
+## iPhone keyboard
+
+Murmur also runs on the iPhone as a dictation keyboard: tap the Murmur key, talk, tap again,
+and the text lands in whatever field you are typing in. It records inside the keyboard, so you
+never switch apps. Bark 3.0 Clean and the cleanup rules run on the phone, and nothing leaves
+it. The keyboard has punctuation, numbers, emoji and your recent dictations, but no letters.
+
+[Watch the 27 s iPhone film](docs/media/murmur-iphone-promo.mp4).
+
+There is no App Store or TestFlight build yet, so you build it yourself. You need:
+
+- an iPhone on iOS 26 or later, a Mac with Xcode 26, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+- a paid Apple Developer membership: the app and the keyboard share files through an App
+  Group, which Xcode's free personal teams do not offer
+
+1. Put your signing team in `ios/Local.xcconfig` (git ignores it):
+
+   ```
+   DEVELOPMENT_TEAM = ABCDE12345
+   ```
+
+2. Give the app and its App Group your own identifiers, since `ai.pivotstudio.murmur` belongs
+   to another team:
+
+   ```bash
+   sed -i '' 's/ai\.pivotstudio\.murmur/com.yourname.murmur/g' ios/project.yml ios/Shared/PhoneEnvironment.swift
+   ```
+
+3. Connect the iPhone, unlock it, turn on Developer Mode (Settings > Privacy & Security), then:
+
+   ```bash
+   make ios-install
+   ```
+
+   This builds a signed Release and installs it on the first iPhone it finds. Or run
+   `make ios-project`, open `ios/Murmur.xcodeproj` and run the `MurmurPhone` scheme.
+
+4. Open Murmur on the phone. The Setup tab walks through the rest: allow the microphone and
+   speech recognition, download Bark (450 MB), then add the keyboard in Settings > General >
+   Keyboard > Keyboards > Add New Keyboard > Murmur and turn on **Allow Full Access**. The
+   microphone needs Full Access: the keyboard records through WebKit, which runs under the
+   app's microphone permission.
+
+5. In any text field, hold the globe key and pick Murmur. Tap the key to start, tap again to
+   type; a long press works as push-to-talk. The first Bark load after each install compiles
+   for the Neural Engine and takes about a minute and a half; Apple's transcriber fills in
+   until then.
+
+**With the Mac app.** The two run independently, and Bark 3.0 Clean and the cleanup rules
+are on both. To train on dictations from the phone, correct them in the phone's History tab, then
+Settings > Training > Export labelled recordings, send the zip to your Mac (AirDrop works),
+and on the Mac use Settings > Training > Import from iPhone. The runs join the Mac's history
+and its next export.
+
 ## Engines
 
 Pick a speech engine in Settings > Model or from the menu bar. Apple needs no setup; the rest run
