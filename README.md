@@ -1,12 +1,12 @@
 ![Murmur: push-to-talk dictation for macOS](docs/media/murmur-banner.png)
 
-Hold a key, talk, let go. The cleaned-up text lands in whatever field has focus. Speech
-recognition and cleanup both run on your Mac, and nothing leaves it.
+Hold a key, talk, let go. Murmur types the cleaned-up text into the focused field. Speech
+recognition and cleanup run on your Mac, and no audio or text leaves it.
 
 https://github.com/user-attachments/assets/5baf9270-7fb8-4c33-ac53-569dd8c126af
 
-A real recording of the installed app: Right ⌘ held in TextEdit, a sentence spoken, and Bark
-3.0 Clean on the Neural Engine landing the text 0.45 s after release.
+A recording of the installed app in TextEdit. Right ⌘ is held for one sentence, and Bark 3.0
+Clean on the Neural Engine types the text 0.45 s after release.
 
 ## Install
 
@@ -30,18 +30,18 @@ dictation app on the Mac its own key, or two of them record and both type.
 
 ## iPhone keyboard
 
-Murmur also runs on the iPhone as a dictation keyboard: tap the Murmur key, talk, tap again,
-and the text lands in whatever field you are typing in. It records inside the keyboard, so you
-never switch apps. Bark 3.0 Clean and the cleanup rules run on the phone, and nothing leaves
+Murmur also runs on the iPhone as a dictation keyboard. Tap the Murmur key, talk, and tap
+again to type the text into the current field. The keyboard records audio itself, so you never
+switch apps. Bark 3.0 Clean and the cleanup rules run on the phone, and no audio or text leaves
 it. The keyboard has punctuation, numbers, emoji and your recent dictations, but no letters.
 
 https://github.com/user-attachments/assets/ba791e58-7b6f-434b-bb07-7feb3376c681
 
-There is no App Store or TestFlight build yet, so you build it yourself. You need:
+There is no App Store or TestFlight build yet. To build it yourself you need:
 
 - an iPhone on iOS 26 or later, a Mac with Xcode 26, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
-- a paid Apple Developer membership: the app and the keyboard share files through an App
-  Group, which Xcode's free personal teams do not offer
+- a paid Apple Developer membership. The app and the keyboard share files through an App
+  Group, and free personal teams cannot use App Groups.
 
 1. Put your signing team in `ios/Local.xcconfig` (git ignores it):
 
@@ -49,8 +49,8 @@ There is no App Store or TestFlight build yet, so you build it yourself. You nee
    DEVELOPMENT_TEAM = ABCDE12345
    ```
 
-2. Give the app and its App Group your own identifiers, since `ai.pivotstudio.murmur` belongs
-   to another team:
+2. Replace `ai.pivotstudio.murmur` with your own identifier. It belongs to another team, so
+   Xcode will not sign it for you:
 
    ```bash
    sed -i '' 's/ai\.pivotstudio\.murmur/com.yourname.murmur/g' ios/project.yml ios/Shared/PhoneEnvironment.swift
@@ -62,25 +62,25 @@ There is no App Store or TestFlight build yet, so you build it yourself. You nee
    make ios-install
    ```
 
-   This builds a signed Release and installs it on the first iPhone it finds. Or run
-   `make ios-project`, open `ios/Murmur.xcodeproj` and run the `MurmurPhone` scheme.
+   This builds a signed Release and installs it on the first connected iPhone. To use Xcode
+   instead, run `make ios-project`, open `ios/Murmur.xcodeproj` and run the `MurmurPhone`
+   scheme.
 
-4. Open Murmur on the phone. The Setup tab walks through the rest: allow the microphone and
-   speech recognition, download Bark (450 MB), then add the keyboard in Settings > General >
+4. Open Murmur on the phone and follow the Setup tab. Allow the microphone and speech
+   recognition, and download Bark (450 MB). Then add the keyboard in Settings > General >
    Keyboard > Keyboards > Add New Keyboard > Murmur and turn on **Allow Full Access**. The
-   microphone needs Full Access: the keyboard records through WebKit, which runs under the
-   app's microphone permission.
+   keyboard records through WebKit under the app's microphone permission, and that needs
+   Full Access.
 
-5. In any text field, hold the globe key and pick Murmur. Tap the key to start, tap again to
-   type; a long press works as push-to-talk. The first Bark load after each install compiles
-   for the Neural Engine and takes about a minute and a half; Apple's transcriber fills in
-   until then.
+5. In any text field, hold the globe key and pick Murmur. Tap the key to start and tap again
+   to type, or hold it for push-to-talk. After each install, the first Bark load compiles for
+   the Neural Engine and takes about 90 s. Apple's transcriber handles dictation until then.
 
-**With the Mac app.** The two run independently, and Bark 3.0 Clean and the cleanup rules
-are on both. To train on dictations from the phone, correct them in the phone's History tab, then
-Settings > Training > Export labelled recordings, send the zip to your Mac (AirDrop works),
-and on the Mac use Settings > Training > Import from iPhone. The runs join the Mac's history
-and its next export.
+**With the Mac app.** The two apps run independently, and both have Bark 3.0 Clean and the
+cleanup rules. To train on phone dictations, correct them in the phone's History tab and
+export them from Settings > Training > Export labelled recordings. Send the zip to your Mac,
+for example over AirDrop, and open it with Settings > Training > Import from iPhone. The runs
+join the Mac's history and its next training export.
 
 ## Engines
 
@@ -98,18 +98,18 @@ download once.
 Cleanup runs after transcription: basic rules (instant), S1-mini by Superwhisper (MLX in a
 helper process, 1.5 GB download converted to a 331 MB 4-bit build on your Mac) or Apple
 Intelligence. S1-mini takes a profile: General, Email, Message or Notes. Your dictionary
-applies last, so cleanup cannot undo a replacement; it lives at
+applies last, so cleanup cannot undo a replacement. It is the file
 `~/Library/Application Support/Murmur/dictionary.txt`.
 
-Recording never starts a download. Bark and Parakeet load at launch when they are on disk,
-and Apple's transcriber stands in if you press the key before they finish.
+Recording never starts a download. Bark and Parakeet load at launch when they are on disk.
+If you press the key before they finish, Apple's transcriber handles that hold.
 
 ## How it works
 
 ![Components of Murmur, from the hotkey through capture, speech, cleanup and the dictionary to the focused app](docs/diagrams/architecture.png)
 
 Each hold is its own `Utterance`, so you can press again while the last one is still
-finishing. Three decisions carry the rest:
+finishing. Three design decisions matter most:
 
 - **The HUD never takes focus.** It is a non-activating panel. If it became key, your text
   field would lose focus and there would be nowhere to type.
@@ -122,28 +122,28 @@ finishing. Three decisions carry the rest:
 
 ![Timeline of two overlapping holds, showing windows and sentences processed before release](docs/diagrams/hold-timeline.png)
 
-Long holds do not pay for their length at release. Speech is decoded in 11 s windows while
-the key is down, finished sentences are cleaned as they appear, and release only handles
-what is left.
+Release time does not grow with the length of a hold. While the key is down, Murmur decodes
+speech in 11 s windows and cleans each finished sentence. At release it processes only the
+rest.
 
 ![Loop from a hold through labelling, export, Colab fine-tuning and decoder install back to dictation](docs/diagrams/training-loop.png)
 
-Your corrections can train a decoder for your own vocabulary. Nothing is exported until you
+Your corrections can train a decoder on your own vocabulary. Murmur exports nothing until you
 press the button in Settings > Training, and the zip stays on your Mac until you upload it to
-Colab yourself. See [training/README.md](training/README.md).
+Colab. See [training/README.md](training/README.md).
 
 ## Privacy
 
 Murmur's own code makes one kind of network request: model downloads from Hugging Face.
 
-- The mic stays open between holds by default and keeps the last 0.3 s in memory, so a hold
-  includes the moment before the key landed. Nothing outside a hold is stored. Settings >
-  Microphone turns this off.
+- By default the mic stays open between holds and keeps the last 0.3 s in memory, so a hold
+  includes the audio from just before the key press. Murmur stores nothing outside a hold.
+  Settings > Microphone turns this off.
 - Every hold saves its audio as FLAC in `~/Library/Application Support/Murmur/Recordings/`
-  beside its history entry. Runs older than 30 days are deleted unless you saved or labelled
-  them.
-- Nothing is typed when focus is in a password field. The paste fallback marks the clipboard
-  entry transient and concealed for clipboard managers.
+  beside its history entry. Murmur deletes runs older than 30 days unless you saved or
+  labelled them.
+- Murmur types nothing into a password field. The paste fallback marks its clipboard entry
+  transient and concealed, so clipboard managers skip it.
 
 ## Development
 
@@ -153,8 +153,8 @@ make build CONFIG=debug   # SwiftPM compile only
 make app                  # signed bundle in ~/Library/Caches/MurmurBuild
 ```
 
-Always build with `make`, which keeps output out of the repo.
-`Tests/MurmurDictionaryTests/dictionary-test-vectors.json` defines correction behaviour;
+Always build with `make`, which keeps build output out of the repo.
+`Tests/MurmurDictionaryTests/dictionary-test-vectors.json` defines correction behaviour, so
 change the vectors first. [AGENTS.md](AGENTS.md) records the traps in this codebase.
 
 The installed binary has checks that need no microphone unless an audio file is named:
