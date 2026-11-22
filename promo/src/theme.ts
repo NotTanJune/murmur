@@ -40,6 +40,10 @@ export const color = {
 export const font = {
   serif: '"Fraunces", Georgia, serif',
   sans: 'Figtree, "Helvetica Neue", Arial, sans-serif',
+  /** The app icon's face, for the iPhone talk key's wordmark. */
+  wordmark: '"EB Garamond", Georgia, serif',
+  /** What the iPhone itself renders in: SF on a Mac, Helvetica elsewhere. */
+  system: '-apple-system, system-ui, "Helvetica Neue", Arial, sans-serif',
 } as const;
 
 /** Long, soft deceleration. Nothing bounces. */

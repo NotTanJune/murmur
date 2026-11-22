@@ -19,6 +19,12 @@ const loadAll = () =>
       style: 'italic',
     }),
     loadFont({
+      family: 'EB Garamond',
+      url: staticFile('fonts/EBGaramond-Italic[wght].ttf'),
+      weight: '400 800',
+      style: 'italic',
+    }),
+    loadFont({
       family: 'Figtree',
       url: staticFile('fonts/Figtree[wght].ttf'),
       weight: '300 900',
@@ -27,12 +33,12 @@ const loadAll = () =>
   ]).then(() => document.fonts.ready);
 
 /**
- * Holds the render until both families are loaded, and renders nothing before that so
+ * Holds the render until every family is loaded, and renders nothing before that so
  * anything that measures text only ever sees the real faces.
  */
 export const FontGate: React.FC<{children: React.ReactNode}> = ({children}) => {
   const {delayRender, continueRender, cancelRender} = useDelayRender();
-  const [handle] = useState(() => delayRender('Loading Fraunces and Figtree'));
+  const [handle] = useState(() => delayRender('Loading Fraunces, Figtree and EB Garamond'));
   const [ready, setReady] = useState(false);
 
   useEffect(() => {

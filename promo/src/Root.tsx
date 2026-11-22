@@ -7,6 +7,8 @@ import {Banner, BANNER_HEIGHT, BANNER_WIDTH} from './Banner';
 import {Demo, DEMO_FPS, DEMO_HEIGHT, DEMO_SECONDS, DEMO_WIDTH} from './Demo';
 import {EndCard} from './scenes/EndCard';
 import {FitScene} from './scenes/FitScene';
+import {PhonePromo} from './PhonePromo';
+import {PHONE_TOTAL_FRAMES} from './phone/timing';
 import {MacScene} from './scenes/MacScene';
 import {FPS, HEIGHT, SCENE_LENGTH, TOTAL_FRAMES, WIDTH} from './theme';
 
@@ -38,6 +40,14 @@ export const RemotionRoot: React.FC = () => {
         height={HEIGHT}
         fps={FPS}
         durationInFrames={TOTAL_FRAMES}
+      />
+      <Composition
+        id="MurmurPhonePromo"
+        component={PhonePromo}
+        width={WIDTH}
+        height={HEIGHT}
+        fps={FPS}
+        durationInFrames={PHONE_TOTAL_FRAMES}
       />
       <Composition
         id="Banner"
