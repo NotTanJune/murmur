@@ -35,7 +35,7 @@ and the text lands in whatever field you are typing in. It records inside the ke
 never switch apps. Bark 3.0 Clean and the cleanup rules run on the phone, and nothing leaves
 it. The keyboard has punctuation, numbers, emoji and your recent dictations, but no letters.
 
-[Watch the 27 s iPhone film](docs/media/murmur-iphone-promo.mp4).
+https://github.com/user-attachments/assets/ba791e58-7b6f-434b-bb07-7feb3376c681
 
 There is no App Store or TestFlight build yet, so you build it yourself. You need:
 
