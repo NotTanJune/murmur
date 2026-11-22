@@ -28,6 +28,11 @@ struct KeyboardStatus: Codable, Equatable {
     /// connected to the audio output) or `playAndRecord` (the fallback, with the output
     /// connected). Optional so a file written before this field existed still decodes.
     var captureMode: String?
+    /// The emoji panel's requested keyboard height and the height the keyboard's view actually
+    /// got when it was last shown, in points. Equal means the system honoured the height
+    /// constraint. Optional so a file written before these fields existed still decodes.
+    var emojiPanelRequestedHeight: Int?
+    var emojiPanelShownHeight: Int?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

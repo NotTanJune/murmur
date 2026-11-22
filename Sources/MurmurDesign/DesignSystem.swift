@@ -297,6 +297,11 @@ public enum DS {
         /// key page so they fit, and the grid divides what is left after the section title and
         /// the category bar.
         public static let emojiRows = 5
+        /// Where less height arrives than the panel asked for, rows are dropped so none is under
+        /// `emojiMinCellHeight`, down to `emojiMinRows`; the title and the category bar keep
+        /// their sizes.
+        public static let emojiMinCellHeight: CGFloat = 34
+        public static let emojiMinRows = 3
         /// Columns in view at once, so a cell is the panel's width over this.
         public static let emojiColumns = 8
         public static let emojiGlyphSize: CGFloat = 30

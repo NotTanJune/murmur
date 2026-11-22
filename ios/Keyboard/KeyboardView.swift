@@ -67,7 +67,11 @@ struct KeyboardView: View {
             }
         }
         .padding(DS.Keyboard.padding)
-        .frame(height: panelHeight)
+        // The height the keyboard actually has, never the one asked for: a taller fixed frame in
+        // a shorter keyboard is centred and clipped at both ends, which on 2026-11-22 cut the
+        // emoji panel's title and half a row off the top and its category bar off the bottom.
+        // The panel fits what arrives (`EmojiPanel` drops rows to make room).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Landscape can change the size class while the emoji panel is up.
         .onChange(of: verticalSizeClass) { actions.setHeight(panelHeight) }
     }
@@ -79,10 +83,8 @@ struct KeyboardView: View {
 
     private var panelHeight: CGFloat { height(for: panel) }
 
-    /// The keyboard's own height changes first and is laid out, then the SwiftUI frame follows.
-    /// Growing, the content is never one pass taller than its container. Shrinking (the emoji
-    /// panel closing), the container is already short and the old, taller content is clipped for
-    /// that one pass before the frame catches up.
+    /// The keyboard's height is asked for first, then the panel changes. The content always
+    /// fills the height the keyboard has at that moment, so neither order can clip it.
     private func show(_ next: Panel) {
         actions.setHeight(height(for: next))
         panel = next

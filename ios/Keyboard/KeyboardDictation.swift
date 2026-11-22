@@ -59,6 +59,8 @@ final class KeyboardDictation {
 
     @ObservationIgnored private var gesture = HoldGesture()
     @ObservationIgnored private let microphone: WebMicrophone
+    /// The start, typed and failed haptics. The view controller attaches them to its view.
+    @ObservationIgnored let haptics = KeyboardHaptics()
     /// Nil once the view controller that owns the proxy is gone; nothing is typed then.
     @ObservationIgnored private let proxy: () -> UITextDocumentProxy?
     /// Read from the view controller at each appearance, never later: a Bark load or a finishing
@@ -111,6 +113,11 @@ final class KeyboardDictation {
     @ObservationIgnored private var lastReleaseEngineMs: Int?
     @ObservationIgnored private var lastReleaseCleanupMs: Int?
     @ObservationIgnored private var lastReleaseEngine: String?
+    /// The emoji panel's requested keyboard height and the height the keyboard's view actually
+    /// got, in points, as last reported by the view controller. Evidence for whether the
+    /// system honoured the height constraint; written to `KeyboardStatus`.
+    @ObservationIgnored private var emojiPanelRequestedHeight: Int?
+    @ObservationIgnored private var emojiPanelShownHeight: Int?
     /// When the microphone was last reopened automatically, newest last, for the loop breaker.
     @ObservationIgnored private var reopenTimes: [ContinuousClock.Instant] = []
     @ObservationIgnored private var reopenTask: Task<Void, Never>?
@@ -524,8 +531,23 @@ final class KeyboardDictation {
             barkLoadSeconds: barkLoadSeconds, barkWarmupSeconds: barkWarmupSeconds,
             lastReleaseEngineMs: lastReleaseEngineMs, lastReleaseCleanupMs: lastReleaseCleanupMs,
             lastReleaseEngine: lastReleaseEngine,
-            captureMode: microphone.confirmedMode?.rawValue
+            captureMode: microphone.confirmedMode?.rawValue,
+            emojiPanelRequestedHeight: emojiPanelRequestedHeight,
+            emojiPanelShownHeight: emojiPanelShownHeight
         ).write()
+    }
+
+    /// The view controller laid out the emoji panel: `requested` is the height constraint's
+    /// constant, `shown` the height the keyboard actually has. Logged and written to the status
+    /// file only when the pair changes, so the Setup tab shows the last one.
+    func noteEmojiPanelHeight(requested: CGFloat, shown: CGFloat) {
+        let requested = Int(requested.rounded())
+        let shown = Int(shown.rounded())
+        guard requested != emojiPanelRequestedHeight || shown != emojiPanelShownHeight else { return }
+        emojiPanelRequestedHeight = requested
+        emojiPanelShownHeight = shown
+        Self.log.info("emoji panel: \(requested) pt requested, \(shown) pt shown")
+        writeStatus()
     }
 
     // MARK: Touches on the talk key
@@ -598,6 +620,8 @@ final class KeyboardDictation {
         // pre-roll here, a cold one opens now.
         let micWasLive = micState == .live
         attachMicrophone(to: hold)
+        // Wakes the Taptic Engine for the start tap; after the attach, so capture comes first.
+        haptics.prepareStart()
         // The start tone says "go ahead and talk", so it plays only once the microphone hears:
         // here when it was already live (a warm microphone, `.warming` has no audio yet and
         // waits), otherwise at the hold's first live samples (`noteHeard`). After the attach,
@@ -672,6 +696,7 @@ final class KeyboardDictation {
         hold.limit?.cancel()
         isLocked = false
         releaseMicrophone()
+        haptics.prepareOutcome()
         state = .finishing
         hold.finishWatchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.teardownTimeoutSeconds))
@@ -727,11 +752,12 @@ final class KeyboardDictation {
         Task { writeStatus() }
     }
 
-    /// The start tone, once per hold, when sounds are on.
+    /// The start tone and the start tap, once per hold, each when its setting is on.
     private func playStartTone(_ hold: Hold) {
         guard !hold.startTonePlayed else { return }
         hold.startTonePlayed = true
         if Settings.shared.soundEnabled { KeyboardSounds.play(.start) }
+        haptics.started()
     }
 
     /// Gives a new hold the microphone. Open or opening: the hold takes the pre-roll now and
@@ -929,6 +955,7 @@ final class KeyboardDictation {
             // hold is dropped, not filed as delivered.
             if let deliveredAt = insert(finished.text) {
                 if settings.soundEnabled { KeyboardSounds.play(.done) }
+                haptics.typed()
                 var run = DictationRun(
                     date: released,
                     engine: hold.engineName,
@@ -955,6 +982,7 @@ final class KeyboardDictation {
             // Released before any audio arrived: the microphone never opened for this hold.
             Self.log.error("no audio reached the hold; the microphone never opened")
             state = .failed(.microphone)
+            haptics.failed()
         } else {
             Self.log.info("\(hold.engineName, privacy: .public): no speech")
         }
@@ -981,6 +1009,7 @@ final class KeyboardDictation {
         Self.log.error("hold failed: \(message, privacy: .public)")
         releaseMicrophone()
         state = .failed(kind)
+        haptics.failed()
         abandonHold(reason: message)
         scheduleIdleClose()
     }
@@ -1020,6 +1049,7 @@ final class KeyboardDictation {
             gesture.reset()
             isLocked = false
             state = .failed(.dictation)
+            haptics.failed()
             scheduleIdleClose()
         }
     }

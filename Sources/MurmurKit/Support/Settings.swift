@@ -225,6 +225,12 @@ public final class Settings {
         didSet { persist(soundEnabled, Keys.soundEnabled) }
     }
 
+    /// The iPhone keyboard's haptics: a tap when dictation starts, a double tap when the text is
+    /// typed, an error pattern when a hold fails. The Mac ignores it.
+    public var hapticsEnabled: Bool {
+        didSet { persist(hapticsEnabled, Keys.hapticsEnabled) }
+    }
+
     /// When Parakeet and Bark transcribe: as windows fill during the hold, or on release.
     public var transcribeTiming: TranscribeTiming {
         didSet { persist(transcribeTiming.rawValue, Keys.transcribeTiming) }
@@ -248,6 +254,7 @@ public final class Settings {
         static let pushToTalkKey = "pushToTalkKey"
         static let cleanupEnabled = "cleanupEnabled"
         static let soundEnabled = "soundEnabled"
+        static let hapticsEnabled = "hapticsEnabled"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -273,6 +280,7 @@ public final class Settings {
         let cleanupProfile: CleanupProfile
         let compareMode: Bool
         let soundEnabled: Bool
+        let hapticsEnabled: Bool
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -293,6 +301,7 @@ public final class Settings {
             cleanupProfile = CleanupProfile(rawValue: defaults.string(forKey: Keys.cleanupProfile) ?? "") ?? .general
             compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
             soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+            hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -323,6 +332,7 @@ public final class Settings {
         cleanupProfile = values.cleanupProfile
         compareMode = values.compareMode
         soundEnabled = values.soundEnabled
+        hapticsEnabled = values.hapticsEnabled
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -348,6 +358,7 @@ public final class Settings {
         cleanupProfile = values.cleanupProfile
         compareMode = values.compareMode
         soundEnabled = values.soundEnabled
+        hapticsEnabled = values.hapticsEnabled
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

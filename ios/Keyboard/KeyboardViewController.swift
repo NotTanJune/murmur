@@ -39,6 +39,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         microphone.attach(to: view)
+        dictation.haptics.attach(to: view)
         let host = UIHostingController(rootView: KeyboardView(
             dictation: dictation,
             actions: KeyboardActions(
@@ -58,10 +59,16 @@ final class KeyboardViewController: UIInputViewController {
         host.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(host)
         view.addSubview(host.view)
-        // One below required, so the system's own height constraint on the keyboard's view can
-        // win a conflict instead of breaking one of ours at runtime.
+        // Required, as Apple's custom keyboard guide does it ("change its primary view's height
+        // constraint"). It was 999 until 2026-11-22, and the emoji panel never got taller on a
+        // device: the first size the system measures honoured the 999 constraint (the key page
+        // came out at 168), but the system also pins the input view with its own required
+        // `UIView-Encapsulated-Layout-Height`, which a 999 constraint can never beat, so
+        // changing the constant changed nothing and logged nothing. A required one conflicts
+        // with the system's while the sizes differ (UIKit logs that, and it is expected) and is
+        // what the guide relies on to resize the keyboard. Unverified on a device until Setup's
+        // "Emoji panel" line reads 260 shown; `KeyboardView` fits whatever height arrives.
         let height = view.heightAnchor.constraint(equalToConstant: DS.Keyboard.height)
-        height.priority = UILayoutPriority(999)
         heightConstraint = height
         NSLayoutConstraint.activate([
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -78,6 +85,19 @@ final class KeyboardViewController: UIInputViewController {
         guard heightConstraint?.constant != height else { return }
         heightConstraint?.constant = height
         view.layoutIfNeeded()
+    }
+
+    /// While the emoji panel asks for more than the key page, reports the height it asked for
+    /// and the height the keyboard actually has, as evidence for the Setup tab. The system can
+    /// resize the keyboard a pass later than `setKeyboardHeight`, so each layout reports and
+    /// `KeyboardDictation` keeps only a changed pair. The shown height is the smaller of the
+    /// view's and its window's, because a window shorter than the view clips it.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let requested = heightConstraint?.constant, requested != DS.Keyboard.height else { return }
+        let viewHeight = view.bounds.height
+        let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
+        dictation.noteEmojiPanelHeight(requested: requested, shown: shown)
     }
 
     override func viewWillAppear(_ animated: Bool) {

@@ -31,6 +31,10 @@ final class SetupStatus {
     /// How the keyboard's page last captured audio (`recordOnly` or `playAndRecord`); nil until
     /// it has delivered audio and reported.
     private(set) var captureMode: String?
+    /// The emoji panel's requested and actual keyboard height, in points; nil until the
+    /// keyboard has shown the panel and reported.
+    private(set) var emojiPanelRequestedHeight: Int?
+    private(set) var emojiPanelShownHeight: Int?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -52,6 +56,8 @@ final class SetupStatus {
         lastReleaseCleanupMs = reported?.lastReleaseCleanupMs
         lastReleaseEngine = reported?.lastReleaseEngine
         captureMode = reported?.captureMode
+        emojiPanelRequestedHeight = reported?.emojiPanelRequestedHeight
+        emojiPanelShownHeight = reported?.emojiPanelShownHeight
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -153,6 +159,9 @@ struct SetupView: View {
                 if let line = captureModeLine {
                     Note(text: line)
                 }
+                if let line = emojiPanelLine {
+                    Note(text: line)
+                }
             }
 
             Card(title: "Model") {
@@ -216,6 +225,12 @@ struct SetupView: View {
         case "playAndRecord": "Capture: play-and-record"
         default: nil
         }
+    }
+
+    /// "Emoji panel: 260 requested, 260 pt shown", from the last time the keyboard showed it.
+    private var emojiPanelLine: String? {
+        guard let requested = status.emojiPanelRequestedHeight, let shown = status.emojiPanelShownHeight else { return nil }
+        return "Emoji panel: \(requested) requested, \(shown) pt shown"
     }
 
     private var fullAccessDetail: String? {

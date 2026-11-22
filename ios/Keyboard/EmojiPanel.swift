@@ -5,7 +5,10 @@ import UIKit
 
 /// Murmur's own emoji picker. A keyboard extension has no way to show Apple's, so this follows
 /// it instead: a section title at the top, a grid of five rows that scrolls sideways, a
-/// category bar at the bottom, and a long press for skin tones. Each section starts on a fresh
+/// category bar at the bottom, and a long press for skin tones. It lays out in the height it is
+/// given, never a taller one: the title and the bar keep their sizes and the grid takes the
+/// rest, with fewer rows (never under `emojiMinRows`) where five would be under
+/// `emojiMinCellHeight` each. Each section starts on a fresh
 /// column, so scrolling to a category lands on its first emoji and the title can be read from
 /// the scroll offset alone. The grid is UIKit (`EmojiGrid`); this view holds the title, the
 /// category bar and the tone row, and hears from the grid only when the section in view changes.
@@ -26,7 +29,7 @@ struct EmojiPanel: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var isCompact: Bool { verticalSizeClass == .compact }
-    private var rows: Int { isCompact ? DS.Keyboard.emojiRowsCompact : DS.Keyboard.emojiRows }
+    private var preferredRows: Int { isCompact ? DS.Keyboard.emojiRowsCompact : DS.Keyboard.emojiRows }
     private var columns: Int { isCompact ? DS.Keyboard.emojiColumnsCompact : DS.Keyboard.emojiColumns }
 
     var body: some View {
@@ -36,7 +39,7 @@ struct EmojiPanel: View {
                     title
                     EmojiGrid(
                         categories: categories,
-                        rows: rows,
+                        rows: Self.rows(fitting: geometry.size.height, preferred: preferredRows),
                         columns: columns,
                         controller: grid,
                         onSection: { section = $0 },
@@ -60,6 +63,15 @@ struct EmojiPanel: View {
         .onChange(of: tonePopup != nil) { _, isOpen in
             if !isOpen { grid.returnFocusToPressedCell() }
         }
+    }
+
+    /// The rows that fit the grid's share of a panel `height` tall, at least
+    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 260 pt keyboard
+    /// (248 pt inside its padding) leaves 184 pt for the grid: five rows of 36.8 pt.
+    private static func rows(fitting height: CGFloat, preferred: Int) -> Int {
+        let grid = height - DS.Keyboard.emojiTitleHeight - DS.Keyboard.emojiBarHeight - DS.Keyboard.emojiBarSpacing * 2
+        let fitting = Int((max(grid, 0) / DS.Keyboard.emojiMinCellHeight).rounded(.down))
+        return max(DS.Keyboard.emojiMinRows, min(preferred, fitting))
     }
 
     // MARK: Data

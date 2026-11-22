@@ -44,6 +44,11 @@ struct SettingsView: View {
                         note: "A tone when dictation starts and when the text is typed.",
                         isOn: $settings.soundEnabled
                     )
+                    ToggleRow(
+                        title: "Haptics",
+                        note: "A tap when dictation starts and a double tap when the text is typed.",
+                        isOn: $settings.hapticsEnabled
+                    )
                 }
 
                 Card(title: "Appearance") {

@@ -131,6 +131,10 @@ struct EmojiGrid: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // The grid scrolls sideways only. Its content is exactly as tall as the view with no
+            // insets and no vertical bounce, so this never fires; it keeps a row from ever being
+            // cut at the top by a vertical offset, whatever UIKit does on a resize.
+            if scrollView.contentOffset.y != 0 { scrollView.contentOffset.y = 0 }
             guard lockedSection == nil else { return }
             report(layout.section(atOffsetX: scrollView.contentOffset.x))
         }

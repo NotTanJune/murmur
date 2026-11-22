@@ -273,6 +273,30 @@ grid again the offset does not move the highlight away from the tapped section (
 sections cannot reach the leading edge). `EmojiPanel` keeps the title, the category bar and the
 tone row.
 
+**The keyboard's height constraint is required, and the panel fits the height it gets.** On
+2026-11-22 the emoji panel on an iPhone 15 Pro showed five rows with the top one cut in half,
+no section title and no category bar. The keyboard had stayed 168 pt (the key page) while
+`KeyboardView` forced a 260 pt frame, so SwiftUI centred the content and the keyboard clipped
+46 pt off each end: padding, title, spacing and 16 pt of the first row above, spacing, bar and
+padding (exactly 46) below. The height constraint on the controller's `view` (the
+`UIInputView`) was at priority 999. The first size the system measures honoured it (the key
+page came out at 168), but the system also pins the input view with its own required
+`UIView-Encapsulated-Layout-Height` (other keyboards' conflict logs show it, for example
+KeyboardKit issue 88), and an optional constraint never beats a required one, so changing the
+constant did nothing and logged nothing. That mechanism is inferred from the screenshot's
+geometry and those logs, not traced on this device. The constraint is now required, as Apple's custom keyboard guide writes it
+("change its primary view's height constraint"); UIKit logs a constraint conflict while the
+system's size and ours differ, and that log is expected. Separately, `KeyboardView` fills the
+height it is given instead of a fixed frame, and `EmojiPanel` keeps the title and bar at their
+sizes and gives the grid the rest, dropping rows so none is under `DS.Keyboard.emojiMinCellHeight`
+(34 pt), down to `emojiMinRows` (3): a 168 pt keyboard shows three rows, not a clipped panel.
+The grid's vertical offset is pinned to 0 in `scrollViewDidScroll`. As evidence, the controller
+reports the requested height and the height the keyboard actually got (the smaller of the
+view's and its window's) on each layout while the panel asks for more than the key page;
+`KeyboardStatus` stores the last pair, the log says `emoji panel: N pt requested, M pt shown`,
+and Setup's keyboard card shows "Emoji panel: 260 requested, N pt shown". Whether the required
+constraint resizes the keyboard on a device is unverified until that line reads 260.
+
 **Capture runs in WebKit, and Apple may close the path.** A keyboard extension cannot record:
 it lacks the entitlement, so `AVAudioEngine` and audio queues fail inside it. A `WKWebView` in
 the keyboard's own view hierarchy can still call `getUserMedia`, because WebKit records in its
@@ -474,6 +498,18 @@ Bark has to ignore it, as the Mac's engines ignore its Tink. Unverified on a dev
 system sounds play while WebKit holds a recording session (`AVAudioSession` can mute system
 sounds during recording), in a keyboard extension with Full Access, and whether the tones are
 audible without being picked up by the microphone.
+
+**Haptics.** `KeyboardHaptics` gives a hold one firm tap (`UIImpactFeedbackGenerator`,
+`.medium`) at the same moment as the start tone (`playStartTone`), the system's success
+pattern (a double tap) right after `insert` succeeds, and its error pattern when a hold fails
+(`fail`, a release with no audio, the finish watchdog). The generators are attached to the
+keyboard's view (`init(style:view:)`); the start one is prepared right after the attach, so it is
+ready when the first samples arrive without the press waiting on it, and the outcome one at the
+release. Main actor only, and always after the attach or the insert, never ahead of them.
+`Settings.hapticsEnabled` (key `hapticsEnabled`, default on, re-read by `reloadFromDefaults`)
+gates them, as Settings tab → Haptics on the phone; the Mac ignores it. A keyboard extension
+plays haptics only with Full Access. Unverified on a device: whether they play at all while
+WebKit holds a recording session.
 
 **Readiness is shown on the key.** `KeyboardDictation.micState` is `off`, `warming` (opened, no
 samples yet), `live` or `failed`, and `heardAudio` is true once the current hold has its first

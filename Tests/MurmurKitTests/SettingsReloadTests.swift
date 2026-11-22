@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.
@@ -61,5 +61,34 @@ struct SettingsReloadTests {
         defaults.removeObject(forKey: "keepRecordings")
         settings.reloadFromDefaults()
         #expect(settings.keepRecordings)
+    }
+
+    @MainActor
+    @Test("Haptics default on, persist, and reload from another process's write")
+    func hapticsEnabledPersistsAndReloads() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = Settings(defaults: defaults)
+        #expect(settings.hapticsEnabled)
+        #expect(defaults.object(forKey: "hapticsEnabled") == nil, "the default is not written")
+
+        settings.hapticsEnabled = false
+        #expect(defaults.object(forKey: "hapticsEnabled") as? Bool == false)
+        #expect(Settings(defaults: defaults).hapticsEnabled == false, "a new instance reads the stored value")
+
+        // The app turns haptics back on while the keyboard's instance holds the old value.
+        defaults.set(true, forKey: "hapticsEnabled")
+        #expect(settings.hapticsEnabled == false)
+        settings.reloadFromDefaults()
+        #expect(settings.hapticsEnabled)
+
+        defaults.set(false, forKey: "hapticsEnabled")
+        settings.reloadFromDefaults()
+        #expect(settings.hapticsEnabled == false)
+        defaults.removeObject(forKey: "hapticsEnabled")
+        settings.reloadFromDefaults()
+        #expect(settings.hapticsEnabled, "a removed key falls back to on")
+        #expect(defaults.object(forKey: "hapticsEnabled") == nil, "the reload does not write back")
     }
 }
