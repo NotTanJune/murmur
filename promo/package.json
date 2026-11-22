@@ -34,6 +34,7 @@
     "render": "remotion render MurmurPromo out/murmur-promo.mp4 --codec=h264 --concurrency=2",
     "poster": "remotion still MurmurPromo out/murmur-poster.png --frame=916 --concurrency=2",
     "banner": "remotion still Banner out/murmur-banner.png --scale=1",
+    "card": "remotion still Card out/murmur-card.png --scale=1",
     "phone": "remotion render MurmurPhonePromo out/murmur-iphone-promo.mp4 --codec=h264 --concurrency=2",
     "demo": "remotion render Demo out/murmur-demo.mp4 --codec=h264 --concurrency=2"
   },

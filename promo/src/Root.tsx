@@ -4,6 +4,7 @@ import {FontGate} from './fonts';
 import {MurmurPromo} from './MurmurPromo';
 import {DictationScene} from './scenes/DictationScene';
 import {Banner, BANNER_HEIGHT, BANNER_WIDTH} from './Banner';
+import {Card, CARD_HEIGHT, CARD_WIDTH} from './Card';
 import {Demo, DEMO_FPS, DEMO_HEIGHT, DEMO_SECONDS, DEMO_WIDTH} from './Demo';
 import {EndCard} from './scenes/EndCard';
 import {FitScene} from './scenes/FitScene';
@@ -28,6 +29,7 @@ const MacPreview = gated(MacScene);
 const FitPreview = gated(FitScene);
 const EndPreview = gated(EndCard);
 const BannerStill = gated(Banner);
+const CardStill = gated(Card);
 const DemoClip = gated(Demo);
 
 export const RemotionRoot: React.FC = () => {
@@ -54,6 +56,14 @@ export const RemotionRoot: React.FC = () => {
         component={BannerStill}
         width={BANNER_WIDTH}
         height={BANNER_HEIGHT}
+        fps={FPS}
+        durationInFrames={1}
+      />
+      <Composition
+        id="Card"
+        component={CardStill}
+        width={CARD_WIDTH}
+        height={CARD_HEIGHT}
         fps={FPS}
         durationInFrames={1}
       />
