@@ -51,6 +51,9 @@ struct SettingsView: View {
                     )
                 }
 
+                // TEMPORARY: the Haptic Lab. Delete with its files (AGENTS.md, "Haptic lab").
+                SettingsLink(title: "Haptic lab (temporary)", detail: nil) { HapticLabView() }
+
                 Card(title: "Appearance") {
                     ChoiceKeys(
                         options: AppearanceChoice.allCases,

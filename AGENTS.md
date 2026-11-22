@@ -520,6 +520,20 @@ gates them, as Settings tab → Haptics on the phone; the Mac ignores it. A keyb
 plays haptics only with Full Access. Unverified on a device: whether they play at all while
 WebKit holds a recording session.
 
+**Haptic lab (temporary).** Settings → "Haptic lab (temporary)" lets the user design a start and a
+done pattern by feel on the phone, then copy the text (`start: tap@0 i0.70 s0.50 | buzz@40 i0.40
+s0.20 d120`, `done: ...`) and send it back. Files: `ios/App/HapticLabView.swift`,
+`ios/Shared/HapticPattern.swift` (model, text format, `HapticLabStore`),
+`ios/Shared/HapticPlayer.swift` (lazy `CHHapticEngine`), the "Haptic lab" row in
+`ios/App/SettingsView.swift`, the `DS.Phone.haptic*` tokens, and the lab hook in
+`ios/Keyboard/KeyboardHaptics.swift`. Keys in the shared defaults: `hapticLabStart` and
+`hapticLabDone` (JSON `HapticPattern`) and `hapticLabActive` (default false). With the switch on,
+`KeyboardHaptics` reads them at play time and plays the start and done patterns through Core
+Haptics, falling back to the generators on any error; the error pattern is unchanged, and
+`Settings.hapticsEnabled` still gates everything. Whether Core Haptics plays in the keyboard
+extension while WebKit records is unverified. Once the user picks patterns, hard-code them in
+`KeyboardHaptics` and delete every file and hook listed here.
+
 **Readiness is shown on the key.** `KeyboardDictation.micState` is `off`, `warming` (opened, no
 samples yet), `live` or `failed`, and `heardAudio` is true once the current hold has its first
 samples, pre-roll included. While recording, the `Waveform` is flat in `DS.Color.inkTertiary`

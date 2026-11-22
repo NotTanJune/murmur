@@ -445,6 +445,16 @@ public enum DS {
         public static let fieldHeight: CGFloat = 40
         /// Gap between a page's bottom edge and a toast.
         public static let toastInset: CGFloat = 16
+        /// TEMPORARY, the Haptic Lab (`ios/App/HapticLabView.swift`): the timeline strip, its
+        /// bars, the Play button, a slider's label column and the pattern text box.
+        public static let hapticStripHeight: CGFloat = 56
+        public static let hapticTickWidth: CGFloat = 3
+        public static let hapticBuzzOpacity: Double = 0.45
+        /// The strip shows at least this many milliseconds, rounded up to the next step.
+        public static let hapticStripMinSpanMs = 300
+        public static let hapticStripSpanStepMs = 100
+        public static let hapticPlayHeight: CGFloat = 52
+        public static let hapticValueWidth: CGFloat = 56
     }
 
     // MARK: - Motion
