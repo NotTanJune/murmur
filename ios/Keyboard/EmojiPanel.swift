@@ -82,7 +82,7 @@ struct EmojiPanel: View {
     }
 
     private func type(_ emoji: String) {
-        UIDevice.current.playInputClick()
+        KeyFeedback.press()
         actions.insert(emoji)
         EmojiRecents.record(emoji)
     }
@@ -117,7 +117,7 @@ struct EmojiPanel: View {
         let forms = EmojiCatalog.tones(for: base)
         guard !forms.isEmpty else { return }
         let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiTitleHeight + DS.Keyboard.emojiBarSpacing)
-        UIDevice.current.playInputClick()
+        KeyFeedback.press()
         tonePopup = TonePopup(base: base, forms: [base] + forms, anchor: panelAnchor)
     }
 
@@ -194,7 +194,7 @@ struct EmojiPanel: View {
             DeleteKey(height: DS.Keyboard.emojiBarHeight, action: actions.delete)
                 .padding(.leading, DS.Keyboard.keySpacing)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlainKeyStyle())
         .foregroundStyle(.secondary)
         .frame(height: DS.Keyboard.emojiBarHeight)
     }

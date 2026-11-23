@@ -40,6 +40,7 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidLoad()
         microphone.attach(to: view)
         dictation.haptics.attach(to: view)
+        KeyFeedback.attach(to: view)
         let host = UIHostingController(rootView: KeyboardView(
             dictation: dictation,
             actions: KeyboardActions(

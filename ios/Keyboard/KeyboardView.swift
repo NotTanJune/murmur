@@ -289,10 +289,7 @@ private struct CharacterKey: View {
     let action: () -> Void
 
     var body: some View {
-        Button {
-            UIDevice.current.playInputClick()
-            action()
-        } label: {
+        Button(action: action) {
             KeyFace(fill: DS.Keyboard.letterKey) {
                 Text(title).font(DS.Keyboard.characterFont)
             }
@@ -311,10 +308,7 @@ private struct TextKey: View {
     let action: () -> Void
 
     var body: some View {
-        Button {
-            UIDevice.current.playInputClick()
-            action()
-        } label: {
+        Button(action: action) {
             KeyFace(fill: fill) {
                 Text(title).font(DS.Keyboard.labelFont)
             }
@@ -335,10 +329,7 @@ private struct IconKey: View {
     let action: () -> Void
 
     var body: some View {
-        Button {
-            UIDevice.current.playInputClick()
-            action()
-        } label: {
+        Button(action: action) {
             KeyFace(fill: fill) {
                 Image(systemName: symbol).font(DS.Keyboard.iconFont)
             }
@@ -355,10 +346,7 @@ private struct ReturnKey: View {
 
     var body: some View {
         let prominent = actions.returnIsProminent()
-        Button {
-            UIDevice.current.playInputClick()
-            actions.newline()
-        } label: {
+        Button(action: actions.newline) {
             KeyFace(fill: prominent ? DS.Keyboard.prominentKey : DS.Keyboard.functionKey) {
                 Text(actions.returnTitle())
                     .font(DS.Keyboard.labelFont)
@@ -389,11 +377,13 @@ struct DeleteKey: View {
                 .updating($touching) { _, state, _ in state = true }
                 .onChanged { _ in
                     guard repeater == nil else { return }
-                    UIDevice.current.playInputClick()
+                    KeyFeedback.press()
                     action()
                     repeater = Task { @MainActor in
                         try? await Task.sleep(for: DS.Keyboard.deleteRepeatDelay)
                         while !Task.isCancelled {
+                            // Each repeated deletion clicks and taps, as the stock keyboard's does.
+                            KeyFeedback.press()
                             action()
                             try? await Task.sleep(for: DS.Keyboard.deleteRepeatInterval)
                         }
@@ -415,11 +405,27 @@ struct DeleteKey: View {
     }
 }
 
+/// A key's press: dimmed while held, with the click and the haptic tap (`KeyFeedback`) at
+/// touch-down, as the stock keyboard gives them, not when the action fires on release.
 struct KeyPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(.primary)
             .opacity(configuration.isPressed ? DS.Keyboard.pressedOpacity : 1)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { KeyFeedback.press() }
+            }
+    }
+}
+
+/// `KeyPressStyle` without its colour, for labels that set their own (the emoji category bar).
+struct PlainKeyStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? DS.Keyboard.pressedOpacity : 1)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { KeyFeedback.press() }
+            }
     }
 }
 
@@ -445,6 +451,7 @@ private struct GlobeKey: View {
             button.tintColor = .label
             button.accessibilityLabel = "Next keyboard"
             button.addTarget(context.coordinator, action: #selector(Coordinator.tapped(_:event:)), for: .allTouchEvents)
+            button.addTarget(context.coordinator, action: #selector(Coordinator.landed), for: .touchDown)
             return button
         }
 
@@ -459,6 +466,7 @@ private struct GlobeKey: View {
             var action: (UIView, UIEvent) -> Void
             init(action: @escaping (UIView, UIEvent) -> Void) { self.action = action }
             @objc func tapped(_ sender: UIButton, event: UIEvent) { action(sender, event) }
+            @objc func landed() { KeyFeedback.press() }
         }
     }
 }

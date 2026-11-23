@@ -48,6 +48,7 @@
 		EFB4D65F463F3ADBCE7B05E5 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		EFFD787EEC36E72893BB1E77 /* MurmurKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F2BD34DA200CB5289D0D7461 /* WebMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */; };
+		F73D14E6A64C1D0446247D78 /* KeyFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BF4AF99485D9D693C7C960 /* KeyFeedback.swift */; };
 		F74C518FA367CA12A19BB855 /* OFL-Fraunces.txt in Resources */ = {isa = PBXBuildFile; fileRef = AF1E90D2EB801494508BAD15 /* OFL-Fraunces.txt */; };
 		FA3946BD78F0CFBFEED1270E /* EmojiGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06BA022727CACEEB48B6606 /* EmojiGrid.swift */; };
 		FD153DF43888B72C0595A1B2 /* PhoneEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948F6A3F144F06B9915ED311 /* PhoneEnvironment.swift */; };
@@ -86,6 +87,7 @@
 		1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPanel.swift; sourceTree = "<group>"; };
 		1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiRecents.swift; sourceTree = "<group>"; };
+		25BF4AF99485D9D693C7C960 /* KeyFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyFeedback.swift; sourceTree = "<group>"; };
 		28781C7AD37BB629020F20B3 /* MurmurPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MurmurPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "EBGaramond-Italic[wght].ttf"; sourceTree = "<group>"; };
 		2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardStatus.swift; sourceTree = "<group>"; };
@@ -119,7 +121,7 @@
 		D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDictation.swift; sourceTree = "<group>"; };
 		EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHaptics.swift; sourceTree = "<group>"; };
 		F06BA022727CACEEB48B6606 /* EmojiGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiGrid.swift; sourceTree = "<group>"; };
-		"TEMP_8954C1E0-9937-45B2-B2E8-3A5AD3103D9E" /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		"TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -267,6 +269,7 @@
 				AC6C18424BA60AAB0CE030AA /* KeyboardSounds.swift */,
 				B806E79B87FA2CD3DA1A5B73 /* KeyboardView.swift */,
 				AF331963D1F614BA7BA95B4B /* KeyboardViewController.swift */,
+				25BF4AF99485D9D693C7C960 /* KeyFeedback.swift */,
 				C01E3D62CD322B0FC73D899F /* MurmurKeyboard.entitlements */,
 				697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */,
 			);
@@ -281,10 +284,10 @@
 			path = Tools;
 			sourceTree = "<group>";
 		};
-		"TEMP_F35196B7-B6D2-41F0-B46C-AE92C33B6159" /* ios */ = {
+		"TEMP_F44A0DF2-E55E-4C96-B5D9-0101F6D0B3A5" /* ios */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_8954C1E0-9937-45B2-B2E8-3A5AD3103D9E" /* Base.xcconfig */,
+				"TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */,
 			);
 			path = ios;
 			sourceTree = "<group>";
@@ -416,6 +419,7 @@
 				37DAE145E9CFB54CE70E6DE7 /* HapticPlayer.swift in Sources */,
 				701C36D86E676F1CAA6C73FD /* HistoryList.swift in Sources */,
 				FDC863CC1C38A1080E3E74D7 /* HistoryPanel.swift in Sources */,
+				F73D14E6A64C1D0446247D78 /* KeyFeedback.swift in Sources */,
 				0A9E142C4EFB1EA50986E6EE /* KeyboardDictation.swift in Sources */,
 				D9A1FC2FFD3379716940E553 /* KeyboardHaptics.swift in Sources */,
 				DE116F16BAE2E5C68E88FCD4 /* KeyboardSounds.swift in Sources */,
@@ -493,7 +497,7 @@
 		};
 		9191DF2C32DAEF5A429C8A63 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_8954C1E0-9937-45B2-B2E8-3A5AD3103D9E" /* Base.xcconfig */;
+			baseConfigurationReference = "TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -564,7 +568,7 @@
 		};
 		CD9AB829B5233A7B770568EE /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_8954C1E0-9937-45B2-B2E8-3A5AD3103D9E" /* Base.xcconfig */;
+			baseConfigurationReference = "TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

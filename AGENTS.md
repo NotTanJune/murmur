@@ -537,6 +537,15 @@ recording session (a silent success cannot be detected, so the fallback does not
 lab's keys `hapticLabStart`, `hapticLabDone` and `hapticLabActive` may linger in the shared
 defaults on the user's phone; nothing reads them.
 
+**Key taps.** Every ordinary key gives the input click and a light haptic tap
+(`UIImpactFeedbackGenerator`, `.light`) at touch-down, as the stock keyboard does, through
+`KeyFeedback` (`ios/Keyboard/KeyFeedback.swift`). SwiftUI buttons get it from `KeyPressStyle` or
+`PlainKeyStyle` (the emoji category bar) when `isPressed` turns true, so the feedback no longer
+waits for the release; the delete key (on each repeated deletion too), the globe key
+(`.touchDown`), emoji cells, the tone row and history rows call it themselves. The talk key keeps
+only the click, because its start pattern follows within moments. `Settings.hapticsEnabled` gates
+the tap; the system's Keyboard Clicks setting governs the click. Unverified on a device.
+
 **Readiness is shown on the key.** `KeyboardDictation.micState` is `off`, `warming` (opened, no
 samples yet), `live` or `failed`, and `heardAudio` is true once the current hold has its first
 samples, pre-roll included. While recording, the `Waveform` is flat in `DS.Color.inkTertiary`
