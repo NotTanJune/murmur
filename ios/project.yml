@@ -6,6 +6,8 @@ options:
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
+fileGroups:
+  - Base.xcconfig
 configFiles:
   Debug: Base.xcconfig
   Release: Base.xcconfig

@@ -118,6 +118,8 @@ IOS_DD := $(STAGE)/ios
 
 ios-project:
 	cd ios && xcodegen generate --quiet
+	@# XcodeGen gives a few groups random TEMP_ ids on every run; number them so the file is stable.
+	perl -pi -e 's{TEMP_[0-9A-F-]{36}}{$$seen{$$&} //= "TEMP_" . sprintf("%024d", scalar keys %seen)}ge' ios/Murmur.xcodeproj/project.pbxproj
 	@# Xcode Cloud does not resolve packages itself; it reads the project's pinned versions.
 	mkdir -p ios/Murmur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
 	cp Package.resolved ios/Murmur.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

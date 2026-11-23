@@ -119,9 +119,9 @@
 		C97162CCF31B94BBAE1B50B5 /* HistoryPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPanel.swift; sourceTree = "<group>"; };
 		C9CB6ECCBC707799552D6FF6 /* ModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelView.swift; sourceTree = "<group>"; };
 		D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDictation.swift; sourceTree = "<group>"; };
+		E78BB9569506B5634F8195ED /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHaptics.swift; sourceTree = "<group>"; };
 		F06BA022727CACEEB48B6606 /* EmojiGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiGrid.swift; sourceTree = "<group>"; };
-		"TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -200,6 +200,7 @@
 		55AFDC8326A0474CEB29A9C9 = {
 			isa = PBXGroup;
 			children = (
+				E78BB9569506B5634F8195ED /* Base.xcconfig */,
 				5A8CB2F05BD890BB368E3281 /* App */,
 				747701AD677337128B74491D /* Keyboard */,
 				26B91EE9052F9AD2A52FEE9E /* murmur */,
@@ -284,10 +285,10 @@
 			path = Tools;
 			sourceTree = "<group>";
 		};
-		"TEMP_F44A0DF2-E55E-4C96-B5D9-0101F6D0B3A5" /* ios */ = {
+		"TEMP_000000000000000000000001" /* ios */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */,
+				E78BB9569506B5634F8195ED /* Base.xcconfig */,
 			);
 			path = ios;
 			sourceTree = "<group>";
@@ -497,7 +498,7 @@
 		};
 		9191DF2C32DAEF5A429C8A63 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */;
+			baseConfigurationReference = E78BB9569506B5634F8195ED /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -568,7 +569,7 @@
 		};
 		CD9AB829B5233A7B770568EE /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_E771178D-A029-421F-ADC8-4C314C0342BC" /* Base.xcconfig */;
+			baseConfigurationReference = E78BB9569506B5634F8195ED /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
