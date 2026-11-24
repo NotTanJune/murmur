@@ -584,9 +584,10 @@ hold has audio, then red). The user removed the live words that briefly showed o
 
 **The keys follow the iOS 26 keyboard.** Measured from a screenshot of the stock keyboard on
 2026-11-25: every key has one flat fill (`DS.Keyboard.key`, RGB 68 in dark), with no drop shadow
-and 10 pt continuous corners, 43 pt tall with 11 pt between rows. The punctuation page's keys are
-the stock letter width (`characterKeyWidth`, 33 pt), between shift at the leading edge and delete
-at the trailing one, as in the stock keyboard's bottom letter row; the digit and symbol pages fill
+and 10 pt continuous corners, 43 pt tall with 11 pt between rows. The punctuation page's seven keys
+(`@ . , ? ! ' -`) are the stock letter width (`characterKeyWidth`, 33 pt, shrinking to fit a
+375 pt phone), between shift at the leading edge and delete at the trailing one, as in the stock
+keyboard's bottom letter row, so the gaps either side match it (six keys left 26 pt gaps); the digit and symbol pages fill
 the row. Return shows the `return.left` glyph for a plain new line and a word ("send", "go") only
 when the field names a job. Light mode uses white keys, which is inferred, not measured.
 

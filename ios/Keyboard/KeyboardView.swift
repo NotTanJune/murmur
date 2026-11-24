@@ -32,7 +32,7 @@ struct KeyboardView: View {
 
         var keys: [String] {
             switch self {
-            case .punctuation: ["@", ".", ",", "?", "!", "'"]
+            case .punctuation: ["@", ".", ",", "?", "!", "'", "-"]
             case .digits: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
             case .symbols: ["-", "/", ":", ";", "(", ")", "$", "&", "\"", "#"]
             }
@@ -104,18 +104,24 @@ struct KeyboardView: View {
             }
             HStack(spacing: DS.Keyboard.keySpacing) {
                 // The punctuation page sits like the stock keyboard's bottom letter row: shift at
-                // the leading edge, delete at the trailing one, and letter-width keys between them.
+                // the leading edge, delete at the trailing one, and seven letter-width keys between
+                // them, which leaves the stock row's gap on each side.
                 if page == .punctuation {
                     IconKey(symbol: dictation.shiftNext ? "shift.fill" : "shift", fill: DS.Keyboard.key, label: "Shift", isSelected: dictation.shiftNext) {
                         dictation.shiftNext.toggle()
                     }
                     Spacer(minLength: 0)
                 }
-                ForEach(page.keys, id: \.self) { character in
-                    CharacterKey(title: character, width: page == .punctuation ? DS.Keyboard.characterKeyWidth : nil) {
-                        actions.insert(character)
+                // Laid out before the spacers, so on a narrow phone (375 pt) the keys shrink a
+                // little to fit instead of the row running off the edge.
+                HStack(spacing: DS.Keyboard.keySpacing) {
+                    ForEach(page.keys, id: \.self) { character in
+                        CharacterKey(title: character, maxWidth: page == .punctuation ? DS.Keyboard.characterKeyWidth : nil) {
+                            actions.insert(character)
+                        }
                     }
                 }
+                .layoutPriority(1)
                 if page == .punctuation { Spacer(minLength: 0) }
                 DeleteKey(action: actions.delete)
             }
@@ -289,8 +295,8 @@ struct KeyFace<Content: View>: View {
 
 private struct CharacterKey: View {
     let title: String
-    /// A fixed width, or nil to share the row with the other keys.
-    var width: CGFloat?
+    /// The widest the key grows, or nil to share the row with the other keys.
+    var maxWidth: CGFloat?
     let action: () -> Void
 
     var body: some View {
@@ -300,7 +306,8 @@ private struct CharacterKey: View {
             }
         }
         .buttonStyle(KeyPressStyle())
-        .frame(width: width, height: DS.Keyboard.keyHeight)
+        .frame(maxWidth: maxWidth ?? .infinity)
+        .frame(height: DS.Keyboard.keyHeight)
     }
 }
 
