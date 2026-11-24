@@ -12,8 +12,8 @@ Plan 001 is one plan in milestones. Rows track the milestones.
 |---|---|---|---|---|---|
 | 001 / M0 | Measure the memory ceiling, add `MurmurTyping` | S | none | yes | DONE (50 MB peak with Bark, limit 177 MB) |
 | 001 / M1 | Layout, metrics, hit testing | M | M0 (0.2) | no | DONE (landscape height 202 from the plan constants vs Hex 204; recheck on device in M2) |
-| 001 / M2 | Key plane, shift, pages, pop-ups, accents, delete, trackpad | L | M1 | yes | IN PROGRESS |
-| 001 / M3 | Suggestion strip and the m dictation button | M | M2 | yes | TODO |
+| 001 / M2 | Key plane, shift, pages, pop-ups, accents, delete, trackpad | L | M1 | yes | WAITING ON DEVICE (bf0aa51, installed) |
+| 001 / M3 | Suggestion strip and the m dictation button | M | M2 | yes | WAITING ON DEVICE (bf0aa51, installed; M4 suggestions wired in) |
 | 001 / M4 | Word model, completions, next words | M | M0 | no | DONE (82,837 words, 242,342 pairs, 3.0 MB) |
 | 001 / M5 | Spatial autocorrect, undo chip | L | M2, M4 | yes | TODO |
 | 001 / M6 | Swipe typing | L | M2, M4 | yes | TODO |
