@@ -41,10 +41,12 @@
 		CFC6312F6BF4B81C29226FCE /* MurmurPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80051BCE7D8D7FDB936C586D /* MurmurPhoneApp.swift */; };
 		D4BB1D5042988A06EB9976BF /* Figtree[wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8D7B74B437D59CA05B2641AA /* Figtree[wght].ttf */; };
 		D5637C0BF0F9C2902995E48E /* ModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9CB6ECCBC707799552D6FF6 /* ModelView.swift */; };
+		D8112712FF7A03E1BE8987DE /* MurmurTyping in Frameworks */ = {isa = PBXBuildFile; productRef = 8106F3EDD1452B5ECFD2F8BB /* MurmurTyping */; };
 		D9A1FC2FFD3379716940E553 /* KeyboardHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */; };
 		DE116F16BAE2E5C68E88FCD4 /* KeyboardSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC6C18424BA60AAB0CE030AA /* KeyboardSounds.swift */; };
 		DEF4B0F1F0A4E802CD0C2DDA /* RunEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C1BE603771B0CA97D95936 /* RunEditor.swift */; };
 		E1D0452650BA0BB092C6B110 /* MurmurDictionary in Frameworks */ = {isa = PBXBuildFile; productRef = A07AB8CB90F8F75AFFE81CCA /* MurmurDictionary */; };
+		EEBC525562FA9E400BE2E5E5 /* MemoryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D33BE1F7945F473CD65509 /* MemoryProbe.swift */; };
 		EFB4D65F463F3ADBCE7B05E5 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		EFFD787EEC36E72893BB1E77 /* MurmurKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F2BD34DA200CB5289D0D7461 /* WebMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */; };
@@ -83,6 +85,7 @@
 		05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MurmurKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A9BEF73481F2C13EAA83A63 /* MurmurPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MurmurPhone.entitlements; sourceTree = "<group>"; };
 		0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPlayer.swift; sourceTree = "<group>"; };
+		10D33BE1F7945F473CD65509 /* MemoryProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryProbe.swift; sourceTree = "<group>"; };
 		121DC8A1B9D710897A9B4651 /* TrainingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingView.swift; sourceTree = "<group>"; };
 		1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPanel.swift; sourceTree = "<group>"; };
@@ -142,6 +145,7 @@
 				056C1619205D736F6A1C4A4E /* MurmurKit in Frameworks */,
 				33AEC39CA8F91AD5F0E46421 /* MurmurDictionary in Frameworks */,
 				3EC85E110CD28B6DC22071BF /* MurmurDesign in Frameworks */,
+				D8112712FF7A03E1BE8987DE /* MurmurTyping in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,6 +275,7 @@
 				B806E79B87FA2CD3DA1A5B73 /* KeyboardView.swift */,
 				AF331963D1F614BA7BA95B4B /* KeyboardViewController.swift */,
 				25BF4AF99485D9D693C7C960 /* KeyFeedback.swift */,
+				10D33BE1F7945F473CD65509 /* MemoryProbe.swift */,
 				C01E3D62CD322B0FC73D899F /* MurmurKeyboard.entitlements */,
 				697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */,
 			);
@@ -337,6 +342,7 @@
 				2886FFB7942759E9C9F8E7F0 /* MurmurKit */,
 				176678EA5F54B6EF771BEFCE /* MurmurDictionary */,
 				46A5889A52A8B6301FAC3C74 /* MurmurDesign */,
+				8106F3EDD1452B5ECFD2F8BB /* MurmurTyping */,
 			);
 			productName = MurmurKeyboard;
 			productReference = 05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */;
@@ -427,6 +433,7 @@
 				2732C5A91B4EFDCF84920548 /* KeyboardStatus.swift in Sources */,
 				601461B10C67E87B3B13F988 /* KeyboardView.swift in Sources */,
 				30B6E5C442A23591EBAE77E0 /* KeyboardViewController.swift in Sources */,
+				EEBC525562FA9E400BE2E5E5 /* MemoryProbe.swift in Sources */,
 				48BC99FB2C5937FA6F985D24 /* PhoneEnvironment.swift in Sources */,
 				F2BD34DA200CB5289D0D7461 /* WebMicrophone.swift in Sources */,
 			);
@@ -696,6 +703,10 @@
 		46A5889A52A8B6301FAC3C74 /* MurmurDesign */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MurmurDesign;
+		};
+		8106F3EDD1452B5ECFD2F8BB /* MurmurTyping */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MurmurTyping;
 		};
 		9B1B5B0E3BA928B4FE420B83 /* MurmurDesign */ = {
 			isa = XCSwiftPackageProductDependency;

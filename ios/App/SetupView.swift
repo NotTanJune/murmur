@@ -35,6 +35,10 @@ final class SetupStatus {
     /// keyboard has shown the panel and reported.
     private(set) var emojiPanelRequestedHeight: Int?
     private(set) var emojiPanelShownHeight: Int?
+    /// The keyboard process's footprint at its last sample and its peak, in MB; nil until it
+    /// has reported them.
+    private(set) var footprintMB: Double?
+    private(set) var peakFootprintMB: Double?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -58,6 +62,8 @@ final class SetupStatus {
         captureMode = reported?.captureMode
         emojiPanelRequestedHeight = reported?.emojiPanelRequestedHeight
         emojiPanelShownHeight = reported?.emojiPanelShownHeight
+        footprintMB = reported?.footprintMB
+        peakFootprintMB = reported?.peakFootprintMB
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -162,6 +168,9 @@ struct SetupView: View {
                 if let line = emojiPanelLine {
                     Note(text: line)
                 }
+                if let line = memoryLine {
+                    Note(text: line)
+                }
             }
 
             Card(title: "Model") {
@@ -231,6 +240,12 @@ struct SetupView: View {
     private var emojiPanelLine: String? {
         guard let requested = status.emojiPanelRequestedHeight, let shown = status.emojiPanelShownHeight else { return nil }
         return "Emoji panel: \(requested) requested, \(shown) pt shown"
+    }
+
+    /// "Memory: 38 MB now · 41 MB peak", the keyboard process's physical footprint.
+    private var memoryLine: String? {
+        guard let now = status.footprintMB, let peak = status.peakFootprintMB else { return nil }
+        return "Memory: \(Int(now.rounded())) MB now · \(Int(peak.rounded())) MB peak"
     }
 
     private var fullAccessDetail: String? {

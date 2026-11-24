@@ -118,6 +118,12 @@ final class KeyboardDictation {
     /// system honoured the height constraint; written to `KeyboardStatus`.
     @ObservationIgnored private var emojiPanelRequestedHeight: Int?
     @ObservationIgnored private var emojiPanelShownHeight: Int?
+    /// The process's physical footprint at the last sample and the largest sample seen, in MB.
+    /// Sampled at each appearance, at each hold's end and every `memorySampleSeconds` while
+    /// visible; reported through `KeyboardStatus`.
+    @ObservationIgnored private var footprintMB: Double?
+    @ObservationIgnored private var peakFootprintMB: Double?
+    @ObservationIgnored private var memoryTimer: Timer?
     /// When the microphone was last reopened automatically, newest last, for the loop breaker.
     @ObservationIgnored private var reopenTimes: [ContinuousClock.Instant] = []
     @ObservationIgnored private var reopenTask: Task<Void, Never>?
@@ -133,6 +139,8 @@ final class KeyboardDictation {
     /// How long a release's finish or an abandon's teardown may run before the hold is dropped.
     /// A stuck engine would otherwise leave the talk key busy for the life of the process.
     static let teardownTimeoutSeconds: TimeInterval = 20
+    /// How often the footprint is sampled while the keyboard is visible.
+    static let memorySampleSeconds: TimeInterval = 10
     /// How much audio before a press a hold starts from, as the Mac's `CaptureRouter` does.
     static let preRollSeconds: Double = 0.3
     /// A warm microphone that stopped after delivering audio is reopened after this long, at
@@ -268,6 +276,8 @@ final class KeyboardDictation {
         }
         Task { await AppleSpeechEngine.prewarm() }
         loadBarkIfAllowed()
+        recordMemory()
+        startMemorySampling()
         writeStatus()
     }
 
@@ -276,6 +286,8 @@ final class KeyboardDictation {
     /// so an abandoned hold leaves no text and no run.
     func keyboardDisappeared() {
         isVisible = false
+        memoryTimer?.invalidate()
+        memoryTimer = nil
         reopenTask?.cancel()
         idleCloseTask?.cancel()
         idleCloseTask = nil
@@ -533,8 +545,35 @@ final class KeyboardDictation {
             lastReleaseEngine: lastReleaseEngine,
             captureMode: microphone.confirmedMode?.rawValue,
             emojiPanelRequestedHeight: emojiPanelRequestedHeight,
-            emojiPanelShownHeight: emojiPanelShownHeight
+            emojiPanelShownHeight: emojiPanelShownHeight,
+            footprintMB: footprintMB, peakFootprintMB: peakFootprintMB
         ).write()
+    }
+
+    /// Takes one footprint sample and keeps the peak. It does not write the status file; callers
+    /// that are not about to write it use `sampleMemory`.
+    private func recordMemory() {
+        let current = MemoryProbe.footprintMB()
+        guard current > 0 else { return }
+        footprintMB = current
+        peakFootprintMB = max(peakFootprintMB ?? 0, current)
+    }
+
+    private func sampleMemory() {
+        recordMemory()
+        writeStatus()
+    }
+
+    /// Samples every `memorySampleSeconds` while the keyboard is visible. A timer in the common
+    /// run-loop modes, because the default mode stops while a `ScrollView` tracks a finger (the
+    /// emoji and history panels), which is when the footprint matters most.
+    private func startMemorySampling() {
+        memoryTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.memorySampleSeconds, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleMemory() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        memoryTimer = timer
     }
 
     /// The view controller laid out the emoji panel: `requested` is the height constraint's
@@ -989,6 +1028,7 @@ final class KeyboardDictation {
         hold.recorded.removeAll(keepingCapacity: false)
         self.hold = nil
         if case .failed = state {} else { state = .idle }
+        sampleMemory()
         scheduleIdleClose()
     }
 

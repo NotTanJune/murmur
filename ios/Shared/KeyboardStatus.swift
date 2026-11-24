@@ -33,6 +33,11 @@ struct KeyboardStatus: Codable, Equatable {
     /// constraint. Optional so a file written before these fields existed still decodes.
     var emojiPanelRequestedHeight: Int?
     var emojiPanelShownHeight: Int?
+    /// The keyboard process's physical footprint when last sampled, and the largest sample this
+    /// process has seen, in megabytes. The Setup tab shows them so the memory ceiling can be
+    /// read off a device. Optional so a file written before these fields existed still decodes.
+    var footprintMB: Double?
+    var peakFootprintMB: Double?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

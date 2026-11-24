@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "MurmurKit", targets: ["MurmurKit"]),
         .library(name: "MurmurDictionary", targets: ["MurmurDictionary"]),
         .library(name: "MurmurDesign", targets: ["MurmurDesign"]),
+        .library(name: "MurmurTyping", targets: ["MurmurTyping"]),
     ],
     dependencies: [
         // Core ML speech models on the Neural Engine. Apple's transcriber is the default
@@ -43,6 +44,16 @@ let package = Package(
             path: "Sources/MurmurDesign",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // The keyboard's typing engine: layout, touches, autocorrect, swipe, learning. No UIKit,
+        // so it is tested on the Mac; only the iPhone keyboard links it.
+        .target(
+            name: "MurmurTyping",
+            dependencies: ["MurmurDictionary"],
+            path: "Sources/MurmurTyping",
+            exclude: ["Lexicon/MTMFormat.md"],
+            resources: [.copy("Resources/en.mtm")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "Murmur",
             dependencies: [
@@ -66,6 +77,12 @@ let package = Package(
             name: "MurmurKitTests",
             dependencies: ["MurmurKit", .product(name: "FluidAudio", package: "FluidAudio")],
             path: "Tests/MurmurKitTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "MurmurTypingTests",
+            dependencies: ["MurmurTyping"],
+            path: "Tests/MurmurTypingTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

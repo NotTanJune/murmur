@@ -96,6 +96,8 @@ targets:
         product: MurmurDictionary
       - package: Murmur
         product: MurmurDesign
+      - package: Murmur
+        product: MurmurTyping
     entitlements:
       path: Keyboard/MurmurKeyboard.entitlements
       properties:
