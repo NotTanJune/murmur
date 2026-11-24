@@ -582,6 +582,14 @@ glass capsule below with `Waveform` bars that follow the input level (grey and f
 hold has audio, then red). The user removed the live words that briefly showed on it on
 2026-11-22. Do not bring them back.
 
+**The keys follow the iOS 26 keyboard.** Measured from a screenshot of the stock keyboard on
+2026-11-25: every key has one flat fill (`DS.Keyboard.key`, RGB 68 in dark), with no drop shadow
+and 10 pt continuous corners, 43 pt tall with 11 pt between rows. The punctuation page's keys are
+the stock letter width (`characterKeyWidth`, 33 pt), between shift at the leading edge and delete
+at the trailing one, as in the stock keyboard's bottom letter row; the digit and symbol pages fill
+the row. Return shows the `return.left` glyph for a plain new line and a word ("send", "go") only
+when the field names a job. Light mode uses white keys, which is inferred, not measured.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

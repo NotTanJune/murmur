@@ -140,7 +140,8 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private static func title(for type: UIReturnKeyType?) -> String {
+    /// The word for a return key with a job; nil for a plain new line, which shows the glyph.
+    private static func title(for type: UIReturnKeyType?) -> String? {
         switch type {
         case .send: "send"
         case .search, .google, .yahoo: "search"
@@ -148,7 +149,7 @@ final class KeyboardViewController: UIInputViewController {
         case .done: "done"
         case .next: "next"
         case .join: "join"
-        default: "return"
+        default: nil
         }
     }
 }

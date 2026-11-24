@@ -14,7 +14,9 @@ struct KeyboardActions {
     let globe: (UIView, UIEvent) -> Void
     let openMurmur: () -> Void
     let showsGlobe: () -> Bool
-    let returnTitle: () -> String
+    /// The return key's word for a field that names its job ("send", "go"); nil shows the
+    /// return glyph, as the stock keyboard does for a plain new line.
+    let returnTitle: () -> String?
     let returnIsProminent: () -> Bool
 }
 
@@ -101,14 +103,20 @@ struct KeyboardView: View {
                 TalkKey(dictation: dictation, actions: actions)
             }
             HStack(spacing: DS.Keyboard.keySpacing) {
+                // The punctuation page sits like the stock keyboard's bottom letter row: shift at
+                // the leading edge, delete at the trailing one, and letter-width keys between them.
                 if page == .punctuation {
-                    IconKey(symbol: dictation.shiftNext ? "shift.fill" : "shift", fill: DS.Keyboard.functionKey, label: "Shift", isSelected: dictation.shiftNext) {
+                    IconKey(symbol: dictation.shiftNext ? "shift.fill" : "shift", fill: DS.Keyboard.key, label: "Shift", isSelected: dictation.shiftNext) {
                         dictation.shiftNext.toggle()
                     }
+                    Spacer(minLength: 0)
                 }
                 ForEach(page.keys, id: \.self) { character in
-                    CharacterKey(title: character) { actions.insert(character) }
+                    CharacterKey(title: character, width: page == .punctuation ? DS.Keyboard.characterKeyWidth : nil) {
+                        actions.insert(character)
+                    }
                 }
+                if page == .punctuation { Spacer(minLength: 0) }
                 DeleteKey(action: actions.delete)
             }
             HStack(spacing: DS.Keyboard.keySpacing) {
@@ -116,12 +124,12 @@ struct KeyboardView: View {
                     GlobeKey(action: actions.globe)
                         .frame(width: DS.Keyboard.functionKeyWidth, height: DS.Keyboard.keyHeight)
                 }
-                TextKey(title: page.nextTitle, fill: DS.Keyboard.functionKey, width: DS.Keyboard.functionKeyWidth) {
+                TextKey(title: page.nextTitle, fill: DS.Keyboard.key, width: DS.Keyboard.functionKeyWidth) {
                     page = page.next
                 }
-                IconKey(symbol: "face.smiling", fill: DS.Keyboard.functionKey, label: "Emoji") { show(.emoji) }
-                IconKey(symbol: "keyboard.chevron.compact.down", fill: DS.Keyboard.functionKey, label: "Hide keyboard", action: actions.dismiss)
-                TextKey(title: "", fill: DS.Keyboard.letterKey, width: nil, label: "Space") { actions.insert(" ") }
+                IconKey(symbol: "face.smiling", fill: DS.Keyboard.key, label: "Emoji") { show(.emoji) }
+                IconKey(symbol: "keyboard.chevron.compact.down", fill: DS.Keyboard.key, label: "Hide keyboard", action: actions.dismiss)
+                TextKey(title: "", fill: DS.Keyboard.key, width: nil, label: "Space") { actions.insert(" ") }
                 ReturnKey(actions: actions)
             }
         }
@@ -271,31 +279,28 @@ struct KeyFace<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
+        // Flat, with no drop shadow, as the iOS 26 keyboard draws its keys.
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius)
-                    .fill(fill)
-                    .shadow(
-                        color: fill == .clear ? .clear : DS.Keyboard.keyShadow,
-                        radius: 0, x: 0, y: DS.Keyboard.keyShadowOffset)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius))
+            .background(RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius, style: .continuous).fill(fill))
+            .contentShape(RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius, style: .continuous))
     }
 }
 
 private struct CharacterKey: View {
     let title: String
+    /// A fixed width, or nil to share the row with the other keys.
+    var width: CGFloat?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            KeyFace(fill: DS.Keyboard.letterKey) {
+            KeyFace(fill: DS.Keyboard.key) {
                 Text(title).font(DS.Keyboard.characterFont)
             }
         }
         .buttonStyle(KeyPressStyle())
-        .frame(height: DS.Keyboard.keyHeight)
+        .frame(width: width, height: DS.Keyboard.keyHeight)
     }
 }
 
@@ -346,14 +351,21 @@ private struct ReturnKey: View {
 
     var body: some View {
         let prominent = actions.returnIsProminent()
+        let title = actions.returnTitle()
         Button(action: actions.newline) {
-            KeyFace(fill: prominent ? DS.Keyboard.prominentKey : DS.Keyboard.functionKey) {
-                Text(actions.returnTitle())
-                    .font(DS.Keyboard.labelFont)
-                    .foregroundStyle(prominent ? DS.Keyboard.onProminentKey : .primary)
+            KeyFace(fill: prominent ? DS.Keyboard.prominentKey : DS.Keyboard.key) {
+                Group {
+                    if let title {
+                        Text(title).font(DS.Keyboard.labelFont)
+                    } else {
+                        Image(systemName: "return.left").font(DS.Keyboard.iconFont)
+                    }
+                }
+                .foregroundStyle(prominent ? DS.Keyboard.onProminentKey : .primary)
             }
         }
         .buttonStyle(KeyPressStyle())
+        .accessibilityLabel(title ?? "Return")
         .frame(width: DS.Keyboard.returnWidth, height: DS.Keyboard.keyHeight)
     }
 }
@@ -368,7 +380,7 @@ struct DeleteKey: View {
     @GestureState private var touching = false
 
     var body: some View {
-        KeyFace(fill: DS.Keyboard.functionKey) {
+        KeyFace(fill: DS.Keyboard.key) {
             Image(systemName: repeater == nil ? "delete.left" : "delete.left.fill").font(DS.Keyboard.iconFont)
         }
         .frame(width: DS.Keyboard.functionKeyWidth, height: height)
@@ -437,7 +449,7 @@ private struct GlobeKey: View {
     let action: (UIView, UIEvent) -> Void
 
     var body: some View {
-        KeyFace(fill: DS.Keyboard.functionKey) {
+        KeyFace(fill: DS.Keyboard.key) {
             GlobeButton(action: action)
         }
     }

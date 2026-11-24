@@ -280,16 +280,20 @@ public enum DS {
     // MARK: - Keyboard
 
     /// The iOS keyboard extension. Keys follow the system keyboard's look so Murmur sits
-    /// beside Apple's own keyboards; red stays reserved for recording (`Color.record`), and the
+    /// beside Apple's own keyboards (iOS 26: one flat fill for every key, no drop shadow, rounder
+    /// corners, measured from a screenshot of the stock keyboard on 2026-11-25); red stays reserved for recording (`Color.record`), and the
     /// talk key is Liquid Glass tinted toward `Color.hud` (`talkGlassTint`).
     public enum Keyboard {
         public static let padding: CGFloat = 6
-        public static let rowSpacing: CGFloat = 10
+        public static let rowSpacing: CGFloat = 11
         public static let keySpacing: CGFloat = 6
         public static let talkHeight: CGFloat = 48
-        public static let keyHeight: CGFloat = 44
-        public static let keyRadius: CGFloat = 8
+        public static let keyHeight: CGFloat = 43
+        public static let keyRadius: CGFloat = 10
         public static let functionKeyWidth: CGFloat = 44
+        /// A punctuation key on the first page: the stock keyboard's letter key, not stretched
+        /// to fill the row. The digit and symbol pages hold ten keys and fill the row instead.
+        public static let characterKeyWidth: CGFloat = 33
         public static let returnWidth: CGFloat = 92
         public static let historyWidth: CGFloat = 40
         public static let labelInset: CGFloat = 22
@@ -384,8 +388,6 @@ public enum DS {
         public static let historyTimeUIFont = UIFont.systemFont(ofSize: 11)
         #endif
 
-        /// The one-pixel drop under each key.
-        public static let keyShadowOffset: CGFloat = 1
         /// A key under the finger.
         public static let pressedOpacity: Double = 0.6
         /// History panel: gap between rows, row insets, header inset, how many runs it lists.
@@ -411,14 +413,18 @@ public enum DS {
         }
 
         #if canImport(UIKit)
+        /// Every key's fill, as on the iOS 26 keyboard, where letters, shift, delete, 123 and
+        /// return share one colour. Dark is the stock key measured (RGB 68).
+        public static let key = SwiftUI.Color(uiColor: UIColor {
+            $0.userInterfaceStyle == .dark ? UIColor(white: 0.267, alpha: 1) : .white
+        })
+        /// The skin-tone row's ground, lighter than a key so it floats above the grid.
         public static let letterKey = SwiftUI.Color(uiColor: UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white
         })
+        /// The emoji bar's selected category and the chosen skin tone.
         public static let functionKey = SwiftUI.Color(uiColor: UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.74, alpha: 1)
-        })
-        public static let keyShadow = SwiftUI.Color(uiColor: UIColor {
-            $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.35) : UIColor(red: 0.53, green: 0.54, blue: 0.56, alpha: 1)
         })
         /// Return when the field gives it a job other than a new line, as on Apple's keyboard.
         public static let prominentKey = SwiftUI.Color(uiColor: .systemBlue)
