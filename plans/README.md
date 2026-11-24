@@ -10,7 +10,7 @@ Plan 001 is one plan in milestones. Rows track the milestones.
 
 | Milestone | Title | Effort | Depends on | Device check | Status |
 |---|---|---|---|---|---|
-| 001 / M0 | Measure the memory ceiling, add `MurmurTyping` | S | none | yes | WAITING ON DEVICE (d79b865, installed 2026-11-25) |
+| 001 / M0 | Measure the memory ceiling, add `MurmurTyping` | S | none | yes | DONE (50 MB peak with Bark, limit 177 MB) |
 | 001 / M1 | Layout, metrics, hit testing | M | M0 (0.2) | no | DONE (landscape height 202 from the plan constants vs Hex 204; recheck on device in M2) |
 | 001 / M2 | Key plane, shift, pages, pop-ups, accents, delete, trackpad | L | M1 | yes | IN PROGRESS |
 | 001 / M3 | Suggestion strip and the m dictation button | M | M2 | yes | TODO |
@@ -41,7 +41,7 @@ Filled in by executors and the owner.
 |---|---|---|---|
 | Keyboard footprint at rest, Bark loaded | 50 MB (after one Bark dictation; not killed) | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
 | Keyboard peak footprint | 50 MB | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
-| Extension memory limit | above 50 MB (pending) | 2026-11-25 | the keyboard survived at 50 MB |
+| Extension memory limit | 177 MB (`Memory Limits: active 177 inactive 177`); typing budget (177 - 8) - 50 = 119 MB | 2026-11-25 | runningboardd, `log collect --device`, iPhone 15 Pro, iOS 27.2.1 |
 | Autocorrect replay: raw WER / corrected WER / correct words changed | | | M5.5 |
 | Swipe synthetic top-1 / p99 decode | | | M6 |
 
