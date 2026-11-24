@@ -83,8 +83,8 @@ targets:
       - path: Keyboard
         excludes: ["Info.plist"]
       - path: Shared
-      # The talk key's word is set in the app icon's face. The OFL requires its text to travel
-      # with the font. `UIAppFonts` below registers the TTF; `DS.Keyboard.wordmarkFont` falls
+      # The m of the dictation button is set in the app icon's face. The OFL requires its text to travel
+      # with the font. `UIAppFonts` below registers the TTF; `DS.Keyboard.mGlyphFont` falls
       # back to SF italic if it does not resolve.
       - path: ../Tools/Fonts
         includes: ["EBGaramond-Italic*.ttf", "OFL-EBGaramond.txt"]

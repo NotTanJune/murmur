@@ -66,8 +66,9 @@ struct EmojiPanel: View {
     }
 
     /// The rows that fit the grid's share of a panel `height` tall, at least
-    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 260 pt keyboard
-    /// (248 pt inside its padding) leaves 184 pt for the grid: five rows of 36.8 pt.
+    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 253 pt keyboard
+    /// (241 pt inside its padding) leaves 177 pt for the grid: five rows of 35.4 pt. Turned,
+    /// 202 pt leaves 126 pt: three rows of 42 pt.
     private static func rows(fitting height: CGFloat, preferred: Int) -> Int {
         let grid = height - DS.Keyboard.emojiTitleHeight - DS.Keyboard.emojiBarHeight - DS.Keyboard.emojiBarSpacing * 2
         let fitting = Int((max(grid, 0) / DS.Keyboard.emojiMinCellHeight).rounded(.down))

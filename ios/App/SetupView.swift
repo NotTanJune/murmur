@@ -236,10 +236,11 @@ struct SetupView: View {
         }
     }
 
-    /// "Emoji panel: 260 requested, 260 pt shown", from the last time the keyboard showed it.
+    /// "Keyboard height: 253 requested, 253 pt shown", from the keyboard's last layout. Equal
+    /// means the system honoured the height constraint.
     private var emojiPanelLine: String? {
         guard let requested = status.emojiPanelRequestedHeight, let shown = status.emojiPanelShownHeight else { return nil }
-        return "Emoji panel: \(requested) requested, \(shown) pt shown"
+        return "Keyboard height: \(requested) requested, \(shown) pt shown"
     }
 
     /// "Memory: 38 MB now · 41 MB peak", the keyboard process's physical footprint.

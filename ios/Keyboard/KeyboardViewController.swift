@@ -1,18 +1,25 @@
 import MurmurDesign
 import MurmurKit
+import OSLog
 import SwiftUI
 import UIKit
 
 /// The keyboard extension's entry point. It owns what only a view controller has (the text
-/// proxy, the globe key's event handling, the responder chain); the keys live in `KeyboardView`.
+/// proxy, the globe key's event handling, the responder chain, the height constraint); the
+/// strip and the panels live in `KeyboardView`, the keys in `KeyPlaneView`, and what the keys
+/// do to the text in `TypingController`.
 final class KeyboardViewController: UIInputViewController {
     private let microphone = WebMicrophone()
-    /// The keyboard's height; the emoji panel raises it and ABC puts it back.
+    /// The keyboard's height: the key page's, computed from the width at each layout. The emoji
+    /// and history panels use the same height, because iOS ignores a keyboard that grows after
+    /// it first appears.
     private var heightConstraint: NSLayoutConstraint?
     private lazy var dictation = KeyboardDictation(
         microphone: microphone,
         proxy: { [weak self] in self?.textDocumentProxy }
     )
+    private lazy var typing = TypingController(proxy: { [weak self] in self?.textDocumentProxy })
+    private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "keyboard")
 
     /// The environment must be configured before anything reads storage or `Settings.shared`.
     /// Nothing the stored properties above create does; `dictation` is lazy.
@@ -41,19 +48,19 @@ final class KeyboardViewController: UIInputViewController {
         microphone.attach(to: view)
         dictation.haptics.attach(to: view)
         KeyFeedback.attach(to: view)
+        typing.popupHost = view
+        typing.onGlobe = { [weak self] button, event in self?.handleInputModeList(from: button, with: event) }
+        // Dictation types through the same shift state as the keys, and tells the controller
+        // what it typed so the shift key and the strip follow.
+        dictation.takeShift = { [weak self] in self?.typing.takeShiftForDictation() ?? false }
+        dictation.onTextInserted = { [weak self] in self?.typing.noteDictationInserted() }
         let host = UIHostingController(rootView: KeyboardView(
             dictation: dictation,
+            typing: typing,
             actions: KeyboardActions(
-                insert: { [weak self] in self?.textDocumentProxy.insertText($0) },
-                delete: { [weak self] in self?.textDocumentProxy.deleteBackward() },
-                newline: { [weak self] in self?.textDocumentProxy.insertText("\n") },
-                dismiss: { [weak self] in self?.dismissKeyboard() },
-                setHeight: { [weak self] in self?.setKeyboardHeight($0) },
-                globe: { [weak self] view, event in self?.handleInputModeList(from: view, with: event) },
-                openMurmur: { [weak self] in self?.openMurmur() },
-                showsGlobe: { [weak self] in self?.needsInputModeSwitchKey ?? false },
-                returnTitle: { [weak self] in Self.title(for: self?.textDocumentProxy.returnKeyType) },
-                returnIsProminent: { [weak self] in Self.isProminent(self?.textDocumentProxy.returnKeyType) }
+                insert: { [weak self] in self?.typing.insertExternal($0) },
+                delete: { [weak self] in self?.typing.deleteExternal() },
+                openMurmur: { [weak self] in self?.openMurmur() }
             )
         ))
         host.view.backgroundColor = .clear
@@ -61,15 +68,12 @@ final class KeyboardViewController: UIInputViewController {
         addChild(host)
         view.addSubview(host.view)
         // Required, as Apple's custom keyboard guide does it ("change its primary view's height
-        // constraint"). It was 999 until 2026-11-22, and the emoji panel never got taller on a
-        // device: the first size the system measures honoured the 999 constraint (the key page
-        // came out at 168), but the system also pins the input view with its own required
-        // `UIView-Encapsulated-Layout-Height`, which a 999 constraint can never beat, so
-        // changing the constant changed nothing and logged nothing. A required one conflicts
-        // with the system's while the sizes differ (UIKit logs that, and it is expected) and is
-        // what the guide relies on to resize the keyboard. Unverified on a device until Setup's
-        // "Emoji panel" line reads 260 shown; `KeyboardView` fits whatever height arrives.
-        let height = view.heightAnchor.constraint(equalToConstant: DS.Keyboard.height)
+        // constraint"). It was 999 until 2026-11-22: the system also pins the input view with
+        // its own required `UIView-Encapsulated-Layout-Height`, which a 999 constraint can never
+        // beat. A required one conflicts with the system's while the sizes differ (UIKit logs
+        // that, and it is expected). The first size is portrait's; `viewDidLayoutSubviews` sets
+        // the real one from the width.
+        let height = view.heightAnchor.constraint(equalToConstant: TypingController.initialHeight)
         heightConstraint = height
         NSLayoutConstraint.activate([
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -81,29 +85,54 @@ final class KeyboardViewController: UIInputViewController {
         host.didMove(toParent: self)
     }
 
-    /// Changes the height constraint and lays it out at once, before the SwiftUI content resizes.
-    private func setKeyboardHeight(_ height: CGFloat) {
-        guard heightConstraint?.constant != height else { return }
-        heightConstraint?.constant = height
-        view.layoutIfNeeded()
-    }
-
-    /// While the emoji panel asks for more than the key page, reports the height it asked for
-    /// and the height the keyboard actually has, as evidence for the Setup tab. The system can
-    /// resize the keyboard a pass later than `setKeyboardHeight`, so each layout reports and
-    /// `KeyboardDictation` keeps only a changed pair. The shown height is the smaller of the
-    /// view's and its window's, because a window shorter than the view clips it.
+    /// The key page's height follows the width and the orientation, so it is set at each layout.
+    /// It also reports the height asked for and the height the keyboard actually has, as
+    /// evidence for the Setup tab that the system honours the constraint (`KeyboardDictation`
+    /// keeps only a changed pair). The shown height is the smaller of the view's and its
+    /// window's, because a window shorter than the view clips it.
+    ///
+    /// Landscape is read from the vertical size class and not from the view's own shape: the
+    /// view is wider than it is tall in portrait too.
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard let requested = heightConstraint?.constant, requested != DS.Keyboard.height else { return }
+        let landscape = traitCollection.verticalSizeClass == .compact
+        typing.setLayout(
+            width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey)
+        let height = typing.keyboardHeight
+        if heightConstraint?.constant != height {
+            heightConstraint?.constant = height
+        }
         let viewHeight = view.bounds.height
         let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
-        dictation.noteEmojiPanelHeight(requested: requested, shown: shown)
+        dictation.noteEmojiPanelHeight(requested: height, shown: shown)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
+        typing.keyboardAppeared()
+    }
+
+    /// iOS holds back touches near the screen's side edges while it decides whether they are
+    /// its own gestures (the home and app-switch swipes), which delays the outermost keys.
+    /// Asking the window's recognizers not to delay them is unverified on a device; the line
+    /// in the log says the request ran.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard let recognizers = view.window?.gestureRecognizers else { return }
+        for recognizer in recognizers { recognizer.delaysTouchesBegan = false }
+        Self.log.info("window gesture recognizers: delaysTouchesBegan off for \(recognizers.count)")
+    }
+
+    /// The host changed the text, the selection or the field: shift and the strip follow it.
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        typing.textDidChange()
+    }
+
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        typing.textDidChange()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -130,27 +159,6 @@ final class KeyboardViewController: UIInputViewController {
             responder = current.next
         }
         extensionContext?.open(url, completionHandler: nil)
-    }
-
-    /// Apple's keyboard turns return blue when the field gives it a job other than a new line.
-    private static func isProminent(_ type: UIReturnKeyType?) -> Bool {
-        switch type {
-        case nil, .default?, .continue?: false
-        default: true
-        }
-    }
-
-    /// The word for a return key with a job; nil for a plain new line, which shows the glyph.
-    private static func title(for type: UIReturnKeyType?) -> String? {
-        switch type {
-        case .send: "send"
-        case .search, .google, .yahoo: "search"
-        case .go, .route: "go"
-        case .done: "done"
-        case .next: "next"
-        case .join: "join"
-        default: nil
-        }
     }
 }
 

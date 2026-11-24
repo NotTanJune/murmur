@@ -282,24 +282,53 @@ public enum DS {
     /// The iOS keyboard extension. Keys follow the system keyboard's look so Murmur sits
     /// beside Apple's own keyboards (iOS 26: one flat fill for every key, no drop shadow, rounder
     /// corners, measured from a screenshot of the stock keyboard on 2026-11-25); red stays reserved for recording (`Color.record`), and the
-    /// talk key is Liquid Glass tinted toward `Color.hud` (`talkGlassTint`).
+    /// m and the recording capsule are Liquid Glass tinted toward `Color.hud` (`talkGlassTint`).
     public enum Keyboard {
+        /// The inset of the emoji and history panels. The key plane draws its own `sideInset`.
         public static let padding: CGFloat = 6
-        public static let rowSpacing: CGFloat = 11
         public static let keySpacing: CGFloat = 6
-        public static let talkHeight: CGFloat = 48
-        public static let keyHeight: CGFloat = 43
         public static let keyRadius: CGFloat = 10
         public static let functionKeyWidth: CGFloat = 44
-        /// A punctuation key on the first page: the stock keyboard's letter key, not stretched
-        /// to fill the row. The digit and symbol pages hold ten keys and fill the row instead.
-        public static let characterKeyWidth: CGFloat = 33
-        public static let returnWidth: CGFloat = 92
-        public static let historyWidth: CGFloat = 40
+        /// The failure message's inset inside the glass capsule it sits in.
         public static let labelInset: CGFloat = 22
-        /// The emoji picker. Apple's shows five rows in portrait; the panel is taller than the
-        /// key page so they fit, and the grid divides what is left after the section title and
-        /// the category bar.
+
+        // MARK: Key plane geometry
+        // The stock iOS 26/27 keyboard on a 393 pt iPhone, measured from a screenshot on
+        // 2026-11-25: 42 pt keycaps, 11 pt between rows, 6 pt between keys, and a 44 pt
+        // suggestion strip. `KeyboardMetrics` (MurmurTyping, which cannot import this module)
+        // is built from these through `KeyPlaneView`'s constants.
+
+        /// The suggestion strip above the keys.
+        public static let stripHeight: CGFloat = 44
+        /// Between the strip and the first row: 8 pt upright, 6 pt turned.
+        public static let stripGap: CGFloat = 8
+        public static let stripGapLandscape: CGFloat = 6
+        public static let keycapHeight: CGFloat = 42
+        public static let keycapHeightLandscape: CGFloat = 32
+        /// Between two rows of keys: 11 pt upright, 8 pt turned.
+        public static let rowGap: CGFloat = 11
+        public static let rowGapLandscape: CGFloat = 8
+        /// Between the view's side edge and the outermost keycap.
+        public static let sideInset: CGFloat = 6
+        public static let bottomInset: CGFloat = 0
+        /// The width the fixed key widths below were measured at; shift and delete scale from it.
+        public static let referenceWidth: CGFloat = 393
+        /// The `123` or `ABC` key, the emoji key and the globe key in the bottom row.
+        public static let pageKeyWidth: CGFloat = 42
+        public static let returnKeyWidth: CGFloat = 91
+        /// How far the space bar's touch area reaches up into the row above it.
+        public static let spaceHitReach: CGFloat = 2.5
+        /// How far the keycaps fade toward the backdrop while the space bar is a trackpad, as a
+        /// fraction: the keys are hidden at 1.
+        public static let trackpadKeyBlank: Double = 0.6
+        /// The clock the key plane runs while a finger is down: 40 per second is one tick every
+        /// 25 ms, and the range lets a 60 Hz screen answer at 30 or 60.
+        public static let tickRate: Float = 40
+        public static let tickRateMinimum: Float = 30
+        public static let tickRateMaximum: Float = 60
+        /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
+        /// the key page (iOS ignores a keyboard that grows after it first appears), and the grid
+        /// divides what is left after the section title and the category bar.
         public static let emojiRows = 5
         /// Where less height arrives than the panel asked for, rows are dropped so none is under
         /// `emojiMinCellHeight`, down to `emojiMinRows`; the title and the category bar keep
@@ -309,11 +338,9 @@ public enum DS {
         /// Columns in view at once, so a cell is the panel's width over this.
         public static let emojiColumns = 8
         public static let emojiGlyphSize: CGFloat = 30
-        public static let emojiPanelHeight: CGFloat = 260
-        /// Landscape (compact vertical size class): 200 pt leaves 124 pt for the grid, so three
-        /// rows of about 41 pt keep the glyph at its size where five would shrink it to 25 pt.
-        /// The columns widen to match the wider screen.
-        public static let emojiPanelHeightCompact: CGFloat = 200
+        /// Landscape (compact vertical size class): the key page is 202 pt, which leaves about
+        /// 126 pt for the grid, so three rows of about 42 pt keep the glyph at its size where
+        /// five would shrink it. The columns widen to match the wider screen.
         public static let emojiRowsCompact = 3
         public static let emojiColumnsCompact = 14
         public static let emojiBarHeight: CGFloat = 36
@@ -331,29 +358,29 @@ public enum DS {
         public static let emojiLongPress: TimeInterval = 0.4
         /// A drag this long while the tone row is up closes it, so a scroll attempt does.
         public static let emojiDismissDrag: CGFloat = 10
-        public static let deleteRepeatDelay: Duration = .milliseconds(400)
-        public static let deleteRepeatInterval: Duration = .milliseconds(80)
+        /// The emoji panel's delete key repeats as the key plane's does (`TypingEngine`).
+        public static let deleteRepeatDelay: Duration = .milliseconds(360)
+        public static let deleteRepeatInterval: Duration = .milliseconds(75)
         /// RMS to meter level: microphone RMS sits low, so callers scale it by this before
         /// handing it to `Waveform`, which itself applies no gain.
         public static let levelGain: Float = 8
 
         /// Type. The keyboard uses the system face so it sits beside Apple's own keyboards.
-        public static let characterFont = SwiftUI.Font.system(size: 22)
-        public static let labelFont = SwiftUI.Font.system(size: 16)
         public static let iconFont = SwiftUI.Font.system(size: 19)
         public static let barFont = SwiftUI.Font.system(size: 15, weight: .medium)
         public static let barIconFont = SwiftUI.Font.system(size: 15)
         public static let messageFont = SwiftUI.Font.system(size: 12)
         public static let messageActionFont = SwiftUI.Font.system(size: 13, weight: .semibold)
-        /// The line under "Murmur" that says what is not ready yet.
+        /// The readiness line in the strip that says what is not ready yet.
         public static let captionFont = SwiftUI.Font.system(size: 11)
+        /// The strip's suggestion cells. The centre one is emphasised, as on the stock keyboard.
+        public static let suggestionFont = SwiftUI.Font.system(size: 17)
+        public static let suggestionEmphasisFont = SwiftUI.Font.system(size: 17, weight: .semibold)
 
-        /// The talk key's idle word. The capsule is glass tinted dark brown in both appearances
-        /// (`talkGlassTint`), so these colours do not adapt. `wordmark` is a soft orange, paler
+        /// The m, and the readiness caption. The record control is glass tinted dark brown in
+        /// both appearances (`talkGlassTint`), so these colours do not adapt. `wordmark` is a soft orange, paler
         /// than `Color.record` on purpose: red means recording and nothing else.
         public static let wordmark = SwiftUI.Color(hex: 0xF2A57E)
-        /// The readiness caption under the word: the same orange, quieter.
-        public static let wordmarkCaption = wordmark.opacity(0.9)
         /// Text on the capsule that is not the word (the failure message).
         public static let onTalkKey = SwiftUI.Color(hex: 0xF0E8DA)
         /// The flat bars on the capsule before the hold has heard audio: soft and clearly visible
@@ -363,21 +390,54 @@ public enum DS {
         public static let talkAction = wordmark
         public static let onTalkAction = SwiftUI.Color(hex: 0x1C1917)
 
-        /// The word's size; EB Garamond Italic is smaller on the body than SF at the same point
-        /// size, so it runs larger than the 19 pt SF the key used before.
-        public static let wordmarkSize: CGFloat = 23
         /// PostScript name of the app icon's face, `Tools/Fonts/EBGaramond-Italic[wght].ttf`.
         public static let wordmarkFace = "EBGaramond-Italic"
+        /// The m of the dictation button: the wordmark's face at a size that fits a 36 pt circle.
+        /// EB Garamond Italic is smaller on the body than SF at the same point size.
+        public static let mGlyphSize: CGFloat = 26
         #if canImport(UIKit)
         /// EB Garamond Italic, registered by the keyboard's `UIAppFonts`. Falls back to SF
         /// italic when the face does not resolve (a build without the file, or `swift test`).
-        public static let wordmarkFont: SwiftUI.Font = {
-            guard UIFont(name: wordmarkFace, size: wordmarkSize) != nil else {
-                return SwiftUI.Font.system(size: wordmarkSize, weight: .medium).italic()
+        public static let mGlyphFont: SwiftUI.Font = {
+            guard UIFont(name: wordmarkFace, size: mGlyphSize) != nil else {
+                return SwiftUI.Font.system(size: mGlyphSize, weight: .medium).italic()
             }
-            return SwiftUI.Font.custom(wordmarkFace, fixedSize: wordmarkSize)
+            return SwiftUI.Font.custom(wordmarkFace, fixedSize: mGlyphSize)
         }()
         #endif
+
+        // MARK: Suggestion strip
+        /// The cell the m sits in at the strip's trailing end. The glass circle is centred in it,
+        /// and the whole cell takes the touch, so the button is bigger than it looks.
+        public static let mButtonCellWidth: CGFloat = 59
+        /// The m's glass circle and the recording capsule's height.
+        public static let recordingCapsuleHeight: CGFloat = 36
+        /// How much of the strip's width the recording capsule grows to, leftward from the m.
+        public static let recordingCapsuleWidthFraction: CGFloat = 0.6
+        /// A suggestion's text sits this far below the cell's centre (centred 25 pt from the
+        /// top of a 44 pt strip).
+        public static let suggestionTextOffset: CGFloat = 3
+        public static let suggestionInset: CGFloat = 4
+        public static let suggestionMinimumScale: CGFloat = 0.7
+        public static let suggestionDividerHeight: CGFloat = 24
+
+        // MARK: Pop-ups
+        /// The key pop-up is the keycap widened by this factor, drawn above it.
+        public static let popupWidthScale: CGFloat = 1.5
+        public static let popupHeight: CGFloat = 54
+        /// How the head of the pop-up narrows to the key: the radius of the two curves.
+        public static let popupNeckRadius: CGFloat = 10
+        /// The accent row's selected cell is inset from the row by this much.
+        public static let popupCellInset: CGFloat = 3
+        #if canImport(UIKit)
+        public static let popupUIFont = UIFont.systemFont(ofSize: 30)
+        public static let accentUIFont = UIFont.systemFont(ofSize: 24)
+        /// The key plane's faces: letters at 22.5 pt, labels (`123`, `return`) at 16 pt.
+        public static let letterUIFont = UIFont.systemFont(ofSize: 22.5)
+        public static let labelUIFont = UIFont.systemFont(ofSize: 16)
+        public static let iconPointSize: CGFloat = 19
+        #endif
+
         public static let historyTitleFont = SwiftUI.Font.system(size: 13, weight: .semibold)
         public static let historyRowFont = SwiftUI.Font.system(size: 15)
         public static let historyActionFont = SwiftUI.Font.system(size: 15, weight: .medium)
@@ -404,20 +464,28 @@ public enum DS {
         public static let messageActionInsetX: CGFloat = 12
         public static let messageActionInsetY: CGFloat = 6
         public static let messageLines = 2
-        /// Gap between the talk key's label and its caption.
-        public static let captionGap: CGFloat = 1
-
-        /// Padding, the talk row, two key rows and the gaps between rows.
-        public static var height: CGFloat {
-            padding * 2 + talkHeight + keyHeight * 2 + rowSpacing * 2
-        }
 
         #if canImport(UIKit)
         /// Every key's fill, as on the iOS 26 keyboard, where letters, shift, delete, 123 and
         /// return share one colour. Dark is the stock key measured (RGB 68).
-        public static let key = SwiftUI.Color(uiColor: UIColor {
+        public static let keyUIColor = UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.267, alpha: 1) : .white
-        })
+        }
+        public static let key = SwiftUI.Color(uiColor: keyUIColor)
+        /// The hairline between two filled suggestion cells.
+        public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
+        /// The key plane's glyphs.
+        public static let keyLabelUIColor = UIColor.label
+        /// The pop-up over a pressed key: the key's own colour in light, a little lighter than a
+        /// key in dark so it reads as lifted. The accent row's chosen cell is the system blue.
+        public static let popupUIFill = UIColor {
+            $0.userInterfaceStyle == .dark ? UIColor(white: 0.36, alpha: 1) : .white
+        }
+        public static let popupSelectedUIFill = UIColor.systemBlue
+        public static let popupSelectedUILabel = UIColor.white
+        /// The shadow under a pop-up. A pop-up floats over the keys, which is the one place a
+        /// shadow is allowed; its radius and offset are `DS.Shadow`.
+        public static let popupShadowUIColor = UIColor(DS.Color.shadow)
         /// The skin-tone row's ground, lighter than a key so it floats above the grid.
         public static let letterKey = SwiftUI.Color(uiColor: UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white
@@ -427,9 +495,10 @@ public enum DS {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.74, alpha: 1)
         })
         /// Return when the field gives it a job other than a new line, as on Apple's keyboard.
-        public static let prominentKey = SwiftUI.Color(uiColor: .systemBlue)
-        public static let onProminentKey = SwiftUI.Color.white
-        /// The Liquid Glass tint of the talk key: the HUD's brown, nearly opaque in light, and a
+        public static let prominentUIKey = UIColor.systemBlue
+        /// Text and glyphs on `prominentUIKey`.
+        public static let onProminentUIKey = UIColor.white
+        /// The Liquid Glass tint of the m and the recording capsule: the HUD's brown, nearly opaque in light, and a
         /// lighter brown in dark where `hud` would sink into the keyboard's own dark backdrop.
         /// Under the wordmark's orange and the red bars it keeps contrast in both.
         public static let talkGlassTint = SwiftUI.Color(uiColor: UIColor {

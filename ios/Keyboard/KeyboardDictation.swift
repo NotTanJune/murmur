@@ -54,8 +54,13 @@ final class KeyboardDictation {
     private(set) var engineNote = ""
     /// A quick tap locked recording on; the next tap ends it.
     private(set) var isLocked = false
-    /// ⇧ was tapped: the next dictation starts with a capital.
-    var shiftNext = false
+    /// Asked as a dictation is typed: whether its first letter is to be capital, which is the key
+    /// plane's shift state. Asking spends a one-shot shift, as a typed capital does. Set by the
+    /// view controller to `TypingController.takeShiftForDictation`.
+    @ObservationIgnored var takeShift: () -> Bool = { false }
+    /// Called right after a dictation is typed, so the shift key and the suggestion strip read
+    /// the new text. Set by the view controller.
+    @ObservationIgnored var onTextInserted: () -> Void = {}
 
     @ObservationIgnored private var gesture = HoldGesture()
     @ObservationIgnored private let microphone: WebMicrophone
@@ -113,8 +118,8 @@ final class KeyboardDictation {
     @ObservationIgnored private var lastReleaseEngineMs: Int?
     @ObservationIgnored private var lastReleaseCleanupMs: Int?
     @ObservationIgnored private var lastReleaseEngine: String?
-    /// The emoji panel's requested keyboard height and the height the keyboard's view actually
-    /// got, in points, as last reported by the view controller. Evidence for whether the
+    /// The keyboard's requested height and the height its view actually got, in points, as last
+    /// reported by the view controller (named for the emoji panel, which once asked for more). Evidence for whether the
     /// system honoured the height constraint; written to `KeyboardStatus`.
     @ObservationIgnored private var emojiPanelRequestedHeight: Int?
     @ObservationIgnored private var emojiPanelShownHeight: Int?
@@ -576,16 +581,18 @@ final class KeyboardDictation {
         memoryTimer = timer
     }
 
-    /// The view controller laid out the emoji panel: `requested` is the height constraint's
-    /// constant, `shown` the height the keyboard actually has. Logged and written to the status
-    /// file only when the pair changes, so the Setup tab shows the last one.
+    /// The view controller laid the keyboard out: `requested` is the height constraint's
+    /// constant (the key page's height, which the emoji and history panels share), `shown` the
+    /// height the keyboard actually has. Logged and written to the status file only when the
+    /// pair changes, so the Setup tab shows the last one. (The field names keep "emojiPanel"
+    /// because the status file already carries them.)
     func noteEmojiPanelHeight(requested: CGFloat, shown: CGFloat) {
         let requested = Int(requested.rounded())
         let shown = Int(shown.rounded())
         guard requested != emojiPanelRequestedHeight || shown != emojiPanelShownHeight else { return }
         emojiPanelRequestedHeight = requested
         emojiPanelShownHeight = shown
-        Self.log.info("emoji panel: \(requested) pt requested, \(shown) pt shown")
+        Self.log.info("keyboard height: \(requested) pt requested, \(shown) pt shown")
         writeStatus()
     }
 
@@ -1141,15 +1148,15 @@ final class KeyboardDictation {
     private func insert(_ text: String) -> Date? {
         guard let proxy = proxy() else { return nil }
         var output = text
-        if shiftNext {
+        if takeShift() {
             output = output.prefix(1).uppercased() + output.dropFirst()
-            shiftNext = false
         }
         if let last = proxy.documentContextBeforeInput?.last,
            last.isLetter || last.isNumber || ".,!?;:".contains(last) {
             output = " " + output
         }
         proxy.insertText(output)
+        onTextInserted()
         return Date()
     }
 }

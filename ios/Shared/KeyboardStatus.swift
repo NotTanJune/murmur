@@ -28,9 +28,10 @@ struct KeyboardStatus: Codable, Equatable {
     /// connected to the audio output) or `playAndRecord` (the fallback, with the output
     /// connected). Optional so a file written before this field existed still decodes.
     var captureMode: String?
-    /// The emoji panel's requested keyboard height and the height the keyboard's view actually
-    /// got when it was last shown, in points. Equal means the system honoured the height
-    /// constraint. Optional so a file written before these fields existed still decodes.
+    /// The keyboard's requested height (the key page's, which the emoji and history panels
+    /// share) and the height its view actually got at the last layout, in points. Equal means
+    /// the system honoured the height constraint. The names date from when the emoji panel was
+    /// taller. Optional so a file written before these fields existed still decodes.
     var emojiPanelRequestedHeight: Int?
     var emojiPanelShownHeight: Int?
     /// The keyboard process's physical footprint when last sampled, and the largest sample this

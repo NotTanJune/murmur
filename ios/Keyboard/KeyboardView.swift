@@ -2,279 +2,86 @@ import MurmurDesign
 import SwiftUI
 import UIKit
 
-/// What the keyboard's keys do to the host field. The controller supplies these, because only
-/// it holds `textDocumentProxy` and the globe key's event handling.
+/// What the emoji and history panels and the strip need from the host. The key plane has its
+/// own path (`TypingController`); these are the few things SwiftUI asks for.
 struct KeyboardActions {
+    /// Types text as the emoji and history panels do, through the typing controller so the
+    /// shift key and the suggestions follow it.
     let insert: (String) -> Void
     let delete: () -> Void
-    let newline: () -> Void
-    let dismiss: () -> Void
-    /// Resizes the keyboard; the emoji panel is taller than the key page.
-    let setHeight: (CGFloat) -> Void
-    let globe: (UIView, UIEvent) -> Void
     let openMurmur: () -> Void
-    let showsGlobe: () -> Bool
-    /// The return key's word for a field that names its job ("send", "go"); nil shows the
-    /// return glyph, as the stock keyboard does for a plain new line.
-    let returnTitle: () -> String?
-    let returnIsProminent: () -> Bool
 }
 
-/// The keyboard: Murmur's talk key with history, a row of punctuation, digits or symbols, then
-/// emoji, hide, space and return, after Granola's voice-only keyboard.
+/// The keyboard: the suggestion strip above the key plane, or the emoji or history panel in the
+/// same height. The strip holds the history button, the suggestions and the m, Murmur's
+/// dictation button (`SuggestionStrip`); the plane is UIKit (`KeyPlaneView`).
 struct KeyboardView: View {
     let dictation: KeyboardDictation
+    let typing: TypingController
     let actions: KeyboardActions
 
     private enum Panel { case keys, emoji, history }
-    private enum Page {
-        case punctuation, digits, symbols
 
-        var keys: [String] {
-            switch self {
-            case .punctuation: ["@", ".", ",", "?", "!", "'", "-"]
-            case .digits: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
-            case .symbols: ["-", "/", ":", ";", "(", ")", "$", "&", "\"", "#"]
-            }
-        }
-
-        /// The mode key names the page it leads to.
-        var nextTitle: String {
-            switch self {
-            case .punctuation: "123"
-            case .digits: "#+="
-            case .symbols: "ABC"
-            }
-        }
-
-        var next: Page {
-            switch self {
-            case .punctuation: .digits
-            case .digits: .symbols
-            case .symbols: .punctuation
-            }
-        }
-    }
-
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var panel: Panel = .keys
-    @State private var page: Page = .punctuation
 
     var body: some View {
         Group {
             switch panel {
-            case .keys: keys
-            case .emoji: EmojiPanel(actions: actions, close: { show(.keys) })
-            case .history: HistoryPanel(actions: actions, close: { show(.keys) })
+            case .keys:
+                keys
+            case .emoji:
+                EmojiPanel(actions: actions, close: {
+                    // The stock emoji keyboard's ABC returns to letters, whatever page it left.
+                    typing.showLetters()
+                    show(.keys)
+                })
+                .padding(DS.Keyboard.padding)
+            case .history:
+                HistoryPanel(actions: actions, close: { show(.keys) })
+                    .padding(DS.Keyboard.padding)
             }
         }
-        .padding(DS.Keyboard.padding)
-        // The height the keyboard actually has, never the one asked for: a taller fixed frame in
-        // a shorter keyboard is centred and clipped at both ends, which on 2026-11-22 cut the
-        // emoji panel's title and half a row off the top and its category bar off the bottom.
-        // The panel fits what arrives (`EmojiPanel` drops rows to make room).
+        // The height the keyboard actually has, never one asked for: the panels fit what
+        // arrives (`EmojiPanel` drops rows to make room). They are exactly as tall as the key
+        // page, because iOS ignores a keyboard that grows after it first appears.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Landscape can change the size class while the emoji panel is up.
-        .onChange(of: verticalSizeClass) { actions.setHeight(panelHeight) }
+        .onAppear { typing.onShowEmoji = { show(.emoji) } }
     }
 
-    private func height(for panel: Panel) -> CGFloat {
-        // History gets the emoji panel's height too: a list of dictations needs the room more
-        // than the key page's 168 pt, which fitted only two and a half rows.
-        guard panel == .emoji || panel == .history else { return DS.Keyboard.height }
-        return verticalSizeClass == .compact ? DS.Keyboard.emojiPanelHeightCompact : DS.Keyboard.emojiPanelHeight
-    }
-
-    private var panelHeight: CGFloat { height(for: panel) }
-
-    /// The keyboard's height is asked for first, then the panel changes. The content always
-    /// fills the height the keyboard has at that moment, so neither order can clip it.
     private func show(_ next: Panel) {
-        actions.setHeight(height(for: next))
         panel = next
     }
 
+    /// The strip over the plane. The plane draws its own side inset, so there is no padding
+    /// here: the 6 pt padding belongs to the emoji and history panels only.
     private var keys: some View {
-        VStack(spacing: DS.Keyboard.rowSpacing) {
-            HStack(spacing: DS.Keyboard.keySpacing) {
-                IconKey(symbol: "clock.arrow.circlepath", fill: .clear, width: DS.Keyboard.historyWidth, label: "Recent dictations") {
-                    show(.history)
-                }
-                TalkKey(dictation: dictation, actions: actions)
-            }
-            HStack(spacing: DS.Keyboard.keySpacing) {
-                // The punctuation page sits like the stock keyboard's bottom letter row: shift at
-                // the leading edge, delete at the trailing one, and seven letter-width keys between
-                // them, which leaves the stock row's gap on each side.
-                if page == .punctuation {
-                    IconKey(symbol: dictation.shiftNext ? "shift.fill" : "shift", fill: DS.Keyboard.key, label: "Shift", isSelected: dictation.shiftNext) {
-                        dictation.shiftNext.toggle()
-                    }
-                    Spacer(minLength: 0)
-                }
-                // Laid out before the spacers, so on a narrow phone (375 pt) the keys shrink a
-                // little to fit instead of the row running off the edge.
-                HStack(spacing: DS.Keyboard.keySpacing) {
-                    ForEach(page.keys, id: \.self) { character in
-                        CharacterKey(title: character, maxWidth: page == .punctuation ? DS.Keyboard.characterKeyWidth : nil) {
-                            actions.insert(character)
-                        }
-                    }
-                }
-                .layoutPriority(1)
-                if page == .punctuation { Spacer(minLength: 0) }
-                DeleteKey(action: actions.delete)
-            }
-            HStack(spacing: DS.Keyboard.keySpacing) {
-                if actions.showsGlobe() {
-                    GlobeKey(action: actions.globe)
-                        .frame(width: DS.Keyboard.functionKeyWidth, height: DS.Keyboard.keyHeight)
-                }
-                TextKey(title: page.nextTitle, fill: DS.Keyboard.key, width: DS.Keyboard.functionKeyWidth) {
-                    page = page.next
-                }
-                IconKey(symbol: "face.smiling", fill: DS.Keyboard.key, label: "Emoji") { show(.emoji) }
-                IconKey(symbol: "keyboard.chevron.compact.down", fill: DS.Keyboard.key, label: "Hide keyboard", action: actions.dismiss)
-                TextKey(title: "", fill: DS.Keyboard.key, width: nil, label: "Space") { actions.insert(" ") }
-                ReturnKey(actions: actions)
-            }
+        VStack(spacing: 0) {
+            SuggestionStrip(
+                dictation: dictation, typing: typing, actions: actions,
+                showHistory: { show(.history) })
+            KeyPlane(typing: typing)
         }
+        // The key plane's rows are placed from the keyboard's top in `KeyboardMetrics`, and a
+        // touch outside a view's bounds never reaches it, so no inset may shorten the plane.
+        .ignoresSafeArea()
     }
 }
 
-// MARK: Talk key
+/// The key plane in SwiftUI. It is made again when the emoji or history panel gives way to the
+/// keys, so it hands itself to the controller, which gives it the current state.
+private struct KeyPlane: UIViewRepresentable {
+    let typing: TypingController
 
-/// Murmur's key. Touch down starts recording; a quick tap locks it on and a second tap ends
-/// it; a hold ends on release. The capsule is Liquid Glass tinted brown (`talkGlassTint`). While
-/// recording it becomes the Mac's HUD: bars that follow the input level, and no text; the bars
-/// are flat and grey until the hold has heard audio, then red. Otherwise it reads "Murmur" in the
-/// app icon's italic and a soft orange (`DS.Keyboard.wordmark`), with a caption under it while the
-/// microphone or Bark is not ready, dimmed while the last hold is still finishing, because a
-/// press then is ignored.
-private struct TalkKey: View {
-    let dictation: KeyboardDictation
-    let actions: KeyboardActions
-    /// The finger is on the key. A `GestureState` resets itself when the gesture is cancelled
-    /// (the keyboard went away mid-touch), so the change below always sees the touch end, and
-    /// the dictation never keeps a press that nothing will release.
-    @GestureState private var touching = false
-    /// A press that has started and not yet ended, so the down and the up each reach the
-    /// dictation once, whether the gesture ends or is cancelled.
-    @State private var isDown = false
-
-    var body: some View {
-        ZStack {
-            // Liquid Glass tinted toward the HUD's brown, so the key lifts off the keyboard's
-            // backdrop in both appearances while the wordmark and the red bars keep their
-            // contrast. Not `.interactive()`: it would add its own touch tracking beside the
-            // DragGesture below, and the key already answers touch-down at once by changing state.
-            keyLabel
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in: .capsule)
-            // The key itself is one button. The failure state's own button stays reachable.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(isRecording ? "Stop dictation" : "Dictate")
-            .accessibilityValue(isRecording ? (dictation.heardAudio ? "Listening" : "Starting") : (dictation.readinessCaption ?? ""))
-            .accessibilityAddTraits(.isButton)
-            // VoiceOver's double-tap is not a touch on the key, so it gets the tap-to-lock
-            // meaning directly: the first one starts dictation and locks it, the next one ends it.
-            .accessibilityAction { dictation.toggleDictation() }
-            .accessibilityHidden(isFailed)
-            if isFailed { failure }
-        }
-        .frame(height: DS.Keyboard.talkHeight)
-        .contentShape(Capsule())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .updating($touching) { _, state, _ in state = true }
-                .onChanged { _ in
-                    guard !isDown else { return }
-                    isDown = true
-                    UIDevice.current.playInputClick()
-                    dictation.touchDown()
-                }
-                .onEnded { _ in
-                    guard isDown else { return }
-                    isDown = false
-                    dictation.touchUp()
-                },
-            isEnabled: !dictation.isBusy
-        )
-        // A cancelled gesture (the keyboard went away mid-touch, or the key was disabled) resets
-        // `touching` without `onEnded`; release the press then.
-        .onChange(of: touching) { _, down in
-            guard !down, isDown else { return }
-            isDown = false
-            dictation.touchUp()
-        }
+    func makeUIView(context: Context) -> KeyPlaneView {
+        let plane = KeyPlaneView()
+        typing.attach(plane)
+        return plane
     }
 
-    private var isFailed: Bool {
-        if case .failed = dictation.state { return true }
-        return false
-    }
+    func updateUIView(_ plane: KeyPlaneView, context: Context) {}
 
-    private var isRecording: Bool {
-        if case .recording = dictation.state { return true }
-        return false
-    }
-
-    @ViewBuilder private var keyLabel: some View {
-        switch dictation.state {
-        case .recording(let level):
-            // Flat and neutral until the hold has audio, then red and following the level, so
-            // the bars never claim a microphone that is not yet hearing.
-            if dictation.heardAudio {
-                Waveform(level: level * DS.Keyboard.levelGain, isActive: true)
-            } else {
-                Waveform(level: 0, isActive: false, tint: DS.Keyboard.waveformFlat)
-            }
-        case .failed:
-            // A real view, not `EmptyView`: modifiers on an empty view render nothing, and the
-            // glass behind the failure message would vanish with them.
-            Color.clear
-        case .idle, .finishing:
-            VStack(spacing: DS.Keyboard.captionGap) {
-                Text("Murmur")
-                    .font(DS.Keyboard.wordmarkFont)
-                    .foregroundStyle(DS.Keyboard.wordmark)
-                if let caption = dictation.readinessCaption {
-                    Text(caption)
-                        .font(DS.Keyboard.captionFont)
-                        .foregroundStyle(DS.Keyboard.wordmarkCaption)
-                        .lineLimit(1)
-                }
-            }
-            .opacity(dictation.isBusy ? DS.Motion.disabledOpacity : 1)
-        }
-    }
-
-    /// The microphone message keeps its permissions hint; any other failure says only that
-    /// dictation failed. The cause is in the log, never on the key.
-    private var failureMessage: String {
-        if case .failed(.dictation) = dictation.state { return "Dictation failed. Try again." }
-        return "Microphone unavailable. Open Murmur to check permissions."
-    }
-
-    private var failure: some View {
-        HStack(spacing: DS.Keyboard.messageGap) {
-            Text(failureMessage)
-                .font(DS.Keyboard.messageFont)
-                .foregroundStyle(DS.Keyboard.onTalkKey)
-                .lineLimit(DS.Keyboard.messageLines)
-                .multilineTextAlignment(.leading)
-            Button(action: actions.openMurmur) {
-                Text("Open Murmur")
-                    .font(DS.Keyboard.messageActionFont)
-                    .foregroundStyle(DS.Keyboard.onTalkAction)
-                    .fixedSize()
-                    .padding(.horizontal, DS.Keyboard.messageActionInsetX)
-                    .padding(.vertical, DS.Keyboard.messageActionInsetY)
-                    .background(Capsule().fill(DS.Keyboard.talkAction))
-            }
-            .buttonStyle(KeyPressStyle())
-        }
-        .padding(.horizontal, DS.Keyboard.labelInset)
+    static func dismantleUIView(_ plane: KeyPlaneView, coordinator: ()) {
+        plane.cancelAllTouches()
     }
 }
 
@@ -293,93 +100,9 @@ struct KeyFace<Content: View>: View {
     }
 }
 
-private struct CharacterKey: View {
-    let title: String
-    /// The widest the key grows, or nil to share the row with the other keys.
-    var maxWidth: CGFloat?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            KeyFace(fill: DS.Keyboard.key) {
-                Text(title).font(DS.Keyboard.characterFont)
-            }
-        }
-        .buttonStyle(KeyPressStyle())
-        .frame(maxWidth: maxWidth ?? .infinity)
-        .frame(height: DS.Keyboard.keyHeight)
-    }
-}
-
-private struct TextKey: View {
-    let title: String
-    let fill: Color
-    let width: CGFloat?
-    /// What VoiceOver says; the visible title is empty on the space bar.
-    var label: String?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            KeyFace(fill: fill) {
-                Text(title).font(DS.Keyboard.labelFont)
-            }
-        }
-        .buttonStyle(KeyPressStyle())
-        .accessibilityLabel(label ?? title)
-        .frame(width: width, height: DS.Keyboard.keyHeight)
-        .frame(maxWidth: width == nil ? .infinity : nil)
-    }
-}
-
-private struct IconKey: View {
-    let symbol: String
-    let fill: Color
-    var width: CGFloat? = nil
-    let label: String
-    var isSelected = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            KeyFace(fill: fill) {
-                Image(systemName: symbol).font(DS.Keyboard.iconFont)
-            }
-        }
-        .buttonStyle(KeyPressStyle())
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .frame(width: width ?? DS.Keyboard.functionKeyWidth, height: DS.Keyboard.keyHeight)
-    }
-}
-
-private struct ReturnKey: View {
-    let actions: KeyboardActions
-
-    var body: some View {
-        let prominent = actions.returnIsProminent()
-        let title = actions.returnTitle()
-        Button(action: actions.newline) {
-            KeyFace(fill: prominent ? DS.Keyboard.prominentKey : DS.Keyboard.key) {
-                Group {
-                    if let title {
-                        Text(title).font(DS.Keyboard.labelFont)
-                    } else {
-                        Image(systemName: "return.left").font(DS.Keyboard.iconFont)
-                    }
-                }
-                .foregroundStyle(prominent ? DS.Keyboard.onProminentKey : .primary)
-            }
-        }
-        .buttonStyle(KeyPressStyle())
-        .accessibilityLabel(title ?? "Return")
-        .frame(width: DS.Keyboard.returnWidth, height: DS.Keyboard.keyHeight)
-    }
-}
-
 /// Deletes once on touch, then repeats while held.
 struct DeleteKey: View {
-    var height: CGFloat = DS.Keyboard.keyHeight
+    let height: CGFloat
     let action: () -> Void
     @State private var repeater: Task<Void, Never>?
     /// Resets itself when the gesture is cancelled, which `onEnded` does not report; the change
@@ -445,47 +168,5 @@ struct PlainKeyStyle: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, pressed in
                 if pressed { KeyFeedback.press() }
             }
-    }
-}
-
-// MARK: Globe
-
-/// The globe key needs the real `UIEvent` so a long press shows the keyboard list, which a
-/// SwiftUI button does not provide. The fill is the SwiftUI face behind it.
-private struct GlobeKey: View {
-    let action: (UIView, UIEvent) -> Void
-
-    var body: some View {
-        KeyFace(fill: DS.Keyboard.key) {
-            GlobeButton(action: action)
-        }
-    }
-
-    private struct GlobeButton: UIViewRepresentable {
-        let action: (UIView, UIEvent) -> Void
-
-        func makeUIView(context: Context) -> UIButton {
-            let button = UIButton(type: .system)
-            button.setImage(UIImage(systemName: "globe"), for: .normal)
-            button.tintColor = .label
-            button.accessibilityLabel = "Next keyboard"
-            button.addTarget(context.coordinator, action: #selector(Coordinator.tapped(_:event:)), for: .allTouchEvents)
-            button.addTarget(context.coordinator, action: #selector(Coordinator.landed), for: .touchDown)
-            return button
-        }
-
-        func updateUIView(_ button: UIButton, context: Context) {
-            context.coordinator.action = action
-        }
-
-        func makeCoordinator() -> Coordinator { Coordinator(action: action) }
-
-        @MainActor
-        final class Coordinator: NSObject {
-            var action: (UIView, UIEvent) -> Void
-            init(action: @escaping (UIView, UIEvent) -> Void) { self.action = action }
-            @objc func tapped(_ sender: UIButton, event: UIEvent) { action(sender, event) }
-            @objc func landed() { KeyFeedback.press() }
-        }
     }
 }
