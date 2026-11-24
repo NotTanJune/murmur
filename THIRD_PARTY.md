@@ -42,3 +42,29 @@ notice files beside the weights where the source provides them.
 | Underdog Bark 3.0 Clean, Core ML build | `FluidInference/bark-3.0-coreml`, from Conway Research, derived from NVIDIA Parakeet TDT 0.6B v3 and Moondream parakeet-ultra | CC-BY-4.0 |
 | S1-mini by Superwhisper | `superwhisper/s1-mini`, converted to 4-bit on your Mac | Apache-2.0, with a term requiring the name "S1-mini" by "Superwhisper" |
 | Parakeet TDT v3, Parakeet EOU and Nemotron | Fetched through FluidAudio | See each model card |
+
+## Data
+
+The iPhone keyboard's word model, `Sources/MurmurTyping/Resources/en.mtm`, is built by
+`Tools/build_typing_model.py` from two word lists in the SymSpell repository, pinned to commit
+`91fe939e9c1259813ee817e95239629c5badf8ec`, plus a short hand-written list of contractions and chat
+words (`Tools/typing-extra-words.tsv`, Murmur's own). The lists are not stored in this repository;
+the script downloads them and checks their SHA-256.
+
+| Data | Source | License |
+|---|---|---|
+| `frequency_dictionary_en_82_765.txt` and `frequency_bigramdictionary_en_243_342.txt` | SymSpell by Wolf Garbe, `github.com/wolfgarbe/SymSpell` | MIT |
+| Word frequencies behind both lists | Google Books Ngram data, http://books.google.com/ngrams | CC BY 3.0 Unported |
+| English vocabulary the unigram list was filtered with | SCOWL (Spell Checker Oriented Word Lists), as the SymSpell README states, http://wordlist.aspell.net/ | Permissive, notice below |
+
+SCOWL's notice, from `scowl/Copyright` in `github.com/en-wl/wordlist` (which also credits further
+contributors' lists under similar terms):
+
+> Copyright 2000-2018 by Kevin Atkinson
+>
+> Permission to use, copy, modify, distribute and sell these word lists, the associated scripts,
+> the output created from the scripts, and its documentation for any purpose is hereby granted
+> without fee, provided that the above copyright notice appears in all copies and that both that
+> copyright notice and this permission notice appear in supporting documentation. Kevin Atkinson
+> makes no representations about the suitability of this array for any purpose. It is provided
+> "as is" without express or implied warranty.

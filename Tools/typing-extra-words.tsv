@@ -1,0 +1,45 @@
+# Words the SymSpell lists lack or undercount: contractions and chat words. Format: word<TAB>count.
+# Read by Tools/build_typing_model.py. Contractions are lowercase with a straight apostrophe; the
+# keyboard types a curly one when smart quotes are on and capitalises "i'm" to "I'm".
+#
+# Counting rules (computed once from the pinned bigram file, then written down here so the build
+# needs no arithmetic and stays reproducible):
+#   contraction  = count of its expanded pair in frequency_bigramdictionary_en_243_342.txt, for
+#                  example don't = "do not", i'm = "i am". can't is "can not" plus the unigram
+#                  count of "cannot". A contraction whose pair is absent would get 10000000; none
+#                  was absent.
+#   chat word    = 5000000.
+# The builder keeps max(count here, count in the SymSpell unigram list), so a chat word the list
+# already ranks higher (yeah, okay, gonna, wanna) is not demoted, and the 300000 placeholders the
+# list gives some contractions are replaced.
+don't	20881148224
+can't	11549943713
+won't	6402972096
+i'm	517793728
+i'll	218005504
+i'd	229436992
+i've	664891840
+you're	9478212928
+they're	6256627584
+we're	3983534912
+it's	15680159616
+that's	7223870272
+let's	671322880
+isn't	17712216000
+aren't	8568596224
+wasn't	4315379072
+weren't	1660171520
+hasn't	2075965376
+haven't	2863952640
+didn't	8090623360
+doesn't	11574052736
+shouldn't	2078063872
+wouldn't	2843518016
+couldn't	2791254912
+ok	5000000
+okay	5000000
+lol	5000000
+btw	5000000
+gonna	5000000
+wanna	5000000
+yeah	5000000

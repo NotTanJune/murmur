@@ -12,9 +12,9 @@ Plan 001 is one plan in milestones. Rows track the milestones.
 |---|---|---|---|---|---|
 | 001 / M0 | Measure the memory ceiling, add `MurmurTyping` | S | none | yes | WAITING ON DEVICE (d79b865, installed 2026-11-25) |
 | 001 / M1 | Layout, metrics, hit testing | M | M0 (0.2) | no | DONE (landscape height 202 from the plan constants vs Hex 204; recheck on device in M2) |
-| 001 / M2 | Key plane, shift, pages, pop-ups, accents, delete, trackpad | L | M1 | yes | TODO |
+| 001 / M2 | Key plane, shift, pages, pop-ups, accents, delete, trackpad | L | M1 | yes | IN PROGRESS |
 | 001 / M3 | Suggestion strip and the m dictation button | M | M2 | yes | TODO |
-| 001 / M4 | Word model, completions, next words | M | M0 | no | IN PROGRESS |
+| 001 / M4 | Word model, completions, next words | M | M0 | no | DONE (82,837 words, 242,342 pairs, 3.0 MB) |
 | 001 / M5 | Spatial autocorrect, undo chip | L | M2, M4 | yes | TODO |
 | 001 / M6 | Swipe typing | L | M2, M4 | yes | TODO |
 | 001 / M7 | Learning from typing, dictation history, dictionary | M | M5 | no | TODO |
@@ -39,9 +39,9 @@ Filled in by executors and the owner.
 
 | What | Value | Date | Source |
 |---|---|---|---|
-| Keyboard footprint at rest, Bark loaded | | | Setup "Memory" line |
-| Keyboard peak footprint | | | Setup "Memory" line |
-| Extension memory limit | | | runningboardd log, if found |
+| Keyboard footprint at rest, Bark loaded | 50 MB (after one Bark dictation; not killed) | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
+| Keyboard peak footprint | 50 MB | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
+| Extension memory limit | above 50 MB (pending) | 2026-11-25 | the keyboard survived at 50 MB |
 | Autocorrect replay: raw WER / corrected WER / correct words changed | | | M5.5 |
 | Swipe synthetic top-1 / p99 decode | | | M6 |
 
