@@ -1036,12 +1036,22 @@ from the Hugging Face model index on 2026-11-25; nothing below has been run.
 | Speed | 12 layers: about twice distilgpt2's time per pass | A few milliseconds per pass (estimate) | Well under a millisecond; no Core ML at all |
 | Why it could be better | Conversational text, which is what gets typed. Same tokenizer and conversion as distilgpt2, so it drops into the same code | Small enough to leave Bark its memory; its vocabulary can be built from our own word list so most words are one token; can later be tuned on the owner's own writing (Milestone 7) | Cannot fail to load, cannot be killed for memory, and already far better than pairs: it sees three words back |
 | Why it could be worse | Likely over the size and latency gates; Reddit's tone | Quality unknown until trained; likely below a pretrained model on general text | Still drifts after three or four words; no sense of the sentence as a whole |
-| Cost to build | Hours: swap the model in the fetch script and re-measure | One to two days: corpus preparation, tokenizer, training, export | About a day: counting, pruning, a new section in the model file and its reader |
+| Cost to build | Hours: swap the model in the fetch script and re-measure | About a day with a Colab GPU (corpus preparation and tokenizer on the Mac, training in an hour or two on an A100, export); days on the Mac alone | About a day: counting, pruning, a new section in the model file and its reader |
+
+**Training runs on Colab, not on the Mac.** The owner has GPUs through the Colab CLI (`colab`,
+installed; `colab new --gpu A100`, `colab exec -f train.py`, `colab download`, `colab stop`) and
+said on 2026-11-25 to use it for any training or fine-tuning here. That also opens a fourth
+route that costs little: **fine-tune the chosen pretrained model** (or A) for an hour on
+conversational text, which moves its predictions from web prose towards what is typed in chat
+and notes without changing its size, speed or the code around it. Upload only public corpora
+and model weights; the owner's own dictation history stays on the Mac unless they say otherwise.
+A session spends the owner's compute units, so say what will run before starting one.
 
 **Which one, by what goes wrong:**
 
-- **The words are still poor** (the model runs fine but predicts badly for chat): try A, since it
-  is the same pipeline; if A is too heavy, B trained on conversational text.
+- **The words are still poor** (the model runs fine but predicts badly for chat): fine-tune the
+  chosen model on conversational text first, since nothing else changes; then A, the same
+  pipeline; if A is too heavy, B trained on conversational text.
 - **Too much memory or too slow on the phone**: B. A larger pretrained model can label or
   generate text for B to learn from (distillation), which is the usual way to get a small
   model's quality up.
