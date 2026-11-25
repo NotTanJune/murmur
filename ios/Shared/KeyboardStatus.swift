@@ -69,6 +69,7 @@ struct KeyboardStatus: Codable, Equatable {
     var predictionStale: Int?
     var stripPasses: Int?
     var stripPassesWithPrediction: Int?
+    var predictionFreeMB: Double?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

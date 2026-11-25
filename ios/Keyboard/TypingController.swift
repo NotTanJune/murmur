@@ -63,6 +63,9 @@ struct TypingStats: Equatable {
     var predictionStale = 0
     var stripPasses = 0
     var stripPassesWithPrediction = 0
+    /// Temporary with them: the memory left before the extension's limit, in megabytes. The
+    /// model is released under `SmartPredictions.releaseBelowMB`.
+    var predictionFreeMB: Double?
 }
 
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
@@ -360,6 +363,7 @@ final class TypingController {
         snapshot.predictionLoadSeconds = smart.loadSeconds
         snapshot.predictionLastMs = smart.lastPredictionMs
         snapshot.predictionFootprintMB = smart.footprintMB
+        snapshot.predictionFreeMB = SmartPredictions.availableMB
         return snapshot
     }
 

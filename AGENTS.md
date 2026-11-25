@@ -801,8 +801,19 @@ Known limits: it never offers a contraction as a next word ("I'm" is two tokens)
 web taste ("please enable javascript to view the comments"), and everything on the phone is
 unverified: memory, speed, load time, and whether Core ML keeps its 174 MiB compile cache in the
 extension's container. Setup shows "Predictions: ready · loaded in N s · last N ms · +N MB".
-If the words are still poor, fine-tune it on conversational text on Colab before changing
-anything else; the fallbacks are in `plans/001-keyboard-v2.md`, Milestone 9.
+**A fine-tune exists and is not in git** (2026-11-26). `training/typing-lm/finetune.py` trained
+the model for a quarter of an epoch on Tatoeba's sentences and SODA's dialogue turns, most of
+them lowercased, on a Colab L4. On Murmur's own 229 sentences the next word is among the three
+offered 54.5% of the time (stock 45.1%), and centre taps read like messages ("please don't worry
+about it I know you will do great in your new job"). The weights are on the owner's Mac only
+(`~/Library/Caches/MurmurBuild/typing-lm-ft/quarter`, SHA-256 `952ef2d8...`), built with
+`Tools/fetch_typing_lm.py --weights <folder>`; `training/typing-lm/README.md` has the numbers.
+The fallbacks beyond that are in `plans/001-keyboard-v2.md`, Milestone 9. **Open on the phone:**
+the owner saw the pair model's words come back after a few centre taps while the keyboard
+reported the model ready. On the Mac the engine keeps the model's words for 45 taps and 400
+predictions add no memory, so the fault is in the keyboard's layer and unfound. Setup's
+Predictions line shows temporary counters for it (answers, stale, strip passes with an answer,
+memory left); remove them and `PredictionSelfTest` once it is found.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured

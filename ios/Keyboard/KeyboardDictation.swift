@@ -571,7 +571,8 @@ final class KeyboardDictation {
             predictionLastMs: typing?.predictionLastMs,
             predictionFootprintMB: typing?.predictionFootprintMB,
             predictionAnswers: typing?.predictionAnswers, predictionStale: typing?.predictionStale,
-            stripPasses: typing?.stripPasses, stripPassesWithPrediction: typing?.stripPassesWithPrediction
+            stripPasses: typing?.stripPasses, stripPassesWithPrediction: typing?.stripPassesWithPrediction,
+            predictionFreeMB: typing?.predictionFreeMB
         ).write()
     }
 

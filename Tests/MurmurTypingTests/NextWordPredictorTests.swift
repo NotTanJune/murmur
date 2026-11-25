@@ -92,6 +92,11 @@ enum TypingLMFiles {
         #expect(try !predictor.predict(before: long).best.isEmpty)
     }
 
+    /// How many taps each chain below makes; `MURMUR_TYPING_LM_TAPS` asks for more, to read what
+    /// a long run without punctuation turns into.
+    private static let chainTaps =
+        ProcessInfo.processInfo.environment["MURMUR_TYPING_LM_TAPS"].flatMap(Int.init) ?? 15
+
     /// What the strip offers with the model behind it, and what repeated taps on the centre cell
     /// write: the owner's test of 2026-11-25, which read "my dog breeds of the same time to the
     /// first to be a new window" on the pair model.
@@ -102,7 +107,7 @@ enum TypingLMFiles {
         var milliseconds: [Double] = []
         for start in ["my dog ", "i ", "the ", "please ", "can you "] {
             var text = start
-            for _ in 0..<15 {
+            for _ in 0..<Self.chainTaps {
                 let began = ContinuousClock.now
                 let answer = try predictor.predict(before: #require(SuggestionEngine.boundary(before: text)))
                 milliseconds.append((ContinuousClock.now - began) / .milliseconds(1))
@@ -115,7 +120,8 @@ enum TypingLMFiles {
                     #expect(!SuggestionEngine.neverVolunteered.contains(word))
                     #expect(word.count >= 2 || word == "a" || word == "i")
                 }
-                text += cells[1].text + " "
+                // The keyboard types a curly apostrophe where the field has smart quotes on.
+                text += cells[1].text.replacingOccurrences(of: "'", with: "\u{2019}") + " "
             }
             print(text)
             let words = text.split(separator: " ").map(String.init)

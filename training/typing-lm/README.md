@@ -222,6 +222,41 @@ load.
 
 Passed, on a Mac.
 
+## Fine-tune (2026-11-26, Colab L4)
+
+The stock model's taste is the web's, and the owner types lowercase messages and notes.
+`finetune.py` trains it a little further on Tatoeba's English sentences and single turns from
+SODA (2.9 M examples: 40% as written, 30% lowercased, 30% lowercased without punctuation), one
+epoch, with checkpoints at a quarter, a half and the end. Nothing from the evaluation set is
+trained on. A first run kept Tatoeba's stock names and offered "tom" mid-sentence, so the second
+drops every sentence that holds one. The second run took 33.5 minutes; validation loss 3.94
+before, 2.78, 2.70 and 2.67 at the three checkpoints.
+
+PyTorch fp32, 32-token window, next word @1 / @3 and keystrokes saved. `replay` is Murmur's own
+229 sentences, lowercased, and the clean measure; Tatoeba's half is flattered by training on its
+other sentences.
+
+| Model | written | lower | replay | tatoeba |
+|---|---|---|---|---|
+| Pair model | 12.84 / 22.87 · 39.33% | same | 15.37 / 27.98 · 44.85% | 10.70 / 18.54 · 34.94% |
+| Run 2, quarter | 29.65 / 47.77 · 59.13% | 29.19 / 47.64 · 59.08% | 32.14 / 54.50 · 65.45% | 26.68 / 41.82 · 54.02% |
+| Run 2, half | 29.63 / 47.04 · 59.24% | 29.19 / 46.60 · 59.01% | 32.30 / 52.29 · 64.94% | 26.56 / 41.77 · 54.30% |
+| Run 2, full | 30.02 / 47.48 · 59.37% | 29.93 / 47.15 · 59.17% | 32.70 / 52.79 · 65.23% | 27.58 / 42.37 · 54.35% |
+
+The stock model on the same sets is in the candidates table above (23.77 / 39.91 written). The
+three checkpoints are level, so the quarter one is kept: it moved least from the stock weights
+and has the best replay @3. Its `model.safetensors` is 327,657,928 bytes, SHA-256
+`952ef2d83ae862f68783b5c0cb86e1654f6fa5d16bef9829a9bb717f7c275194`; it is in no repository
+(`~/Library/Caches/MurmurBuild/typing-lm-ft/quarter` on the owner's Mac) and is built into
+`ios/TypingLM` with `uv run Tools/fetch_typing_lm.py --fetch --weights <folder>`. Centre taps
+through the Swift engine with the converted model: "my dog is very shy and I don't know if he
+likes me or not he just wants to be with you", "please don't worry about it I know you will do
+great in your new job". The converted file's accuracy was not measured again after conversion.
+
+Colab's proxy token lasts an hour, and `colab exec` after that fails with a 404 and drops the
+session from `~/.config/colab-cli/sessions.json` while the VM keeps running and billing. The
+assignment list still gives a fresh token for it; restore the entry from that, then stop it.
+
 ## What it does not say
 
 - Nothing was measured on a phone: not memory, not latency, not load time, not whether Core ML

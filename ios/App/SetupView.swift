@@ -50,6 +50,12 @@ final class SetupStatus {
     private(set) var predictionLoadSeconds: Double?
     private(set) var predictionLastMs: Double?
     private(set) var predictionFootprintMB: Double?
+    /// Temporary, with `KeyboardStatus`' counters of the same names.
+    private(set) var predictionAnswers: Int?
+    private(set) var predictionStale: Int?
+    private(set) var stripPasses: Int?
+    private(set) var stripPassesWithPrediction: Int?
+    private(set) var predictionFreeMB: Double?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -85,6 +91,11 @@ final class SetupStatus {
         predictionLoadSeconds = reported?.predictionLoadSeconds
         predictionLastMs = reported?.predictionLastMs
         predictionFootprintMB = reported?.predictionFootprintMB
+        predictionAnswers = reported?.predictionAnswers
+        predictionStale = reported?.predictionStale
+        stripPasses = reported?.stripPasses
+        stripPassesWithPrediction = reported?.stripPassesWithPrediction
+        predictionFreeMB = reported?.predictionFreeMB
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -355,6 +366,13 @@ struct SetupView: View {
         if let load = status.predictionLoadSeconds { line += " · loaded in \(String(format: "%.2f", load)) s" }
         if let last = status.predictionLastMs { line += " · last \(Int(last.rounded())) ms" }
         if let added = status.predictionFootprintMB { line += " · +\(Int(added.rounded())) MB" }
+        // Temporary, with the counters in `KeyboardStatus`: read out by the owner when the Mac
+        // cannot reach the phone.
+        if let answers = status.predictionAnswers, let passes = status.stripPasses {
+            line += " · answers \(answers), stale \(status.predictionStale ?? 0)"
+            line += " · strip \(status.stripPassesWithPrediction ?? 0) of \(passes)"
+        }
+        if let free = status.predictionFreeMB { line += " · \(Int(free.rounded())) MB free" }
         return line
     }
 

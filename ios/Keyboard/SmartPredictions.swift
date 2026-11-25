@@ -113,7 +113,7 @@ final class SmartPredictions {
         release()
     }
 
-    private static var availableMB: Double { Double(os_proc_available_memory()) / 1_048_576 }
+    static var availableMB: Double { Double(os_proc_available_memory()) / 1_048_576 }
 
     private func load(words: TypingModel, then boundary: String) {
         guard let folder = Bundle.main.url(forResource: NextWordPredictor.Files.folderName, withExtension: nil),

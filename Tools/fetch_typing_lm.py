@@ -91,9 +91,10 @@ def check_file(path, size, sha):
         die(f"{path}: SHA-256 {got}, expected {sha}")
 
 
-def fetch(data_dir):
+def fetch(data_dir, names):
     os.makedirs(data_dir, exist_ok=True)
-    for name, (size, sha) in SOURCES.items():
+    for name in names:
+        size, sha = SOURCES[name]
         path = os.path.join(data_dir, name)
         if os.path.isfile(path) and os.path.getsize(path) == size and sha256(path) == sha:
             continue
@@ -124,22 +125,32 @@ def main():
     parser.add_argument("--remove", action="store_true", help="delete the built model from --out and stop")
     parser.add_argument("--data-dir", default=DEFAULT_DATA_DIR)
     parser.add_argument("--out", default=DEFAULT_OUT)
+    parser.add_argument(
+        "--weights", metavar="FOLDER",
+        help="build from this folder's config.json and model.safetensors (a fine-tune of the pinned "
+        "model, from training/typing-lm/finetune.py) in place of the pinned weights")
     args = parser.parse_args()
 
     if args.remove:
         remove(args.out)
         print(f"removed the model from {args.out}")
         return
+    # A fine-tune changes the weights and nothing else: the tokenizer's files are the pinned ones.
+    names = ["vocab.json", "merges.txt"] if args.weights else list(SOURCES)
     if args.fetch:
-        fetch(args.data_dir)
-    for name, (size, sha) in SOURCES.items():
-        check_file(os.path.join(args.data_dir, name), size, sha)
+        fetch(args.data_dir, names)
+    for name in names:
+        check_file(os.path.join(args.data_dir, name), *SOURCES[name])
+    weights = args.weights or args.data_dir
+    for name in ("config.json", "model.safetensors"):
+        if not os.path.isfile(os.path.join(weights, name)):
+            die(f"{weights} has no {name}")
 
     sys.dont_write_bytecode = True  # no __pycache__ beside the repo's scripts
     sys.path.insert(0, os.path.join(ROOT, "training", "typing-lm"))
     import convert  # noqa: E402  (after the checks, because it imports torch and coremltools)
 
-    model = convert.compress(convert.convert(args.data_dir, CONTEXT), WEIGHT_FORMAT)
+    model = convert.compress(convert.convert(weights, CONTEXT), WEIGHT_FORMAT)
     with tempfile.TemporaryDirectory() as scratch:
         package = os.path.join(scratch, "NextWord.mlpackage")
         model.save(package)
@@ -158,6 +169,9 @@ def main():
         "context": CONTEXT, "weights": WEIGHT_FORMAT, "modelBytes": size,
         "sources": {name: {"bytes": size_, "sha256": sha} for name, (size_, sha) in SOURCES.items()},
     }
+    if args.weights:
+        tuned = os.path.join(weights, "model.safetensors")
+        manifest["fineTuned"] = {"bytes": os.path.getsize(tuned), "sha256": sha256(tuned)}
     with open(os.path.join(args.out, "model.json"), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")

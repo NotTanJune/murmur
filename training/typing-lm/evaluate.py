@@ -99,7 +99,8 @@ class Scorer:
         self.words = words
         self.context = context
         self.tokenizer = AutoTokenizer.from_pretrained(folder)
-        self.model = AutoModelForCausalLM.from_pretrained(folder, torch_dtype=torch.float32).eval()
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = AutoModelForCausalLM.from_pretrained(folder, torch_dtype=torch.float32).eval().to(self.device)
         self.bos = self.tokenizer.bos_token_id
         if self.bos is None:
             self.bos = self.tokenizer.eos_token_id
@@ -164,11 +165,11 @@ class Scorer:
                 mask[row, :len(ids)] = 1
             began = time.perf_counter()
             with torch.no_grad():
-                logits = self.model(input_ids=batch, attention_mask=mask).logits
+                logits = self.model(input_ids=batch.to(self.device), attention_mask=mask.to(self.device)).logits
+                last = logits[torch.arange(len(chunk)), mask.sum(1) - 1].float().cpu()
             self.seconds += time.perf_counter() - began
             self.passes += len(chunk)
-            last = logits[torch.arange(len(chunk)), mask.sum(1) - 1]
-            out.append(torch.log_softmax(last.float(), dim=-1))
+            out.append(torch.log_softmax(last, dim=-1))
         return torch.cat(out)
 
     def word_scores(self, ids, kind, logp, second):
@@ -377,9 +378,14 @@ def main():
                         if args.fresh:
                             systems["fresh"] = fill(scorer.fresh_completions(boundary, typed), pair, 3)
                     word_key = (case["set"], case["entry"], boundary, target)
-                    lengths.setdefault(case["set"], {})[word_key] = len(target)
-                    for system, ranked in systems.items():
-                        tally.add(case["set"], system, k, ranked, target, word_key)
+                    # The lowercased set is also counted by where the entry came from: Murmur's
+                    # own replay sentences, and Tatoeba's. A model trained on Tatoeba's other
+                    # sentences is flattered by the second, so the first is the clean measure.
+                    groups = [case["set"]] + ([case["source"]] if case["set"] == "lower" else [])
+                    for group in groups:
+                        lengths.setdefault(group, {})[word_key] = len(target)
+                        for system, ranked in systems.items():
+                            tally.add(group, system, k, ranked, target, word_key)
         if start % 800 == 0:
             print(f"  {start}/{len(boundaries)} word starts", flush=True)
 
@@ -393,7 +399,7 @@ def main():
     print(f"{scorer.passes} passes, {1000 * scorer.seconds / max(1, scorer.passes):.2f} ms each in {engine}")
     header = "set      system      next@1 next@3 | 1 letter @1 @2 @3 | 2 letters @1 @2 @3 | 3 letters @1 @2 @3 | keys saved"
     print(header)
-    for group in ("written", "lower"):
+    for group in ("written", "lower", "replay", "tatoeba"):
         for system in systems:
             if system == "fresh":
                 cells = ["   -  ", "   -  "]
