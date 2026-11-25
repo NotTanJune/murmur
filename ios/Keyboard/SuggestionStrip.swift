@@ -53,22 +53,19 @@ struct SuggestionStrip: View {
 
     // MARK: History
 
-    /// The leading cell is always reserved, so the cells beside it do not shift as a word
-    /// starts; its button shows only while no word is being typed.
+    /// The history button, in the strip's leading cell at all times: while a word is typed, while
+    /// the capsule records or finishes (the capsule ends just after this cell), and while an
+    /// undo chip shows (that one lives in the left suggestion cell).
     @ViewBuilder private var history: some View {
-        ZStack {
-            if !typing.isTypingWord {
-                Button(action: showHistory) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(DS.Keyboard.iconFont)
-                        .frame(width: DS.Keyboard.functionKeyWidth)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(KeyPressStyle())
-                .accessibilityLabel("Recent dictations")
-            }
+        Button(action: showHistory) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(DS.Keyboard.iconFont)
+                .frame(width: DS.Keyboard.functionKeyWidth)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(KeyPressStyle())
+        .accessibilityLabel("Recent dictations")
         .frame(width: DS.Keyboard.functionKeyWidth)
         .frame(maxHeight: .infinity)
     }
@@ -78,7 +75,7 @@ struct SuggestionStrip: View {
     @ViewBuilder private var suggestionCells: some View {
         if capsuleShowing {
             Color.clear.frame(maxWidth: .infinity)
-        } else if !typing.suggestions.isEmpty {
+        } else if !typing.suggestions.isEmpty || typing.undoChip != nil {
             HStack(spacing: 0) {
                 ForEach(0..<Self.slotCount, id: \.self) { slot in
                     cell(at: slot)
@@ -103,7 +100,9 @@ struct SuggestionStrip: View {
     private static let slotCount = 3
 
     @ViewBuilder private func cell(at slot: Int) -> some View {
-        if slot < typing.suggestions.count {
+        if slot == 0, let original = typing.undoChip {
+            undoChip(original)
+        } else if slot < typing.suggestions.count {
             let suggestion = typing.suggestions[slot]
             Button { typing.choose(suggestion) } label: {
                 Text(Self.title(for: suggestion))
@@ -120,6 +119,30 @@ struct SuggestionStrip: View {
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
+    }
+
+    /// The word the keyboard just replaced, in the left cell as on the stock keyboard, with an
+    /// arrow: tapping it puts the word back with no space. It takes the place of the typed word's
+    /// own cell for as long as the offer lives.
+    private func undoChip(_ original: String) -> some View {
+        Button(action: typing.chooseUndo) {
+            HStack(spacing: DS.Keyboard.undoChipSpacing) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(DS.Keyboard.undoChipIconFont)
+                Text(original)
+                    .font(DS.Keyboard.suggestionFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(DS.Keyboard.suggestionMinimumScale)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, DS.Keyboard.suggestionInset)
+            .offset(y: DS.Keyboard.suggestionTextOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Undo autocorrect")
+        .accessibilityValue(original)
     }
 
     /// The word you are typing is shown in quotes, as on the stock keyboard.
@@ -243,7 +266,10 @@ private struct RecordControl: View {
         .glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in: .capsule)
         .animation(reduceMotion ? nil : DS.Motion.panel, value: isExpanded)
         // The m's cell is wider than its circle, so a thumb that misses the circle still lands.
-        .padding(.horizontal, cellPadding)
+        // The capsule has no extra touch area on its leading side, which would lie over the
+        // history cell: it ends where it is drawn.
+        .padding(.leading, isExpanded ? 0 : cellPadding)
+        .padding(.trailing, cellPadding)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)

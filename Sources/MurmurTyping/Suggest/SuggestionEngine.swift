@@ -55,6 +55,29 @@ public enum SuggestionEngine {
             deleteCount: Context(text).partial.count, insert: suggestion.text + " ")
     }
 
+    /// The word before the one that starts right after `textBeforeWord`, folded to the model's
+    /// form, by the rule the strip's context uses: only a word with whitespace between it and the
+    /// cursor counts, and nothing follows a sentence end or other punctuation. Autocorrect and the
+    /// next-letter bias read it as the bigram's previous word.
+    public static func previousWord(beforeWordAt textBeforeWord: String) -> String? {
+        Context(textBeforeWord).previous
+    }
+
+    /// The strip's cells with a correction in the centre. Mid-word the strip is `[typed, best
+    /// completion, second completion]`; with a correction it is `[typed, correction, best
+    /// completion]`, so the stock layout holds (the typed word in quotes on the left, the fix in
+    /// the emphasised centre) and one completion stays on the right. A completion that is the
+    /// correction itself is dropped, so the same word is never offered twice. A strip that does
+    /// not start with the typed word (after a space, in an empty field) is returned unchanged.
+    public static func merging(correction: String, into suggestions: [Suggestion]) -> [Suggestion] {
+        guard let typed = suggestions.first, typed.kind == .typed else { return suggestions }
+        let fix = Suggestion(text: correction, kind: .correction)
+        let completions = suggestions.dropFirst().filter {
+            $0.text.lowercased() != correction.lowercased()
+        }
+        return [typed, fix] + completions.prefix(1)
+    }
+
     // MARK: - Ranking
 
     private static func complete(_ context: Context, _ model: TypingModel) -> [Suggestion] {

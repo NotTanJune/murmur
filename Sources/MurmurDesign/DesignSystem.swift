@@ -304,8 +304,8 @@ public enum DS {
         /// The suggestion strip above the keys: 30 pt upright, the stock 44 pt turned.
         public static let stripHeight: CGFloat = 30
         public static let stripHeightLandscape: CGFloat = 44
-        /// Between the strip and the first row: 4 pt upright, 6 pt turned.
-        public static let stripGap: CGFloat = 4
+        /// Between the strip and the first row: 8 pt upright, 6 pt turned.
+        public static let stripGap: CGFloat = 8
         public static let stripGapLandscape: CGFloat = 6
         public static let keycapHeight: CGFloat = 43
         public static let keycapHeightLandscape: CGFloat = 32
@@ -441,6 +441,10 @@ public enum DS {
         public static let suggestionInset: CGFloat = 4
         public static let suggestionMinimumScale: CGFloat = 0.7
         public static let suggestionDividerHeight: CGFloat = 20
+        /// The undo chip in the left suggestion cell after an autocorrection: an arrow and the
+        /// original word. The gap between the two.
+        public static let undoChipSpacing: CGFloat = 4
+        public static let undoChipIconFont = SwiftUI.Font.system(size: 13, weight: .semibold)
 
         // MARK: Pop-ups
         /// The key pop-up is the keycap widened by this factor, drawn above it.

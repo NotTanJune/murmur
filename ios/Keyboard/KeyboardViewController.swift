@@ -27,6 +27,9 @@ final class KeyboardViewController: UIInputViewController {
     )
     private lazy var typing = TypingController(proxy: { [weak self] in self?.textDocumentProxy })
     private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "keyboard")
+    private static let typingLog = Logger(subsystem: "ai.pivotstudio.murmur", category: "typing")
+    /// The gesture recognizers already relaxed, so each is changed and logged once.
+    private var relaxedRecognizers = Set<ObjectIdentifier>()
 
     /// The environment must be configured before anything reads storage or `Settings.shared`.
     /// Nothing the stored properties above create does; `dictation` is lazy.
@@ -120,6 +123,8 @@ final class KeyboardViewController: UIInputViewController {
         let landscape = traitCollection.verticalSizeClass == .compact
         typing.setLayout(
             width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey)
+        // The window's recognizers can appear after the first appearance; each new one is relaxed.
+        relaxTouchDelays()
         let height = typing.keyboardHeight
         if heightConstraint?.constant != height {
             heightConstraint?.constant = height
@@ -137,17 +142,54 @@ final class KeyboardViewController: UIInputViewController {
         // Typing first: it resets the counters that the dictation's status write reports.
         typing.keyboardAppeared()
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
+        // Contact names and the owner's text replacements: words autocorrect must not undo. The
+        // answer is asynchronous; the controller rebuilds its lexicon when it arrives.
+        requestSupplementaryLexicon { [weak self] lexicon in
+            let words = lexicon.entries.map(\.documentText)
+            Task { @MainActor in self?.typing.setSystemLexicon(words) }
+        }
     }
 
     /// iOS holds back touches near the screen's side edges while it decides whether they are
-    /// its own gestures (the home and app-switch swipes), which delays the outermost keys.
-    /// Asking the window's recognizers not to delay them is unverified on a device; the line
-    /// in the log says the request ran.
+    /// its own gestures (the home and app-switch swipes), which delays the outermost keys, and
+    /// a recognizer that delays touches and then recognizes cancels them for the view below. See
+    /// `relaxTouchDelays`.
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard let recognizers = view.window?.gestureRecognizers else { return }
-        for recognizer in recognizers { recognizer.delaysTouchesBegan = false }
-        Self.log.info("window gesture recognizers: delaysTouchesBegan off for \(recognizers.count)")
+        // The proxy's traits may have been stale in `viewWillAppear`; read them again now.
+        typing.keyboardDidAppear()
+        relaxTouchDelays()
+    }
+
+    /// Keys went missing on a device (62 taps counted, many more typed) with 0 cancelled and a
+    /// 1.6 ms slowest `handle`, so the touches were lost before the key plane saw them. The
+    /// likely holder is a system gesture recognizer with `delaysTouchesBegan` that then
+    /// recognizes. This walks from the key plane up through every superview to the window and
+    /// asks each gesture recognizer not to delay touches (began or ended). Nothing is removed or
+    /// disabled; `cancelsTouchesInView` is left as it is and logged. Each recognizer is changed
+    /// once, by `ObjectIdentifier`, and logged in category `typing`: its class, its view, its
+    /// `cancelsTouchesInView` and what changed. Whether iOS honours it for its own recognizers
+    /// is unverified on a device.
+    private func relaxTouchDelays() {
+        var node: UIView? = plane
+        var depth = 0
+        while let current = node {
+            for recognizer in current.gestureRecognizers ?? [] {
+                guard relaxedRecognizers.insert(ObjectIdentifier(recognizer)).inserted else { continue }
+                let beganWas = recognizer.delaysTouchesBegan
+                let endedWas = recognizer.delaysTouchesEnded
+                recognizer.delaysTouchesBegan = false
+                recognizer.delaysTouchesEnded = false
+                let changes = [
+                    beganWas ? "delaysTouchesBegan true to false" : nil,
+                    endedWas ? "delaysTouchesEnded true to false" : nil,
+                ].compactMap { $0 }
+                Self.typingLog.info(
+                    "gesture recognizer \(String(describing: type(of: recognizer)), privacy: .public) on \(String(describing: type(of: current)), privacy: .public) (level \(depth)): cancelsTouchesInView \(recognizer.cancelsTouchesInView), changed: \(changes.isEmpty ? "nothing, already off" : changes.joined(separator: ", "), privacy: .public)")
+            }
+            node = current.superview
+            depth += 1
+        }
     }
 
     /// The host changed the text, the selection or the field: shift and the strip follow it.

@@ -17,15 +17,15 @@ import Testing
 
     private func letter(_ s: String) -> KeyKind { .character(s) }
 
-    @Test("Letters page: 10, 9, 9 and 4 keys (5 with the globe), 239 pt tall, 32.7 pt letters")
+    @Test("Letters page: 10, 9, 9 and 4 keys (5 with the globe), 243 pt tall, 32.7 pt letters")
     func lettersPageShape() throws {
         let plain = KeyboardLayout.rows(for: .letters, showsGlobe: false)
         #expect(plain.map(\.count) == [10, 9, 9, 4])
         let withGlobe = KeyboardLayout.rows(for: .letters, showsGlobe: true)
         #expect(withGlobe.map(\.count) == [10, 9, 9, 5])
-        let expected: CGFloat = 30 + 4 + 4 * 43 + 3 * 11
+        let expected: CGFloat = 30 + 8 + 4 * 43 + 3 * 11
         #expect(abs(metrics.height - expected) < 0.001)
-        #expect(metrics.height == 239)
+        #expect(metrics.height == 243)
         let q = try frame(letter("q"), in: frames())
         #expect(abs(q.keycap.width - 32.7) < 0.05)
         #expect(abs(metrics.letterKeyWidth - 32.7) < 0.05)
@@ -73,7 +73,7 @@ import Testing
         #expect(HitTester.key(at: CGPoint(x: x, y: 31), frames: all, bias: [:])?.kind == letter("q"))
         #expect(HitTester.key(at: CGPoint(x: x, y: 30), frames: all, bias: [:])?.kind == letter("q"))
         #expect(HitTester.key(at: CGPoint(x: x, y: 29), frames: all, bias: [:]) == nil)
-        #expect(q.keycap.minY == 34)
+        #expect(q.keycap.minY == 38)
     }
 
     @Test("A likelier letter claims part of its neighbour, across rows too")

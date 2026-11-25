@@ -306,7 +306,7 @@ view's and its window's) on each layout while the panel asks for more than the k
 `KeyboardStatus` stores the last pair (its fields are still named `emojiPanelRequestedHeight`
 and `emojiPanelShownHeight`), the log says `keyboard height: N pt requested, M pt shown`, and
 Setup's keyboard card shows "Keyboard height: N requested, M pt shown". The key page, and so
-every panel, is now 239 pt in portrait. Whether the required constraint resizes the keyboard on
+every panel, is now 243 pt in portrait. Whether the required constraint resizes the keyboard on
 a device is unverified until the two numbers match.
 
 **Capture runs in WebKit, and Apple may close the path.** A keyboard extension cannot record:
@@ -598,12 +598,13 @@ keycaps are 43 pt tall on a 54 pt row pitch (11 pt between rows), 32.7 pt wide w
 stock lowercase letters have a 12.3 pt x-height (`letterUIFont` is 24.5 pt) and are centred on
 the keycap by that x-height. iOS puts about 16 pt of its own margin above a third-party keyboard
 view, so our first row landed 68 pt below the panel's top against the stock keyboard's 51 pt.
-The strip and its gap are therefore `DS.Keyboard.stripHeight` 30 and `stripGap` 4 (the stock 52
-minus that margin), and the portrait keyboard is 30 + 4 + 4 x 43 + 3 x 11 = 239 pt. Landscape
+The strip and its gap are therefore `DS.Keyboard.stripHeight` 30 and `stripGap` 8 (the stock 52
+minus that margin; the gap was 4 until 2026-11-25, when the owner asked for more air above the keys),
+and the portrait keyboard is 30 + 8 + 4 x 43 + 3 x 11 = 243 pt. Landscape
 keeps the older 44 + 6 strip and 32 pt keys (`stripHeightLandscape`). The m circle and the
 recording capsule are 30 pt (`mCircleDiameter`, `recordingCapsuleHeight`). The m is lifted by
 `DS.Keyboard.mGlyphLift` so its x-height, not its line box, is centred in the circle. A
-first-row pop-up has only the strip plus gap (34 pt) above its key inside the view, so its head
+first-row pop-up has only the strip plus gap (38 pt) above its key inside the view, so its head
 is shorter than the stock one; unverified on a device. Key glyphs are placed by optical band
 (`KeyPlaneView.textFrame`): x-height for a lowercase letter, cap height for anything else.
 

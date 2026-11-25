@@ -44,6 +44,7 @@ final class SetupStatus {
     private(set) var typingOffKey: Int?
     private(set) var typingSlowestHandleMs: Double?
     private(set) var typingMaxDeliveryMs: Double?
+    private(set) var typingSlowestAutocorrectMs: Double?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -74,6 +75,7 @@ final class SetupStatus {
         typingOffKey = reported?.typingOffKey
         typingSlowestHandleMs = reported?.typingSlowestHandleMs
         typingMaxDeliveryMs = reported?.typingMaxDeliveryMs
+        typingSlowestAutocorrectMs = reported?.typingSlowestAutocorrectMs
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -265,13 +267,19 @@ struct SetupView: View {
     /// "Typing: 214 taps · 0 cancelled · 1 off-key · slowest 3.2 ms · delivery 18 ms", the
     /// keys' counters since the keyboard last appeared. Taps is touch-downs on any key; a
     /// cancelled touch typed nothing, an off-key lift typed its last key, the slowest is the
-    /// longest `handle` and delivery the largest wait between a touch and its handling.
+    /// longest `handle` and delivery the largest wait between a touch and its handling. Once a
+    /// word has been checked, "autocorrect 2.1 ms" is the slowest check (parse, decode, policy).
     private var typingLine: String? {
         guard let downs = status.typingTouchDowns, let cancelled = status.typingCancelled,
             let offKey = status.typingOffKey, let slowest = status.typingSlowestHandleMs,
             let delivery = status.typingMaxDeliveryMs
         else { return nil }
-        return "Typing: \(downs) taps · \(cancelled) cancelled · \(offKey) off-key · slowest \(String(format: "%.1f", slowest)) ms · delivery \(Int(delivery.rounded())) ms"
+        var line = "Typing: \(downs) taps · \(cancelled) cancelled · \(offKey) off-key · slowest \(String(format: "%.1f", slowest)) ms · delivery \(Int(delivery.rounded())) ms"
+        // Zero means no word has been checked since the keyboard appeared.
+        if let autocorrect = status.typingSlowestAutocorrectMs, autocorrect > 0 {
+            line += " · autocorrect \(String(format: "%.1f", autocorrect)) ms"
+        }
+        return line
     }
 
     private var fullAccessDetail: String? {

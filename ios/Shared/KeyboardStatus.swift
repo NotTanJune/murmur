@@ -51,6 +51,8 @@ struct KeyboardStatus: Codable, Equatable {
     var typingOffKey: Int?
     var typingSlowestHandleMs: Double?
     var typingMaxDeliveryMs: Double?
+    /// The slowest autocorrect evaluation on the main actor; nil in files written before it existed.
+    var typingSlowestAutocorrectMs: Double?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

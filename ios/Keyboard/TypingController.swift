@@ -44,6 +44,9 @@ struct TypingStats: Equatable {
     /// The largest gap between a touch's timestamp and the keyboard handling it. A burst of
     /// touches delivered late, or the main thread busy, shows here.
     var maxDeliveryMs = 0.0
+    /// The slowest autocorrect evaluation (parse, decode and policy, at a word end or for the
+    /// strip's correction), run on the main actor. Zero until one ran.
+    var slowestAutocorrectMs = 0.0
 }
 
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
@@ -65,10 +68,9 @@ final class TypingController {
     /// The strip's height at the current orientation. The strip is SwiftUI and reads it.
     private(set) var stripHeight = DS.Keyboard.stripHeight
 
-    /// A word is being typed, so the strip's leading cell has no room for the history icon.
-    var isTypingWord: Bool {
-        suggestions.contains { $0.kind == .typed || $0.kind == .completion }
-    }
+    /// The word autocorrect replaced, while its undo offer shows: the strip's left suggestion
+    /// cell is the undo chip with this word. Nil when no offer is live.
+    private(set) var undoChip: String?
 
     /// What a tap on the key plane's emoji key does. Set by the keyboard view, which owns the
     /// panels.
@@ -106,6 +108,43 @@ final class TypingController {
     @ObservationIgnored private var counters = TypingStats()
     @ObservationIgnored private var offKeyAtReset = 0
 
+    // Autocorrect (Milestone 5). The logic lives in `MurmurTyping`; this is the state it needs.
+    /// The decoder, the policy and the owner's words. Nil until the word model has loaded.
+    @ObservationIgnored private var autocorrector: Autocorrector?
+    /// The taps of the word being typed. Emptied on a space or mark, a cursor move, anything typed
+    /// by something other than a letter key, and whenever the field's word is not what was typed.
+    @ObservationIgnored private var tracker = WordTapTracker()
+    /// The replacement the owner may take back, from the autocorrect until the next edit. The
+    /// strip shows the chip once the first delete has removed the space.
+    @ObservationIgnored private var undo: UndoOffer? {
+        didSet {
+            let chip = undo?.isShown == true ? undo?.original : nil
+            if chip != undoChip { undoChip = chip }
+        }
+    }
+    /// The letters page's frames in the engine's coordinates, whatever page shows: the decoder
+    /// measures every tap against these.
+    @ObservationIgnored private var lettersFrames: [KeyFrame] = []
+    @ObservationIgnored private var lettersLayout: LettersLayout?
+    /// The next-letter bias, built off the typing path and cached per prefix.
+    @ObservationIgnored private var biasCache = NextLetterBiasCache()
+    @ObservationIgnored private var biasTask: Task<Void, Never>?
+    /// The Murmur dictionary revision the lexicon was built from, and the words the system's
+    /// supplementary lexicon (contacts, text replacements) brought.
+    @ObservationIgnored private var lexiconRevision = -1
+    @ObservationIgnored private var systemWords: [String] = []
+
+    /// Most system words kept: the decoder visits every lexicon entry, so a large one would cost
+    /// each decode.
+    @ObservationIgnored private static let systemWordLimit = 1000
+
+    /// What the letters page's frames were built for.
+    private struct LettersLayout: Equatable {
+        var width: CGFloat
+        var isLandscape: Bool
+        var showsGlobe: Bool
+    }
+
     @ObservationIgnored private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "keyboard")
 
     init(proxy: @escaping () -> UITextDocumentProxy?) {
@@ -116,6 +155,7 @@ final class TypingController {
             constants: .keyboard(isLandscape: false))
         metrics = initial
         engine = TypingEngine(metrics: initial)
+        lettersFrames = initial.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false))
     }
 
     // MARK: - Geometry
@@ -143,11 +183,22 @@ final class TypingController {
         self.showsGlobe = showsGlobe
         engine.setLayout(metrics: next, showsGlobe: showsGlobe)
         if engine.frames != framesBefore { stateIsDirty = true }
+        updateLettersFrames(width: width, isLandscape: isLandscape, showsGlobe: showsGlobe)
         if stripHeight != next.constants.stripHeight {
             stripHeight = next.constants.stripHeight
             stateIsDirty = true
         }
         flushState()
+    }
+
+    /// The decoder reads the letters page whatever page the keys show, so its frames are kept
+    /// apart from the engine's and rebuilt only when the geometry changed.
+    private func updateLettersFrames(width: CGFloat, isLandscape: Bool, showsGlobe: Bool) {
+        let layout = LettersLayout(width: width, isLandscape: isLandscape, showsGlobe: showsGlobe)
+        guard layout != lettersLayout else { return }
+        lettersLayout = layout
+        lettersFrames = metrics.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: showsGlobe))
+        autocorrector?.setLettersFrames(lettersFrames)
     }
 
     /// The height of the key plane: everything under the strip.
@@ -200,10 +251,16 @@ final class TypingController {
         offKeyAtReset = engine.offKeyLifts
         if !modelLoaded {
             modelLoaded = true
-            do { model = try TypingModel.bundled() } catch {
+            do {
+                let loaded = try TypingModel.bundled()
+                model = loaded
+                autocorrector = Autocorrector(model: loaded, lettersFrames: lettersFrames)
+                buildBias(model: loaded)
+            } catch {
                 Self.log.error("word model did not load: \(String(describing: error), privacy: .public)")
             }
         }
+        refreshLexicon(force: true)
         readTraits()
         resetFieldState()
         engine.setPage(traits.keyboardKind == .number ? .numbers : .letters)
@@ -225,13 +282,23 @@ final class TypingController {
     func keyboardDisappeared() {
         let snapshot = stats
         Self.log.info(
-            "typing: \(snapshot.touchDowns) touch-downs, \(snapshot.typed) typed, \(snapshot.cancelled) cancelled, \(snapshot.offKey) off-key, slowest handle \(snapshot.slowestHandleMs, format: .fixed(precision: 1)) ms, delivery \(snapshot.maxDeliveryMs, format: .fixed(precision: 1)) ms")
+            "typing: \(snapshot.touchDowns) touch-downs, \(snapshot.typed) typed, \(snapshot.cancelled) cancelled, \(snapshot.offKey) off-key, slowest handle \(snapshot.slowestHandleMs, format: .fixed(precision: 1)) ms, delivery \(snapshot.maxDeliveryMs, format: .fixed(precision: 1)) ms, autocorrect \(snapshot.slowestAutocorrectMs, format: .fixed(precision: 1)) ms")
+        undo = nil
+        tracker.reset()
     }
 
     /// The host changed the text, the selection or the field. Traits can differ between fields,
     /// so they are read again; the shift key and the strip follow the text, in the deferred
     /// pass.
     func textDidChange() {
+        fieldCheckPending = true
+        scheduleTextRefresh()
+    }
+
+    /// The keyboard is on screen. The field's traits can still be those of the last field when
+    /// `keyboardAppeared` runs (`viewWillAppear`), so one deferred pass re-reads them, the
+    /// field's identity, shift and the strip, whether or not the host reports a change.
+    func keyboardDidAppear() {
         fieldCheckPending = true
         scheduleTextRefresh()
     }
@@ -248,6 +315,9 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
         autoShifted = false
+        // Taps and an undo offer belong to the text of the last field.
+        tracker.reset()
+        undo = nil
     }
 
     /// Maps the proxy's traits onto `FieldTraits`. Each optional-looking property is read into
@@ -341,7 +411,7 @@ final class TypingController {
         case .tick:
             break
         }
-        let effects = engine.handle(event, bias: [:])
+        let effects = engine.handle(event, bias: biasForTouch())
         if !effects.isEmpty { apply(effects) }
         let elapsed = (ContinuousClock.now - entered).components
         let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
@@ -359,17 +429,25 @@ final class TypingController {
         var textChanged = false
         for effect in effects {
             switch effect {
-            case .insert(let text, _):
-                typeInsert(text)
+            case .insert(let text, let tap):
+                typeInsert(text, tap: tap)
                 counters.typed += 1
                 textChanged = true
             case .deleteBackward(let count):
+                // The one delete that follows a replacement keeps its offer (and shows it);
+                // anything else ends it. The taps of the word lose the letters deleted.
+                undo = undo?.afterDelete(count: count)
+                tracker.dropLast(count)
                 deleteBackward(count)
                 textChanged = true
             case .deleteWordBackward:
+                undo = nil
+                tracker.reset()
                 deleteWordBackward()
                 textChanged = true
             case .moveCursor(let offset):
+                undo = nil
+                tracker.reset()
                 proxy()?.adjustTextPosition(byCharacterOffset: offset)
                 textChanged = true
             case .showPopup(let kind, let alternates, let selected):
@@ -421,13 +499,20 @@ final class TypingController {
 
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
+    /// How much of the text before the cursor the strip and autocorrect read.
+    private static let contextLimit = 400
+
     /// One typed string. A single character goes through the rules; anything longer (an accent
-    /// the engine already cased, a double-space replacement) goes in as it is.
-    private func typeInsert(_ text: String) {
+    /// the engine already cased, a double-space replacement) goes in as it is. `tap` is where a
+    /// letter key lifted: the word's taps, for autocorrect. Any key but a delete ends an undo
+    /// offer; the autocorrect this key may cause starts a new one.
+    private func typeInsert(_ text: String, tap: CGPoint?) {
+        undo = nil
         guard let proxy = proxy() else { return }
         guard text.count == 1, let mark = text.first else {
             pending.disarm()
             lastSpaceTime = nil
+            tracker.reset()
             proxy.insertText(text)
             return
         }
@@ -446,6 +531,11 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
 
+        // A closing mark ends the word, so the word is checked before the mark goes in.
+        if PendingSpace.closingMarks.contains(mark) {
+            before = finishWord(before: before, terminator: String(mark))
+        }
+
         if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: mark) {
             perform(fix)
             before = String(before.dropLast()) + "I"
@@ -453,8 +543,10 @@ final class TypingController {
 
         switch mark {
         case "'", "\"":
+            tracker.reset()
             proxy.insertText(TextRules.smartQuote(mark, before: before, enabled: traits.smartQuotes && isProseField))
         case "-":
+            tracker.reset()
             if let dash = TextRules.smartDash(before: before, enabled: traits.smartDashes && isProseField) {
                 perform(dash)
             } else {
@@ -462,10 +554,17 @@ final class TypingController {
             }
         default:
             proxy.insertText(String(mark))
+            // A letter key's lift is one more tap of the word; everything else ends the word.
+            if mark.isLetter, let tap {
+                tracker.append(letter: String(mark), at: tap)
+            } else {
+                tracker.reset()
+            }
         }
     }
 
     private func typeSpace(before: String, proxy: UITextDocumentProxy) {
+        var before = before
         let time = now
         if pending.consumeSpace(), before.last == " " {
             // The suggestion already typed this space. The press still counts toward the
@@ -480,11 +579,109 @@ final class TypingController {
             lastSpaceTime = nil
             return
         }
+        before = finishWord(before: before, terminator: " ")
         if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
             perform(fix)
         }
         proxy.insertText(" ")
         lastSpaceTime = time
+    }
+
+    // MARK: - Autocorrect
+
+    /// A space or closing mark is about to be typed: the word before the cursor ends. Decodes its
+    /// taps, asks the policy, and on a replacement deletes the word and types the fix in its
+    /// place (smart quotes turn the contraction's apostrophe curly). The offer to take it back
+    /// starts here. Without taps (the word was typed before the keyboard appeared, or the host
+    /// changed it) the contraction rule still applies. Returns the text before the cursor as it
+    /// now stands, and always empties the taps: they belong to the word that just ended.
+    private func finishWord(before: String, terminator: String) -> String {
+        defer { tracker.reset() }
+        guard textRulesApply, autocorrector != nil, let proxy = proxy() else { return before }
+        // A word cut in two by the cursor is not the word the taps describe.
+        if proxy.documentContextAfterInput?.first?.isLetter == true { return before }
+        refreshLexicon()
+        let started = ContinuousClock.now
+        let result = autocorrector?.evaluate(
+            textBefore: String(before.suffix(Self.contextLimit)), tracker: tracker, field: traits)
+        noteAutocorrectTime(since: started)
+        guard let result, let replacement = result.replacement else { return before }
+
+        let typed = smartApostrophes(replacement.text)
+        for _ in 0..<result.word.text.count { proxy.deleteBackward() }
+        proxy.insertText(typed)
+        undo = UndoOffer(original: result.word.text, replacement: typed, terminator: terminator)
+        return result.word.textBeforeWord + typed
+    }
+
+    /// The model stores a straight apostrophe; with smart quotes on the field gets the curly one.
+    private func smartApostrophes(_ text: String) -> String {
+        traits.smartQuotes ? text.replacingOccurrences(of: "'", with: "\u{2019}") : text
+    }
+
+    /// The strip's leading chip: puts the original word back in place of the replacement, with
+    /// no space, and refuses that fix for the session (`RejectionSet.recordUndo`).
+    func chooseUndo() {
+        guard let offer = undo, let proxy = proxy() else { return }
+        KeyFeedback.press()
+        let before = proxy.documentContextBeforeInput ?? ""
+        if offer.isConsistent(with: before) {
+            for _ in 0..<offer.restoreDeleteCount { proxy.deleteBackward() }
+            proxy.insertText(offer.original)
+            autocorrector?.recordUndo(offer)
+        }
+        undo = nil
+        tracker.reset()
+        pending.disarm()
+        lastSpaceTime = nil
+        textChangedByKeys()
+        flushState()
+    }
+
+    private func noteAutocorrectTime(since started: ContinuousClock.Instant) {
+        let elapsed = (ContinuousClock.now - started).components
+        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+        counters.slowestAutocorrectMs = max(counters.slowestAutocorrectMs, milliseconds)
+    }
+
+    /// Rebuilds the owner's lexicon when the Murmur dictionary changed (its revision moved) or
+    /// the system's words arrived. The dictionary is reloaded by `KeyboardDictation` right after
+    /// this controller's `keyboardAppeared`, so the revision is checked again at each word end.
+    private func refreshLexicon(force: Bool = false) {
+        let store = DictionaryStore.shared
+        guard force || store.revision != lexiconRevision else { return }
+        lexiconRevision = store.revision
+        autocorrector?.lexicon = UserLexicon(entries: store.entries, systemWords: systemWords)
+    }
+
+    /// The system's supplementary lexicon (`requestSupplementaryLexicon`: contact names and text
+    /// replacements) arrived: its `documentText`s protect those words and pull near misses.
+    func setSystemLexicon(_ words: [String]) {
+        var seen = Set<String>()
+        systemWords = words.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(Self.systemWordLimit).map { $0 }
+        refreshLexicon(force: true)
+    }
+
+    // MARK: - Next-letter bias
+
+    /// Builds the bias tables once, on a background task: one pass over the model's unigram
+    /// column, which is too long for the typing path. The cache serves no bias until it lands.
+    private func buildBias(model: TypingModel) {
+        guard biasTask == nil else { return }
+        biasTask = Task.detached(priority: .utility) { [weak self] in
+            let bias = NextLetterBias(model: model)
+            await self?.installBias(bias)
+        }
+    }
+
+    private func installBias(_ bias: NextLetterBias) {
+        biasCache.install(bias)
+    }
+
+    /// The log-odds for this touch, only in fields that take autocorrect and on the letters page.
+    private func biasForTouch() -> [String: Double] {
+        guard engine.page == .letters, AutocorrectPolicy.allows(traits) else { return [:] }
+        return biasCache.logOdds(tracker: tracker)
     }
 
     /// Effects a text rule asked for: the rules speak in the engine's vocabulary, and only these
@@ -556,12 +753,16 @@ final class TypingController {
     func insertExternal(_ text: String) {
         pending.disarm()
         lastSpaceTime = nil
+        undo = nil
+        tracker.reset()
         proxy()?.insertText(text)
         textChangedByKeys()
         flushState()
     }
 
     func deleteExternal() {
+        undo = nil
+        tracker.reset()
         deleteBackward(1)
         textChangedByKeys()
         flushState()
@@ -571,6 +772,8 @@ final class TypingController {
     func noteDictationInserted() {
         pending.disarm()
         lastSpaceTime = nil
+        undo = nil
+        tracker.reset()
         textChangedByKeys()
         flushState()
     }
@@ -614,18 +817,35 @@ final class TypingController {
             fieldCheckPending = false
             let id = proxy()?.documentIdentifier
             if id != documentID { resetFieldState() }
-            readTraits()
         }
+        // The traits are read on every pass, not only after the host reported a change. At
+        // `viewWillAppear` the proxy can still hold the previous field's (or no) traits, and
+        // `autocapitalizationType` then reads `.none`; a fresh Notes note stayed lowercase on a
+        // device because nothing read it again. The reads are cheap, and a changed value marks
+        // the plane dirty, so the shift key follows in this same pass.
+        readTraits()
         refreshText()
         flushState()
     }
 
-    /// Reads the field's text once and brings shift and the strip in step with it.
+    /// Reads the field's text once and brings shift and the strip in step with it. Auto-shift is
+    /// recomputed on every call, including for an empty field where nothing has been typed: the
+    /// first capital of a new note depends on the traits alone.
     private func refreshText() {
         guard let proxy = proxy() else { return }
         let before = proxy.documentContextBeforeInput ?? ""
+        let after = proxy.documentContextAfterInput
+        // The host (or anything else) may have changed the text behind our edits: taps and an
+        // undo offer survive only while the field still reads the way we left it.
+        if !tracker.isEmpty, !tracker.isConsistent(with: before) { tracker.reset() }
+        if let offer = undo, !offer.isConsistent(with: before) { undo = nil }
         recomputeAutoShift(before: before)
-        refreshSuggestions(before: before, after: proxy.documentContextAfterInput)
+        if let model {
+            biasCache.noteText(
+                before: String(before.suffix(Self.contextLimit)),
+                followedByLetter: after?.first?.isLetter == true, model: model)
+        }
+        refreshSuggestions(before: before, after: after)
     }
 
     /// Turns shift on when the text asks for a capital next, and takes back only a shift that
@@ -663,7 +883,18 @@ final class TypingController {
     private func refreshSuggestions(before: String, after: String?) {
         var next: [Suggestion] = []
         if suggestionsAllowed, let model, after?.first?.isLetter != true {
-            next = SuggestionEngine.suggestions(before: String(before.suffix(400)), model: model)
+            let tail = String(before.suffix(Self.contextLimit))
+            next = SuggestionEngine.suggestions(before: tail, model: model)
+            // Mid-word, a confident correction takes the centre cell, the typed word stays on
+            // the left in quotes, and one completion stays on the right. The evaluation is the
+            // one the word's end will make, run once per coalesced refresh.
+            if next.first?.kind == .typed {
+                refreshLexicon()
+                let started = ContinuousClock.now
+                let fix = autocorrector?.evaluate(textBefore: tail, tracker: tracker, field: traits)?.stripCorrection
+                noteAutocorrectTime(since: started)
+                if let fix { next = SuggestionEngine.merging(correction: fix, into: next) }
+            }
         }
         if next != suggestions { suggestions = next }
     }
@@ -674,6 +905,8 @@ final class TypingController {
     func choose(_ suggestion: Suggestion) {
         guard let proxy = proxy() else { return }
         KeyFeedback.press()
+        undo = nil
+        tracker.reset()
         let before = proxy.documentContextBeforeInput ?? ""
         if suggestion.kind == .typed, textRulesApply,
             let fix = TextRules.standaloneI(before: before, typed: " ")
