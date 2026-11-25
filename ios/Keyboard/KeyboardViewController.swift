@@ -5,15 +5,22 @@ import SwiftUI
 import UIKit
 
 /// The keyboard extension's entry point. It owns what only a view controller has (the text
-/// proxy, the globe key's event handling, the responder chain, the height constraint); the
-/// strip and the panels live in `KeyboardView`, the keys in `KeyPlaneView`, and what the keys
-/// do to the text in `TypingController`.
+/// proxy, the globe key's event handling, the responder chain, the height constraint) and the
+/// key plane; the strip and the panels live in `KeyboardView`, and what the keys do to the text
+/// in `TypingController`.
+///
+/// The key plane is a direct subview of the root view, above the SwiftUI hosting view and
+/// pinned to the bottom. Touches on the keys go from UIKit's hit test to `KeyPlaneView` to the
+/// controller, with no SwiftUI view or gesture recognizer in between.
 final class KeyboardViewController: UIInputViewController {
     private let microphone = WebMicrophone()
     /// The keyboard's height: the key page's, computed from the width at each layout. The emoji
     /// and history panels use the same height, because iOS ignores a keyboard that grows after
     /// it first appears.
     private var heightConstraint: NSLayoutConstraint?
+    /// The key plane: the keyboard's height less the strip, set at each layout.
+    private let plane = KeyPlaneView()
+    private var planeHeightConstraint: NSLayoutConstraint?
     private lazy var dictation = KeyboardDictation(
         microphone: microphone,
         proxy: { [weak self] in self?.textDocumentProxy }
@@ -49,6 +56,7 @@ final class KeyboardViewController: UIInputViewController {
         dictation.haptics.attach(to: view)
         KeyFeedback.attach(to: view)
         typing.popupHost = view
+        dictation.typingReport = { [weak self] in self?.typing.stats ?? TypingStats() }
         typing.onGlobe = { [weak self] button, event in self?.handleInputModeList(from: button, with: event) }
         // Dictation types through the same shift state as the keys, and tells the controller
         // what it typed so the shift key and the strip follow.
@@ -83,6 +91,20 @@ final class KeyboardViewController: UIInputViewController {
             height,
         ])
         host.didMove(toParent: self)
+
+        // The plane goes on top of the hosting view, so a touch on a key reaches it first and
+        // SwiftUI never sees it. Its popups draw on the root view's layer, above it.
+        plane.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(plane)
+        let planeHeight = plane.heightAnchor.constraint(equalToConstant: typing.planeHeight)
+        planeHeightConstraint = planeHeight
+        NSLayoutConstraint.activate([
+            plane.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            plane.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            plane.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            planeHeight,
+        ])
+        typing.attach(plane)
     }
 
     /// The key page's height follows the width and the orientation, so it is set at each layout.
@@ -102,6 +124,9 @@ final class KeyboardViewController: UIInputViewController {
         if heightConstraint?.constant != height {
             heightConstraint?.constant = height
         }
+        if planeHeightConstraint?.constant != typing.planeHeight {
+            planeHeightConstraint?.constant = typing.planeHeight
+        }
         let viewHeight = view.bounds.height
         let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
         dictation.noteEmojiPanelHeight(requested: height, shown: shown)
@@ -109,8 +134,9 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
+        // Typing first: it resets the counters that the dictation's status write reports.
         typing.keyboardAppeared()
+        dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
     }
 
     /// iOS holds back touches near the screen's side edges while it decides whether they are
@@ -136,7 +162,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     override func viewWillDisappear(_ animated: Bool) {
+        plane.cancelAllTouches()
+        // Writes the status file, which carries the typing counters.
         dictation.keyboardDisappeared()
+        typing.keyboardDisappeared()
         super.viewWillDisappear(animated)
     }
 

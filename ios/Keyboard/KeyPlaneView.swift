@@ -13,6 +13,8 @@ struct KeyPlaneState: Equatable {
     var returnTitle: String?
     /// The field gave return a job other than a new line, so it is drawn blue as on Apple's.
     var returnProminent = false
+    /// The strip above the plane, which the engine's coordinates include and this view does not.
+    var stripHeight = DS.Keyboard.stripHeight
 }
 
 /// Every key of the keyboard, drawn and touched in one view.
@@ -23,6 +25,11 @@ struct KeyPlaneState: Equatable {
 /// draws and forwards: each finger event goes to `onTouch` as a `TouchEvent`, the controller
 /// feeds it to `TypingEngine`, and the effects come back as calls on this view (`state`,
 /// `showPopup`, `hidePopup`, `setTrackpad`).
+///
+/// Where it lives. The view controller adds it as a direct subview of the keyboard's root view,
+/// above the SwiftUI hosting view and pinned to the bottom, as tall as the keyboard less the
+/// strip. It is not in the SwiftUI hierarchy: SwiftUI's own gesture handling on a hosting view
+/// can delay or cancel a touch, and a cancelled character touch types nothing.
 ///
 /// Coordinates. `KeyboardMetrics` places the strip in y 0 to `stripHeight` and the rows below
 /// it, but the strip is SwiftUI and this view sits under it. The view therefore starts at
@@ -132,7 +139,7 @@ final class KeyPlaneView: UIView {
     }
 
     private func makeLayers(for frame: KeyFrame) -> KeyLayers {
-        let rect = frame.keycap.offsetBy(dx: 0, dy: -DS.Keyboard.stripHeight)
+        let rect = frame.keycap.offsetBy(dx: 0, dy: -state.stripHeight)
         let body = CALayer()
         body.frame = rect
         body.cornerRadius = DS.Keyboard.keyRadius
@@ -187,16 +194,36 @@ final class KeyPlaneView: UIView {
     }
 
     /// A line of text centred in a key. `CATextLayer` does not centre vertically, so the layer
-    /// is exactly one line tall and placed in the middle.
+    /// is one line tall and placed so the text's optical band sits on the key's centre
+    /// (`textFrame`).
     private func textLayer(_ string: String, font: UIFont, color: UIColor, size: CGSize) -> CALayer {
         let text = CATextLayer()
         text.contentsScale = displayScale
         text.alignmentMode = .center
         text.string = NSAttributedString(
             string: string, attributes: [.font: font, .foregroundColor: color])
-        let line = font.lineHeight.rounded(.up)
-        text.frame = CGRect(x: 0, y: (size.height - line) / 2, width: size.width, height: line)
+        text.frame = textFrame(for: string, font: font, in: CGRect(origin: .zero, size: size))
         return text
+    }
+
+    /// The height the eye centres a string by: the x-height for one lowercase letter, the cap
+    /// height for everything else (capitals, digits, symbols and words such as `123`). The
+    /// line box is not it: a face has far more room under the baseline than over the x-height,
+    /// so a box-centred "a" sits low.
+    private static func opticalBand(of string: String, font: UIFont) -> CGFloat {
+        if string.count == 1, let character = string.first, character.isLetter, character.isLowercase {
+            return font.xHeight
+        }
+        return font.capHeight
+    }
+
+    /// The frame of a text layer that puts the string's optical band on the vertical centre of
+    /// `rect`. The baseline goes at the centre plus half the band; the layer draws its first
+    /// baseline `ascender` below its top. Snapped to a pixel, so the baseline is crisp.
+    private func textFrame(for string: String, font: UIFont, in rect: CGRect) -> CGRect {
+        let baseline = rect.midY + Self.opticalBand(of: string, font: font) / 2
+        let top = ((baseline - font.ascender) * displayScale).rounded() / displayScale
+        return CGRect(x: rect.minX, y: top, width: rect.width, height: font.lineHeight.rounded(.up))
     }
 
     /// An SF Symbol drawn once into a bitmap in the label colour. A symbol image has no
@@ -256,7 +283,7 @@ final class KeyPlaneView: UIView {
             globeButton.isHidden = true
             return
         }
-        globeButton.frame = globe.hitRect.offsetBy(dx: 0, dy: -DS.Keyboard.stripHeight)
+        globeButton.frame = globe.hitRect.offsetBy(dx: 0, dy: -state.stripHeight)
         globeButton.isHidden = false
         bringSubviewToFront(globeButton)
     }
@@ -274,7 +301,7 @@ final class KeyPlaneView: UIView {
     /// A touch's position in the engine's coordinates, which start at the top of the strip.
     private func enginePoint(_ touch: UITouch) -> CGPoint {
         let point = touch.location(in: self)
-        return CGPoint(x: point.x, y: point.y + DS.Keyboard.stripHeight)
+        return CGPoint(x: point.x, y: point.y + state.stripHeight)
     }
 
     /// Touches of one event in a steady order, so two fingers that land together are typed in
@@ -369,9 +396,9 @@ final class KeyPlaneView: UIView {
         hidePopup()
         guard let host = popupHost, let frame = state.frames.first(where: { $0.kind == kind })
         else { return }
-        let key = convert(frame.keycap.offsetBy(dx: 0, dy: -DS.Keyboard.stripHeight), to: host)
+        let key = convert(frame.keycap.offsetBy(dx: 0, dy: -state.stripHeight), to: host)
         let container = CALayer()
-        // Above the hosting view's layer, which was added first.
+        // Above this plane's own layers, which sit at zero.
         container.zPosition = 1
         if alternates.isEmpty {
             addPreview(for: kind, key: key, bounds: host.bounds, to: container)
@@ -495,8 +522,7 @@ final class KeyPlaneView: UIView {
         text.alignmentMode = .center
         text.string = NSAttributedString(
             string: string, attributes: [.font: font, .foregroundColor: resolved(color)])
-        let line = font.lineHeight.rounded(.up)
-        text.frame = CGRect(x: rect.minX, y: rect.minY + (rect.height - line) / 2, width: rect.width, height: line)
+        text.frame = textFrame(for: string, font: font, in: rect)
         return text
     }
 
@@ -522,7 +548,7 @@ final class KeyPlaneView: UIView {
             element.accessibilityValue = value(for: frame.kind)
             element.accessibilityTraits = .keyboardKey
             element.accessibilityFrameInContainerSpace =
-                frame.keycap.offsetBy(dx: 0, dy: -DS.Keyboard.stripHeight)
+                frame.keycap.offsetBy(dx: 0, dy: -state.stripHeight)
             element.onActivate = { [weak self] in self?.activate(frame) }
             return element
         }

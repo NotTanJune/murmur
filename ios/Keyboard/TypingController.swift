@@ -10,7 +10,7 @@ extension MetricsConstants {
     /// `MurmurTyping` cannot import `MurmurDesign`, so the iPhone target does it here.
     static func keyboard(isLandscape: Bool) -> MetricsConstants {
         MetricsConstants(
-            stripHeight: DS.Keyboard.stripHeight,
+            stripHeight: isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight,
             stripGap: isLandscape ? DS.Keyboard.stripGapLandscape : DS.Keyboard.stripGap,
             keycapHeight: isLandscape ? DS.Keyboard.keycapHeightLandscape : DS.Keyboard.keycapHeight,
             rowGap: isLandscape ? DS.Keyboard.rowGapLandscape : DS.Keyboard.rowGap,
@@ -25,6 +25,25 @@ extension MetricsConstants {
             returnKeyWidth: DS.Keyboard.returnKeyWidth,
             spaceHitReach: DS.Keyboard.spaceHitReach)
     }
+}
+
+/// What the keys did since the keyboard last appeared, written to `KeyboardStatus` so a device
+/// run says whether typed letters are lost and where. Times are in milliseconds.
+struct TypingStats: Equatable {
+    /// Touch-downs on any key.
+    var touchDowns = 0
+    /// Insert effects the keys produced: the characters, spaces and returns that reached the field.
+    var typed = 0
+    /// Touches iOS cancelled (a system gesture, the keyboard going away). A cancelled character
+    /// touch types nothing.
+    var cancelled = 0
+    /// Lifts that hit no key and typed the touch's last key instead (`TypingEngine.offKeyLifts`).
+    var offKey = 0
+    /// The longest `handle`: the event in to its effects applied.
+    var slowestHandleMs = 0.0
+    /// The largest gap between a touch's timestamp and the keyboard handling it. A burst of
+    /// touches delivered late, or the main thread busy, shows here.
+    var maxDeliveryMs = 0.0
 }
 
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
@@ -42,6 +61,9 @@ extension MetricsConstants {
 final class TypingController {
     /// The strip's cells, left to right. Empty when the field offers none.
     private(set) var suggestions: [Suggestion] = []
+
+    /// The strip's height at the current orientation. The strip is SwiftUI and reads it.
+    private(set) var stripHeight = DS.Keyboard.stripHeight
 
     /// A word is being typed, so the strip's leading cell has no room for the history icon.
     var isTypingWord: Bool {
@@ -73,6 +95,16 @@ final class TypingController {
     @ObservationIgnored private var autoShifted = false
     /// The plane needs a new `KeyPlaneState`: the page, shift or return key changed.
     @ObservationIgnored private var stateIsDirty = false
+    /// The text changed (by the keys, dictation or the host) and shift and the strip have not
+    /// caught up. They do in one deferred pass per run-loop turn (`scheduleTextRefresh`), so a
+    /// burst of touches is typed before any strip work, and a host that reports each change
+    /// after the keys already did costs one pass and not two.
+    @ObservationIgnored private var textRefreshPending = false
+    @ObservationIgnored private var textRefreshScheduled = false
+    /// The host reported a change, so the field's identity and traits are read again too.
+    @ObservationIgnored private var fieldCheckPending = false
+    @ObservationIgnored private var counters = TypingStats()
+    @ObservationIgnored private var offKeyAtReset = 0
 
     @ObservationIgnored private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "keyboard")
 
@@ -111,13 +143,20 @@ final class TypingController {
         self.showsGlobe = showsGlobe
         engine.setLayout(metrics: next, showsGlobe: showsGlobe)
         if engine.frames != framesBefore { stateIsDirty = true }
+        if stripHeight != next.constants.stripHeight {
+            stripHeight = next.constants.stripHeight
+            stateIsDirty = true
+        }
         flushState()
     }
 
+    /// The height of the key plane: everything under the strip.
+    var planeHeight: CGFloat { metrics.height - metrics.constants.stripHeight }
+
     // MARK: - The plane
 
-    /// The plane the keyboard view made. It can be made again (the emoji panel replaces it for a
-    /// while), so this only points at the newest one and gives it the current state.
+    /// The plane the view controller owns: a direct subview of the keyboard's root view, not
+    /// part of the SwiftUI hierarchy. This points at it and gives it the current state.
     func attach(_ plane: KeyPlaneView) {
         self.plane = plane
         plane.popupHost = popupHost
@@ -131,10 +170,19 @@ final class TypingController {
         if self.plane === plane { self.plane = nil }
     }
 
+    /// The emoji and history panels replace the keys: the plane hides while one shows, so it
+    /// takes no touches, and a touch it still holds ends first.
+    func setPlaneVisible(_ visible: Bool) {
+        guard let plane, plane.isHidden == visible else { return }
+        if !visible { plane.cancelAllTouches() }
+        plane.isHidden = !visible
+    }
+
     private var currentState: KeyPlaneState {
         KeyPlaneState(
             frames: engine.frames, page: engine.page, shift: engine.shift,
-            returnTitle: traits.returnKeyTitle, returnProminent: returnIsProminent)
+            returnTitle: traits.returnKeyTitle, returnProminent: returnIsProminent,
+            stripHeight: metrics.constants.stripHeight)
     }
 
     private func flushState() {
@@ -148,6 +196,8 @@ final class TypingController {
     /// The keyboard came up: read the field, start on the right page, and reset what belongs to
     /// the last field (a pending space, the double-space clock).
     func keyboardAppeared() {
+        counters = TypingStats()
+        offKeyAtReset = engine.offKeyLifts
         if !modelLoaded {
             modelLoaded = true
             do { model = try TypingModel.bundled() } catch {
@@ -159,20 +209,31 @@ final class TypingController {
         engine.setPage(traits.keyboardKind == .number ? .numbers : .letters)
         engine.setShift(.off)
         stateIsDirty = true
-        recomputeAutoShift()
-        refreshSuggestions()
+        refreshText()
         flushState()
     }
 
+    /// The counters since the keyboard last appeared; the engine owns the off-key count.
+    var stats: TypingStats {
+        var snapshot = counters
+        snapshot.offKey = engine.offKeyLifts - offKeyAtReset
+        return snapshot
+    }
+
+    /// The keyboard went away: log what the keys did, so a device run reads it from the log as
+    /// well as from Setup.
+    func keyboardDisappeared() {
+        let snapshot = stats
+        Self.log.info(
+            "typing: \(snapshot.touchDowns) touch-downs, \(snapshot.typed) typed, \(snapshot.cancelled) cancelled, \(snapshot.offKey) off-key, slowest handle \(snapshot.slowestHandleMs, format: .fixed(precision: 1)) ms, delivery \(snapshot.maxDeliveryMs, format: .fixed(precision: 1)) ms")
+    }
+
     /// The host changed the text, the selection or the field. Traits can differ between fields,
-    /// so they are read again; the shift key and the strip follow the text.
+    /// so they are read again; the shift key and the strip follow the text, in the deferred
+    /// pass.
     func textDidChange() {
-        let id = proxy()?.documentIdentifier
-        if id != documentID { resetFieldState() }
-        readTraits()
-        recomputeAutoShift()
-        refreshSuggestions()
-        flushState()
+        fieldCheckPending = true
+        scheduleTextRefresh()
     }
 
     /// The emoji panel's ABC key: back to the letters page.
@@ -263,10 +324,32 @@ final class TypingController {
 
     // MARK: - Events
 
+    /// One finger event, from the plane. Counts it, and times it from entry to its effects
+    /// applied; the delivery delay is how long the event waited, by the touch's own timestamp
+    /// (`systemUptime`, as `ProcessInfo` reads it), before the keyboard got to it.
     func handle(_ event: TouchEvent) {
+        let entered = ContinuousClock.now
+        let uptime = ProcessInfo.processInfo.systemUptime
+        switch event {
+        case .began(_, _, let time):
+            counters.touchDowns += 1
+            noteDelivery(uptime - time)
+        case .moved(_, _, let time), .ended(_, _, let time):
+            noteDelivery(uptime - time)
+        case .cancelled:
+            counters.cancelled += 1
+        case .tick:
+            break
+        }
         let effects = engine.handle(event, bias: [:])
-        guard !effects.isEmpty else { return }
-        apply(effects)
+        if !effects.isEmpty { apply(effects) }
+        let elapsed = (ContinuousClock.now - entered).components
+        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+        counters.slowestHandleMs = max(counters.slowestHandleMs, milliseconds)
+    }
+
+    private func noteDelivery(_ seconds: TimeInterval) {
+        counters.maxDeliveryMs = max(counters.maxDeliveryMs, seconds * 1000)
     }
 
     /// Applies the engine's effects in order. Typing effects go through the text rules; the rest
@@ -278,6 +361,7 @@ final class TypingController {
             switch effect {
             case .insert(let text, _):
                 typeInsert(text)
+                counters.typed += 1
                 textChanged = true
             case .deleteBackward(let count):
                 deleteBackward(count)
@@ -507,16 +591,47 @@ final class TypingController {
     // MARK: - Shift
 
     private func textChangedByKeys() {
-        recomputeAutoShift()
-        refreshSuggestions()
+        scheduleTextRefresh()
+    }
+
+    /// Asks for one pass over shift and the strip at the end of this run-loop turn. Any number
+    /// of requests before it runs make one pass: each key used to read the field's text twice
+    /// and publish to SwiftUI before the next touch was handled.
+    private func scheduleTextRefresh() {
+        textRefreshPending = true
+        guard !textRefreshScheduled else { return }
+        textRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.runTextRefresh()
+        }
+    }
+
+    private func runTextRefresh() {
+        textRefreshScheduled = false
+        guard textRefreshPending else { return }
+        textRefreshPending = false
+        if fieldCheckPending {
+            fieldCheckPending = false
+            let id = proxy()?.documentIdentifier
+            if id != documentID { resetFieldState() }
+            readTraits()
+        }
+        refreshText()
+        flushState()
+    }
+
+    /// Reads the field's text once and brings shift and the strip in step with it.
+    private func refreshText() {
+        guard let proxy = proxy() else { return }
+        let before = proxy.documentContextBeforeInput ?? ""
+        recomputeAutoShift(before: before)
+        refreshSuggestions(before: before, after: proxy.documentContextAfterInput)
     }
 
     /// Turns shift on when the text asks for a capital next, and takes back only a shift that
     /// the text itself turned on. A tapped shift stays; caps lock is never touched.
-    private func recomputeAutoShift() {
-        guard let proxy = proxy() else { return }
-        let wants = TextRules.autoShift(
-            before: proxy.documentContextBeforeInput ?? "", autocapitalization: traits.autocapitalization)
+    private func recomputeAutoShift(before: String) {
+        let wants = TextRules.autoShift(before: before, autocapitalization: traits.autocapitalization)
         switch engine.shift {
         case .capsLock:
             break
@@ -543,13 +658,12 @@ final class TypingController {
         traits.autocorrectionAllowed && isProseField
     }
 
-    private func refreshSuggestions() {
+    /// The strip's cells for the text before the cursor. Assigned only when they differ, so
+    /// SwiftUI does not render the strip for a keystroke that changed nothing in it.
+    private func refreshSuggestions(before: String, after: String?) {
         var next: [Suggestion] = []
-        if suggestionsAllowed, let model, let proxy = proxy(),
-            proxy.documentContextAfterInput?.first?.isLetter != true
-        {
-            let before = String((proxy.documentContextBeforeInput ?? "").suffix(400))
-            next = SuggestionEngine.suggestions(before: before, model: model)
+        if suggestionsAllowed, let model, after?.first?.isLetter != true {
+            next = SuggestionEngine.suggestions(before: String(before.suffix(400)), model: model)
         }
         if next != suggestions { suggestions = next }
     }

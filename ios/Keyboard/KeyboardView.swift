@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// What the emoji and history panels and the strip need from the host. The key plane has its
-/// own path (`TypingController`); these are the few things SwiftUI asks for.
+/// own path (`TypingController`, outside SwiftUI); these are the few things SwiftUI asks for.
 struct KeyboardActions {
     /// Types text as the emoji and history panels do, through the typing controller so the
     /// shift key and the suggestions follow it.
@@ -12,9 +12,11 @@ struct KeyboardActions {
     let openMurmur: () -> Void
 }
 
-/// The keyboard: the suggestion strip above the key plane, or the emoji or history panel in the
-/// same height. The strip holds the history button, the suggestions and the m, Murmur's
-/// dictation button (`SuggestionStrip`); the plane is UIKit (`KeyPlaneView`).
+/// The keyboard's SwiftUI layer: the suggestion strip, or the emoji or history panel in the
+/// full height. The strip holds the history button, the suggestions and the m, Murmur's
+/// dictation button (`SuggestionStrip`). The key plane is not here: `KeyPlaneView` is a UIKit
+/// subview of the keyboard's root view that the view controller places over the clear space
+/// under the strip, so SwiftUI's gesture handling never sits between a finger and a key.
 struct KeyboardView: View {
     let dictation: KeyboardDictation
     let typing: TypingController
@@ -48,40 +50,24 @@ struct KeyboardView: View {
         .onAppear { typing.onShowEmoji = { show(.emoji) } }
     }
 
+    /// The plane is shown for the keys and hidden under a panel, so it takes no touches there.
     private func show(_ next: Panel) {
         panel = next
+        typing.setPlaneVisible(next == .keys)
     }
 
-    /// The strip over the plane. The plane draws its own side inset, so there is no padding
-    /// here: the 6 pt padding belongs to the emoji and history panels only.
+    /// The strip, then clear space as tall as the plane (the rest of the keyboard's height),
+    /// which the view controller lays the plane over. The plane draws its own side inset, so there is no padding here: the 6 pt padding
+    /// belongs to the emoji and history panels only.
     private var keys: some View {
         VStack(spacing: 0) {
             SuggestionStrip(
                 dictation: dictation, typing: typing, actions: actions,
                 showHistory: { show(.history) })
-            KeyPlane(typing: typing)
+            Color.clear.frame(maxHeight: .infinity)
         }
-        // The key plane's rows are placed from the keyboard's top in `KeyboardMetrics`, and a
-        // touch outside a view's bounds never reaches it, so no inset may shorten the plane.
+        // The strip is placed from the keyboard's top, as `KeyboardMetrics` places it.
         .ignoresSafeArea()
-    }
-}
-
-/// The key plane in SwiftUI. It is made again when the emoji or history panel gives way to the
-/// keys, so it hands itself to the controller, which gives it the current state.
-private struct KeyPlane: UIViewRepresentable {
-    let typing: TypingController
-
-    func makeUIView(context: Context) -> KeyPlaneView {
-        let plane = KeyPlaneView()
-        typing.attach(plane)
-        return plane
-    }
-
-    func updateUIView(_ plane: KeyPlaneView, context: Context) {}
-
-    static func dismantleUIView(_ plane: KeyPlaneView, coordinator: ()) {
-        plane.cancelAllTouches()
     }
 }
 

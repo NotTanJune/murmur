@@ -83,6 +83,32 @@ import Testing
         #expect(up(&engine, center(letter("a"), in: engine), 0.1).isEmpty)
     }
 
+    @Test("A lift that hits no key types the key the touch was last on")
+    func offKeyLiftTypesLastKey() {
+        var engine = makeEngine()
+        let q = center(letter("q"), in: engine)
+        // Straight up into the strip, which belongs to no key.
+        let strip = CGPoint(x: q.x, y: 10)
+        _ = down(&engine, q, 0)
+        #expect(move(&engine, strip, 0.04) == [.hidePopup])
+        #expect(inserts(up(&engine, strip, 0.08)) == ["q"])
+        #expect(engine.offKeyLifts == 1)
+
+        // Slid onto e, then past the right edge: e, the last key it was on.
+        let w = center(letter("w"), in: engine)
+        let outside = CGPoint(x: 500, y: w.y)
+        _ = down(&engine, w, 1)
+        _ = move(&engine, CGPoint(x: w.x + 24, y: w.y), 1.02)
+        _ = move(&engine, outside, 1.04)
+        #expect(inserts(up(&engine, outside, 1.08)) == ["e"])
+        #expect(engine.offKeyLifts == 2)
+
+        // A lift on a key is not counted.
+        _ = down(&engine, q, 2)
+        #expect(inserts(up(&engine, q, 2.04)) == ["q"])
+        #expect(engine.offKeyLifts == 2)
+    }
+
     @Test("Rollover: a down while another key is held commits the held key first")
     func rollover() {
         var engine = makeEngine()

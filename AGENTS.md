@@ -303,9 +303,11 @@ sizes and gives the grid the rest, dropping rows so none is under `DS.Keyboard.e
 The grid's vertical offset is pinned to 0 in `scrollViewDidScroll`. As evidence, the controller
 reports the requested height and the height the keyboard actually got (the smaller of the
 view's and its window's) on each layout while the panel asks for more than the key page;
-`KeyboardStatus` stores the last pair, the log says `emoji panel: N pt requested, M pt shown`,
-and Setup's keyboard card shows "Emoji panel: 260 requested, N pt shown". Whether the required
-constraint resizes the keyboard on a device is unverified until that line reads 260.
+`KeyboardStatus` stores the last pair (its fields are still named `emojiPanelRequestedHeight`
+and `emojiPanelShownHeight`), the log says `keyboard height: N pt requested, M pt shown`, and
+Setup's keyboard card shows "Keyboard height: N requested, M pt shown". The key page, and so
+every panel, is now 239 pt in portrait. Whether the required constraint resizes the keyboard on
+a device is unverified until the two numbers match.
 
 **Capture runs in WebKit, and Apple may close the path.** A keyboard extension cannot record:
 it lacks the entitlement, so `AVAudioEngine` and audio queues fail inside it. A `WKWebView` in
@@ -584,12 +586,42 @@ hold has audio, then red). The user removed the live words that briefly showed o
 
 **The keys follow the iOS 26 keyboard.** Measured from a screenshot of the stock keyboard on
 2026-11-25: every key has one flat fill (`DS.Keyboard.key`, RGB 68 in dark), with no drop shadow
-and 10 pt continuous corners, 43 pt tall with 11 pt between rows. The punctuation page's seven keys
+and 10 pt continuous corners. The punctuation page's seven keys
 (`@ . , ? ! ' -`) are the stock letter width (`characterKeyWidth`, 33 pt, shrinking to fit a
 375 pt phone), between shift at the leading edge and delete at the trailing one, as in the stock
 keyboard's bottom letter row, so the gaps either side match it (six keys left 26 pt gaps); the digit and symbol pages fill
 the row. Return shows the `return.left` glyph for a plain new line and a word ("send", "go") only
 when the field names a job. Light mode uses white keys, which is inferred, not measured.
+
+**Geometry is measured from the owner's screenshots (iPhone 15 Pro, 393 pt, 2026-11-25).** Stock
+keycaps are 43 pt tall on a 54 pt row pitch (11 pt between rows), 32.7 pt wide with 6 pt gaps;
+stock lowercase letters have a 12.3 pt x-height (`letterUIFont` is 24.5 pt) and are centred on
+the keycap by that x-height. iOS puts about 16 pt of its own margin above a third-party keyboard
+view, so our first row landed 68 pt below the panel's top against the stock keyboard's 51 pt.
+The strip and its gap are therefore `DS.Keyboard.stripHeight` 30 and `stripGap` 4 (the stock 52
+minus that margin), and the portrait keyboard is 30 + 4 + 4 x 43 + 3 x 11 = 239 pt. Landscape
+keeps the older 44 + 6 strip and 32 pt keys (`stripHeightLandscape`). The m circle and the
+recording capsule are 30 pt (`mCircleDiameter`, `recordingCapsuleHeight`). The m is lifted by
+`DS.Keyboard.mGlyphLift` so its x-height, not its line box, is centred in the circle. A
+first-row pop-up has only the strip plus gap (34 pt) above its key inside the view, so its head
+is shorter than the stock one; unverified on a device. Key glyphs are placed by optical band
+(`KeyPlaneView.textFrame`): x-height for a lowercase letter, cap height for anything else.
+
+**The key plane is UIKit, outside SwiftUI.** `KeyPlaneView` is a direct subview of the
+controller's root view, above the SwiftUI hosting view, pinned to the bottom with the height of
+the keyboard less the strip. The hosting view keeps the strip and the emoji and history panels,
+with a clear space where the plane is; `typing.setPlaneVisible` hides the plane while a panel
+shows. Touches go from UIKit's hit test to the plane to `TypingController.handle` to
+`TypingEngine`. It was a `UIViewRepresentable` first, and the owner lost letters when typing
+fast. Suspected causes, all changed: SwiftUI's gesture handling on the hosting view (a cancelled
+character touch types nothing), a lift that hit no key typing nothing (it now types the touch's
+last key), and per-key work on the main thread (shift and suggestions are one pass per run-loop
+turn, `scheduleTextRefresh`, and the strip is published only when it changed). Which one was the
+cause is unmeasured. The evidence for the next device run is `KeyboardStatus.typing*`, reset at
+each appearance and written on the 10 s cadence and at disappear: Setup shows "Typing: N taps ·
+N cancelled · N off-key · slowest N ms · delivery N ms" (touch-downs, touches iOS cancelled,
+lifts that fell back to the last key, the longest `handle`, and the largest wait between a
+touch's timestamp and its handling), and the log has the same at disappear.
 
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
@@ -600,14 +632,14 @@ beside the `DragGesture`, which must keep reporting touch-down at once. Do not w
 `compositingGroup`, which flattens what the glass samples. The failed state's label is
 `Color.clear`, not `EmptyView`: modifiers on an empty view render nothing, and the glass would
 vanish from under the failure message. Idle and finishing, the capsule carries the wordmark, so
-pressing it no longer jumps from a light key to a dark one. "Murmur" is set in EB Garamond Italic, the app icon's face
+pressing it no longer jumps from a light key to a dark one. The m is set in EB Garamond Italic, the app icon's face
 (`Tools/Fonts/EBGaramond-Italic[wght].ttf`, PostScript name `EBGaramond-Italic`), in
 `DS.Keyboard.wordmark`, a soft orange (0xF2A57E) that is the same in both appearances because the
 glass is dark in both. It is deliberately paler than `DS.Color.record`: red means recording and
 nothing else. The keyboard target bundles the TTF and `OFL-EBGaramond.txt` from `Tools/Fonts` and
 registers the font through its own `UIAppFonts` (the app target bundles only the licence text, for
-Settings, Licences). `DS.Keyboard.wordmarkFont` checks that `UIFont(name:size:)` resolved and falls
-back to SF italic. The caption under the word is `wordmarkCaption` (the same orange at 90%), and the
+Settings, Licences). `DS.Keyboard.mGlyphFont` checks that `UIFont(name:size:)` resolved and falls
+back to SF italic (there is no `wordmarkFont`). The caption under the word is `wordmarkCaption` (the same orange at 90%), and the
 failure message and its button use `onTalkKey`, `talkAction` and `onTalkAction`, because the old
 `.primary` text is black in light mode and unreadable on the dark glass.
 

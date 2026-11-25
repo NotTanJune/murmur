@@ -129,6 +129,9 @@ final class KeyboardDictation {
     @ObservationIgnored private var footprintMB: Double?
     @ObservationIgnored private var peakFootprintMB: Double?
     @ObservationIgnored private var memoryTimer: Timer?
+    /// The key plane's counters since the keyboard appeared, asked for at each status write. Set
+    /// by the view controller; nil until it is.
+    @ObservationIgnored var typingReport: (() -> TypingStats)?
     /// When the microphone was last reopened automatically, newest last, for the loop breaker.
     @ObservationIgnored private var reopenTimes: [ContinuousClock.Instant] = []
     @ObservationIgnored private var reopenTask: Task<Void, Never>?
@@ -542,6 +545,7 @@ final class KeyboardDictation {
     }
 
     private func writeStatus() {
+        let typing = typingReport?()
         KeyboardStatus(
             barkState: barkState.rawValue, hasFullAccess: hasFullAccess, lastSeen: Date(),
             lastStartLatencyMs: lastStartLatencyMs,
@@ -551,7 +555,11 @@ final class KeyboardDictation {
             captureMode: microphone.confirmedMode?.rawValue,
             emojiPanelRequestedHeight: emojiPanelRequestedHeight,
             emojiPanelShownHeight: emojiPanelShownHeight,
-            footprintMB: footprintMB, peakFootprintMB: peakFootprintMB
+            footprintMB: footprintMB, peakFootprintMB: peakFootprintMB,
+            typingTouchDowns: typing?.touchDowns, typingTyped: typing?.typed,
+            typingCancelled: typing?.cancelled, typingOffKey: typing?.offKey,
+            typingSlowestHandleMs: typing?.slowestHandleMs,
+            typingMaxDeliveryMs: typing?.maxDeliveryMs
         ).write()
     }
 

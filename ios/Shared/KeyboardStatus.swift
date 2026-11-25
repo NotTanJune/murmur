@@ -39,6 +39,18 @@ struct KeyboardStatus: Codable, Equatable {
     /// read off a device. Optional so a file written before these fields existed still decodes.
     var footprintMB: Double?
     var peakFootprintMB: Double?
+    /// What the keys did since the keyboard last appeared (the counters reset at each
+    /// appearance), so a device run says whether typed letters are being lost and where:
+    /// touch-downs, characters typed, touches iOS cancelled, lifts that hit no key and typed the
+    /// touch's last key, the slowest `handle` (event in to effects applied) and the largest gap
+    /// between a touch's timestamp and the keyboard handling it. Optional so a file written
+    /// before these fields existed still decodes.
+    var typingTouchDowns: Int?
+    var typingTyped: Int?
+    var typingCancelled: Int?
+    var typingOffKey: Int?
+    var typingSlowestHandleMs: Double?
+    var typingMaxDeliveryMs: Double?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

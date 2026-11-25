@@ -3,7 +3,8 @@ import MurmurTyping
 import SwiftUI
 import UIKit
 
-/// The 44 pt strip above the keys. From the leading end: the history button (shown while no
+/// The strip above the keys, 30 pt tall upright (`TypingController.stripHeight`). From the
+/// leading end: the history button (shown while no
 /// word is being typed), three suggestion cells, and the **m**, which is Murmur's dictation
 /// button and grows into the recording capsule over the strip's trailing end.
 ///
@@ -34,7 +35,7 @@ struct SuggestionStrip: View {
                 RecordControl(dictation: dictation, stripWidth: geometry.size.width)
             }
         }
-        .frame(height: DS.Keyboard.stripHeight)
+        .frame(height: typing.stripHeight)
     }
 
     private var isFailed: Bool {
@@ -60,14 +61,16 @@ struct SuggestionStrip: View {
                 Button(action: showHistory) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(DS.Keyboard.iconFont)
-                        .frame(width: DS.Keyboard.functionKeyWidth, height: DS.Keyboard.stripHeight)
+                        .frame(width: DS.Keyboard.functionKeyWidth)
+                        .frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(KeyPressStyle())
                 .accessibilityLabel("Recent dictations")
             }
         }
-        .frame(width: DS.Keyboard.functionKeyWidth, height: DS.Keyboard.stripHeight)
+        .frame(width: DS.Keyboard.functionKeyWidth)
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: Suggestions
@@ -176,9 +179,10 @@ struct SuggestionStrip: View {
 ///
 /// Touch down starts recording; a quick tap locks it on and a second tap ends it; a hold ends
 /// on release. While recording it is Liquid Glass tinted toward the HUD's brown
-/// (`talkGlassTint`), 36 pt tall, growing leftward from the m to a fraction of the strip, with
-/// bars that follow the input level: flat and grey until the hold has heard audio, then red.
-/// The m stays visible at its trailing end. While finishing it shows a spinner.
+/// (`talkGlassTint`), 30 pt tall, growing leftward from the m across the strip to one
+/// `padding` past the history cell, with bars that follow the input level: flat and grey until
+/// the hold has heard audio, then red. The m stays visible at its trailing end. While
+/// finishing it shows a spinner.
 ///
 /// The glass is not `.interactive()`: that would add its own touch tracking beside the
 /// `DragGesture` below, which must keep reporting touch-down at once. Nothing wraps it in a
@@ -196,6 +200,9 @@ private struct RecordControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var height: CGFloat { DS.Keyboard.recordingCapsuleHeight }
+    private var circle: CGFloat { DS.Keyboard.mCircleDiameter }
+    /// The m's cell is wider than its circle; the circle sits in the middle of it.
+    private var cellPadding: CGFloat { (DS.Keyboard.mButtonCellWidth - circle) / 2 }
 
     private var isRecording: Bool {
         if case .recording = dictation.state { return true }
@@ -209,8 +216,12 @@ private struct RecordControl: View {
         }
     }
 
+    /// The circle, or while recording the capsule: its trailing end stays where the circle's is
+    /// and its leading end reaches one `padding` past the history cell.
     private var capsuleWidth: CGFloat {
-        isExpanded ? max(stripWidth * DS.Keyboard.recordingCapsuleWidthFraction, height) : height
+        guard isExpanded else { return circle }
+        let leading = DS.Keyboard.functionKeyWidth + DS.Keyboard.padding
+        return max(stripWidth - cellPadding - leading, circle)
     }
 
     var body: some View {
@@ -223,15 +234,17 @@ private struct RecordControl: View {
             Text("m")
                 .font(DS.Keyboard.mGlyphFont)
                 .foregroundStyle(DS.Keyboard.wordmark)
-                .frame(width: height, height: height)
+                // The x-height, not the line box, is centred in the circle.
+                .offset(y: -DS.Keyboard.mGlyphLift)
+                .frame(width: circle, height: circle)
                 .opacity(dictation.isBusy ? DS.Motion.disabledOpacity : 1)
         }
         .frame(width: capsuleWidth, height: height)
         .glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in: .capsule)
         .animation(reduceMotion ? nil : DS.Motion.panel, value: isExpanded)
         // The m's cell is wider than its circle, so a thumb that misses the circle still lands.
-        .padding(.horizontal, (DS.Keyboard.mButtonCellWidth - height) / 2)
-        .frame(height: DS.Keyboard.stripHeight)
+        .padding(.horizontal, cellPadding)
+        .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isRecording ? "Stop dictation" : "Dictate")

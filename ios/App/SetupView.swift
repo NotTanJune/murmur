@@ -31,14 +31,19 @@ final class SetupStatus {
     /// How the keyboard's page last captured audio (`recordOnly` or `playAndRecord`); nil until
     /// it has delivered audio and reported.
     private(set) var captureMode: String?
-    /// The emoji panel's requested and actual keyboard height, in points; nil until the
-    /// keyboard has shown the panel and reported.
+    /// The keyboard's requested and actual height, in points; nil until it has reported.
     private(set) var emojiPanelRequestedHeight: Int?
     private(set) var emojiPanelShownHeight: Int?
     /// The keyboard process's footprint at its last sample and its peak, in MB; nil until it
     /// has reported them.
     private(set) var footprintMB: Double?
     private(set) var peakFootprintMB: Double?
+    /// The keys' counters since the keyboard last appeared; nil until it has reported them.
+    private(set) var typingTouchDowns: Int?
+    private(set) var typingCancelled: Int?
+    private(set) var typingOffKey: Int?
+    private(set) var typingSlowestHandleMs: Double?
+    private(set) var typingMaxDeliveryMs: Double?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -64,6 +69,11 @@ final class SetupStatus {
         emojiPanelShownHeight = reported?.emojiPanelShownHeight
         footprintMB = reported?.footprintMB
         peakFootprintMB = reported?.peakFootprintMB
+        typingTouchDowns = reported?.typingTouchDowns
+        typingCancelled = reported?.typingCancelled
+        typingOffKey = reported?.typingOffKey
+        typingSlowestHandleMs = reported?.typingSlowestHandleMs
+        typingMaxDeliveryMs = reported?.typingMaxDeliveryMs
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -171,6 +181,9 @@ struct SetupView: View {
                 if let line = memoryLine {
                     Note(text: line)
                 }
+                if let line = typingLine {
+                    Note(text: line)
+                }
             }
 
             Card(title: "Model") {
@@ -247,6 +260,18 @@ struct SetupView: View {
     private var memoryLine: String? {
         guard let now = status.footprintMB, let peak = status.peakFootprintMB else { return nil }
         return "Memory: \(Int(now.rounded())) MB now · \(Int(peak.rounded())) MB peak"
+    }
+
+    /// "Typing: 214 taps · 0 cancelled · 1 off-key · slowest 3.2 ms · delivery 18 ms", the
+    /// keys' counters since the keyboard last appeared. Taps is touch-downs on any key; a
+    /// cancelled touch typed nothing, an off-key lift typed its last key, the slowest is the
+    /// longest `handle` and delivery the largest wait between a touch and its handling.
+    private var typingLine: String? {
+        guard let downs = status.typingTouchDowns, let cancelled = status.typingCancelled,
+            let offKey = status.typingOffKey, let slowest = status.typingSlowestHandleMs,
+            let delivery = status.typingMaxDeliveryMs
+        else { return nil }
+        return "Typing: \(downs) taps · \(cancelled) cancelled · \(offKey) off-key · slowest \(String(format: "%.1f", slowest)) ms · delivery \(Int(delivery.rounded())) ms"
     }
 
     private var fullAccessDetail: String? {

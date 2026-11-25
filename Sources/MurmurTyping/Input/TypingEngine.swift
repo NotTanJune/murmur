@@ -101,6 +101,9 @@ public struct TypingEngine: Sendable {
     public private(set) var shift: ShiftState
     /// The frames of the current page, as the view draws them.
     public private(set) var frames: [KeyFrame] = []
+    /// How many lifts hit no key and typed the touch's last key instead. Counted for the
+    /// keyboard's typing evidence (Setup), never reset by the engine.
+    public private(set) var offKeyLifts = 0
 
     private var metrics: KeyboardMetrics
     private var showsGlobe: Bool
@@ -224,6 +227,9 @@ public struct TypingEngine: Sendable {
         var downTime: TimeInterval
         /// The key under the finger now, and since when. The accent hold counts from the entry.
         var currentKey: KeyFrame?
+        /// The last key the finger was on. `currentKey` goes nil when the finger leaves every
+        /// key (into the strip, past an edge); this does not, so a lift there types this key.
+        var lastKey: KeyFrame?
         var keyEnteredAt: TimeInterval
         /// The key whose pop-up this touch is showing, if any.
         var popup: KeyKind?
@@ -285,7 +291,7 @@ public struct TypingEngine: Sendable {
         out.append(.feedback)
         var touch = Touch(
             role: .button, origin: frame, start: point, point: point, downTime: time,
-            currentKey: frame, keyEnteredAt: time)
+            currentKey: frame, lastKey: frame, keyEnteredAt: time)
 
         switch frame.kind {
         case .character:
@@ -493,6 +499,7 @@ public struct TypingEngine: Sendable {
         let key = HitTester.key(at: touch.point, frames: frames, bias: bias)
         guard key?.kind != touch.currentKey?.kind else { return }
         touch.currentKey = key
+        if let key { touch.lastKey = key }
         touch.keyEnteredAt = time
         if let key, case .character = key.kind {
             touch.popup = key.kind
@@ -532,9 +539,14 @@ public struct TypingEngine: Sendable {
             }
             return
         }
-        if let key = HitTester.key(at: touch.point, frames: frames, bias: bias),
-            case .character(let text) = key.kind
-        {
+        // A lift that hits no key (the finger drifted into the strip or past an edge) types the
+        // key the touch was last on: a character touch that began on a key was meant to type.
+        var key = HitTester.key(at: touch.point, frames: frames, bias: bias)
+        if key == nil, let last = touch.lastKey {
+            key = last
+            offKeyLifts += 1
+        }
+        if let key, case .character(let text) = key.kind {
             typeCharacter(text, tap: touch.point, into: &out)
         }
     }

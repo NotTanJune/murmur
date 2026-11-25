@@ -293,17 +293,21 @@ public enum DS {
         public static let labelInset: CGFloat = 22
 
         // MARK: Key plane geometry
-        // The stock iOS 26/27 keyboard on a 393 pt iPhone, measured from a screenshot on
-        // 2026-11-25: 42 pt keycaps, 11 pt between rows, 6 pt between keys, and a 44 pt
-        // suggestion strip. `KeyboardMetrics` (MurmurTyping, which cannot import this module)
-        // is built from these through `KeyPlaneView`'s constants.
+        // The stock iOS 26/27 keyboard on a 393 pt iPhone, measured from the owner's screenshots
+        // on 2026-11-25: 43 pt keycaps, a 54 pt row pitch (11 pt between rows), 6 pt between
+        // keys. iOS puts about 16 pt of its own margin above a third-party keyboard view, so
+        // the strip and its gap are 34 pt (30 + 4) and not the stock 52: the first row then
+        // lands 51 pt below the panel's top edge, where the stock keyboard's does.
+        // `KeyboardMetrics` (MurmurTyping, which cannot import this module) is built from these
+        // through `TypingController`'s constants.
 
-        /// The suggestion strip above the keys.
-        public static let stripHeight: CGFloat = 44
-        /// Between the strip and the first row: 8 pt upright, 6 pt turned.
-        public static let stripGap: CGFloat = 8
+        /// The suggestion strip above the keys: 30 pt upright, the stock 44 pt turned.
+        public static let stripHeight: CGFloat = 30
+        public static let stripHeightLandscape: CGFloat = 44
+        /// Between the strip and the first row: 4 pt upright, 6 pt turned.
+        public static let stripGap: CGFloat = 4
         public static let stripGapLandscape: CGFloat = 6
-        public static let keycapHeight: CGFloat = 42
+        public static let keycapHeight: CGFloat = 43
         public static let keycapHeightLandscape: CGFloat = 32
         /// Between two rows of keys: 11 pt upright, 8 pt turned.
         public static let rowGap: CGFloat = 11
@@ -369,7 +373,7 @@ public enum DS {
         public static let iconFont = SwiftUI.Font.system(size: 19)
         public static let barFont = SwiftUI.Font.system(size: 15, weight: .medium)
         public static let barIconFont = SwiftUI.Font.system(size: 15)
-        public static let messageFont = SwiftUI.Font.system(size: 12)
+        public static let messageFont = SwiftUI.Font.system(size: 11)
         public static let messageActionFont = SwiftUI.Font.system(size: 13, weight: .semibold)
         /// The readiness line in the strip that says what is not ready yet.
         public static let captionFont = SwiftUI.Font.system(size: 11)
@@ -392,9 +396,10 @@ public enum DS {
 
         /// PostScript name of the app icon's face, `Tools/Fonts/EBGaramond-Italic[wght].ttf`.
         public static let wordmarkFace = "EBGaramond-Italic"
-        /// The m of the dictation button: the wordmark's face at a size that fits a 36 pt circle.
-        /// EB Garamond Italic is smaller on the body than SF at the same point size.
-        public static let mGlyphSize: CGFloat = 26
+        /// The m of the dictation button: the wordmark's face at a size that fits the 30 pt
+        /// circle (`mCircleDiameter`). EB Garamond Italic is smaller on the body than SF at the
+        /// same point size.
+        public static let mGlyphSize: CGFloat = 22
         #if canImport(UIKit)
         /// EB Garamond Italic, registered by the keyboard's `UIAppFonts`. Falls back to SF
         /// italic when the face does not resolve (a build without the file, or `swift test`).
@@ -404,22 +409,38 @@ public enum DS {
             }
             return SwiftUI.Font.custom(wordmarkFace, fixedSize: mGlyphSize)
         }()
+
+        /// How far the m rises so its x-height is centred in the circle. SwiftUI centres the
+        /// font's line box, and EB Garamond has far more room under the baseline than above
+        /// the x-height, so an m set at the centre sits low. The x-height's centre is
+        /// `ascender - xHeight / 2` below the line's top and the box's centre is
+        /// `(ascender + |descender|) / 2`, which differ by `(ascender - |descender| - xHeight) / 2`:
+        /// 3.4 pt at 22 pt. Zero when the face did not resolve, as then the system face is
+        /// used, which this does not describe.
+        ///
+        /// No horizontal offset: the m's ink centre is 0.18 pt right of its advance centre at
+        /// 22 pt (0.008 em; the italic angle is 17.2 degrees), under a physical pixel at 3x.
+        public static let mGlyphLift: CGFloat = {
+            guard let font = UIFont(name: wordmarkFace, size: mGlyphSize) else { return 0 }
+            return (font.ascender - abs(font.descender) - font.xHeight) / 2
+        }()
         #endif
 
         // MARK: Suggestion strip
         /// The cell the m sits in at the strip's trailing end. The glass circle is centred in it,
         /// and the whole cell takes the touch, so the button is bigger than it looks.
         public static let mButtonCellWidth: CGFloat = 59
-        /// The m's glass circle and the recording capsule's height.
-        public static let recordingCapsuleHeight: CGFloat = 36
-        /// How much of the strip's width the recording capsule grows to, leftward from the m.
-        public static let recordingCapsuleWidthFraction: CGFloat = 0.6
-        /// A suggestion's text sits this far below the cell's centre (centred 25 pt from the
-        /// top of a 44 pt strip).
-        public static let suggestionTextOffset: CGFloat = 3
+        /// The m's glass circle, as tall as the strip so it fits in it.
+        public static let mCircleDiameter: CGFloat = 30
+        /// The recording capsule's height: the circle's, because the capsule is the circle grown
+        /// leftward. It grows to end `padding` after the history cell (`functionKeyWidth`).
+        public static let recordingCapsuleHeight: CGFloat = 30
+        /// A suggestion's text sits this far below the cell's centre. The stock strip's text is
+        /// centred in the 30 pt strip, so none.
+        public static let suggestionTextOffset: CGFloat = 0
         public static let suggestionInset: CGFloat = 4
         public static let suggestionMinimumScale: CGFloat = 0.7
-        public static let suggestionDividerHeight: CGFloat = 24
+        public static let suggestionDividerHeight: CGFloat = 20
 
         // MARK: Pop-ups
         /// The key pop-up is the keycap widened by this factor, drawn above it.
@@ -432,8 +453,9 @@ public enum DS {
         #if canImport(UIKit)
         public static let popupUIFont = UIFont.systemFont(ofSize: 30)
         public static let accentUIFont = UIFont.systemFont(ofSize: 24)
-        /// The key plane's faces: letters at 22.5 pt, labels (`123`, `return`) at 16 pt.
-        public static let letterUIFont = UIFont.systemFont(ofSize: 22.5)
+        /// The key plane's faces: letters at 24.5 pt (the stock x-height is 12.3 pt, 1.1 times
+        /// the old 22.5 pt face's), labels (`123`, `return`) at 16 pt.
+        public static let letterUIFont = UIFont.systemFont(ofSize: 24.5)
         public static let labelUIFont = UIFont.systemFont(ofSize: 16)
         public static let iconPointSize: CGFloat = 19
         #endif
@@ -462,7 +484,7 @@ public enum DS {
         /// The failure message's inset around its action, and the action's own insets.
         public static let messageGap: CGFloat = 8
         public static let messageActionInsetX: CGFloat = 12
-        public static let messageActionInsetY: CGFloat = 6
+        public static let messageActionInsetY: CGFloat = 4
         public static let messageLines = 2
 
         #if canImport(UIKit)

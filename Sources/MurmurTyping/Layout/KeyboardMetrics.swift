@@ -79,9 +79,11 @@ public struct MetricsConstants: Sendable {
         self.spaceHitReach = spaceHitReach
     }
 
-    /// Portrait, measured from the stock keyboard on a 393 pt iPhone: 253 pt tall in total.
+    /// Portrait, measured from the stock keyboard on a 393 pt iPhone: 43 pt keycaps on a 54 pt
+    /// pitch. iOS adds about 16 pt of its own above a third-party keyboard, so the strip and its
+    /// gap are 34 pt and not the stock 52: 239 pt tall in total.
     public static let portrait = MetricsConstants(
-        stripHeight: 44, stripGap: 8, keycapHeight: 42, rowGap: 11, keyGap: 6, sideInset: 6,
+        stripHeight: 30, stripGap: 4, keycapHeight: 43, rowGap: 11, keyGap: 6, sideInset: 6,
         bottomInset: 0, referenceWidth: 393, modifierKeyWidth: 44, pageKeyWidth: 42,
         emojiKeyWidth: 42, globeKeyWidth: 42, returnKeyWidth: 91, spaceHitReach: 2.5)
 
