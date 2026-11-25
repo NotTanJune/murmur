@@ -2,24 +2,34 @@ import CoreGraphics
 import Foundation
 
 /// Decodes a swipe over the letters page into words, in the manner of SHARK2 (Kristensson and
-/// Zhai, UIST 2004), written from the published description.
+/// Zhai, UIST 2004), written from the published description, and made to forgive the path a
+/// thumb really draws.
 ///
 /// A swipe is a path of touch points in the keyboard view's coordinates (the space of
 /// `KeyboardMetrics` frames). Inside, every distance is in key pitches (a letter key's width plus
 /// the gap), so the numbers mean the same on any phone. The steps:
 ///
-/// 1. The path is resampled to `resamplePoints` equidistant points.
-/// 2. Only words that start on one of the keys nearest the first point, end on one of the keys
-///    nearest the last, and have an ideal path (the polyline through the key centres, with a
-///    small loop for each doubled letter) of about the gesture's length are scored. The word
-///    model's start and end buckets make the first cut free (`TypingModel.ids(first:last:)`).
-/// 3. Each survivor's ideal path, resampled the same way, is compared with the gesture on two
-///    channels: location (the points laid on the keys, ends weighted more) and shape (both
-///    paths scaled to one unit and centred, so a swipe that is too small or too wide still has
-///    the right outline). Each distance becomes a Gaussian log-likelihood, and the language
-///    model adds λ · ln P(word | previous).
-/// 4. The best `rerankCount` get a dynamic-time-warping location score in place of part of the
-///    plain one, which forgives a gesture that dwells on one key and rushes another.
+/// 1. The path is resampled to `resamplePoints` equidistant points, and the distance from every
+///    letter's key to the nearest point of the path is tabled once (`keyNear`, `keyAt`).
+/// 2. Words are read from the model's start and end buckets (`TypingModel.ids(first:last:)`),
+///    the buckets whose keys sit nearest the gesture's ends first. A word is cut at once when its
+///    ideal path (the polyline through the key centres; a doubled letter may or may not carry a
+///    small loop, so both lengths count) is not about the gesture's length, or when some letter's
+///    key lies far from the path anywhere. What is left is scored without building any path: how
+///    near the finger went to each key, in order, how far the gesture's ends are from the word's
+///    first and last keys, how the lengths compare, and λ · ln P(word | previous). This first
+///    stage keeps the best `rerankCount`. A far bucket is not read at all once its ends alone
+///    put it behind the cut-off, and the number of words read is capped (`scanBudget`).
+/// 3. Each kept word's ideal path, resampled the same way, is compared with the gesture on the
+///    location channel (points laid on the keys, ends weighted more, plain and warped by dynamic
+///    time warping, which forgives a gesture that dwells on one key and rushes another), the
+///    shape channel (both paths scaled to one unit and centred), and how near the gesture stays
+///    to the polyline. A word with a doubled letter is scored with and without its loop and the
+///    better counts. Each distance becomes a log-likelihood with a Student-t shape.
+///
+/// The key-passing test is why a gesture that cuts a corner, lifts early or starts off the first
+/// key still finds its word: a comparison at matching points along the two paths drifts out of
+/// register as soon as the finger's path is shorter or longer than the ideal one.
 ///
 /// The decoder is immutable and holds no word list: words are read from the mapped model per
 /// call, and the per-call scratch is a few kilobytes.
@@ -28,18 +38,17 @@ import Foundation
 }
 
 public struct SwipeDecoder: Sendable {
-    /// Every tunable of the decoder. The starting values are the milestone's (σ location 0.5
-    /// pitch, σ shape 0.25, 32 points, 3 keys at each end, length within 30%, 80 re-ranked, loop
-    /// radius 0.3, band 6, ends weighing 3 to 1), and the benchmark (`SwipeBenchTests`, 2,000
-    /// words, 2026-11-25) left every one of them where it was: the surface is flat, and each
-    /// neighbour tried scored the same or up to 1.3 points worse in top-1 (a locationEvidence of
-    /// 8 or 20, shapeEvidence 6 or 20, λ 0.7 or 1.4, end weights 1 or 5, a loop radius of 0.2 or
-    /// 0.4, no warping, all warping). What the benchmark did add is the likelihood scale
-    /// (`locationEvidence` and `shapeEvidence`, 12 each: with a plain mean distance the language
-    /// term outweighs the spatial one) and three cuts that exist for speed, none of which changed
-    /// top-1: the coarse test, the key reach and the re-rank margin (25 nats first, 12 now: the
-    /// decode's 99th percentile in a debug build fell from 33 ms to 14 ms, top-1 unchanged).
-    /// The synthetic noise is smoother than iid per-point noise; real swipes may want other values.
+    /// Every tunable of the decoder. The first values came from the milestone's reading of SHARK2
+    /// (σ location 0.5 pitch, σ shape 0.25, 32 points, 3 keys at each end, length within 30%, 80
+    /// re-ranked, loop radius 0.3, band 6, ends weighing 3 to 1) and a clean synthetic benchmark
+    /// (`SwipeBenchTests.synthetic`, 2,000 words, 2026-11-25) that found the surface flat.
+    /// A harsher one (`sloppySentences`, whole sentences, corner cutting, end misses, thumb bias,
+    /// no loops, the previous word as context) then showed that top-1 fell from 93% to 71% when the
+    /// finger was imprecise. What recovered it: five keys at each end within 1.8 pitches, the
+    /// length window of 50% plus 0.6 pitch, the key-passing first stage, the two-length doubled
+    /// letters, a Student-t distance term and wider spreads, an explicit price for the ends'
+    /// distance, and the near-the-path term. The numbers still depend on a noise model that is a
+    /// guess at human behaviour, not a measurement of it; real swipes may want other values.
     public struct Configuration: Sendable, Equatable {
         /// Points both paths are resampled to.
         public var resamplePoints = 32
@@ -50,53 +59,87 @@ public struct SwipeDecoder: Sendable {
         /// from where it went down is a tap.
         public var tapTravelPitches = 1.6
         /// Keys near the first point whose letters may start the word.
-        public var startKeyCount = 3
+        public var startKeyCount = 5
         /// Keys near the last point whose letters may end the word.
-        public var endKeyCount = 3
+        public var endKeyCount = 5
         /// A word's ideal path may differ from the gesture's length by this fraction of it.
-        public var lengthTolerance = 0.30
+        public var lengthTolerance = 0.50
+        /// Pitches added to the length window at both ends, so a short word is not ruled out by
+        /// a finger that lifted early: for "we" (one pitch) the tolerance alone is 0.3.
+        public var lengthSlackPitches = 0.6
         /// Radius, in pitches, of the loop drawn for a doubled letter. Small, so a swipe that
         /// makes no loop at all is not punished hard for the doubled letter it did not mark.
         public var loopRadius = 0.3
         /// Points per loop in the ideal path.
         public var loopSegments = 12
-        /// A word is dropped before its path is built when its ideal path, sampled at the ends,
-        /// the quarters and the middle, lies on average farther than this many pitches from the
-        /// gesture at those five points. A cheap test that spares most words the full scoring.
-        public var coarseLimitPitches = 1.1
+        /// A word is dropped before its path is built when some letter's key lies farther than
+        /// this from the gesture's path anywhere along it. A cheap test that spares most words
+        /// the full scoring; it forgives a finger that cut a corner, which a comparison at
+        /// matching points along both paths does not.
+        public var passLimitPitches = 1.6
+        /// A key's distance counts for no more than this when the first stage and the key-order
+        /// term add them up, so one key the finger missed does not sink an otherwise good word.
+        public var passCapPitches = 1.6
+        /// Spread of the keys-passed term, in pitches.
+        public var sigmaPass = 0.6
+        /// Nats lost when the keys of a word are passed in the wrong order, per whole gesture
+        /// length of reversal.
+        public var orderWeight = 3.0
+        /// Spread, as the log of the ratio of the word's ideal length to the gesture's, of the
+        /// length term. Zero leaves the length to the hard cut alone.
+        public var lengthSigma = 0.3
+        /// The most words read from the model in one decode, the nearest buckets first. Zero for
+        /// no limit.
+        public var scanBudget = 4000
+        /// Weight of the second stage's term for how near the gesture stays to the ideal path.
+        public var nearWeight = 1.0
+        /// Spread of that term, in pitches.
+        public var sigmaNear = 0.7
+        /// How many independent points it stands for.
+        public var nearEvidence = 12.0
         /// Keys farther than this many pitches from the first or last point do not count among
         /// the nearest keys, so a point in the middle of a key does not also admit a key two
         /// keys away just because three were asked for.
-        public var keyReachPitches = 1.2
+        public var keyReachPitches = 1.8
         /// Gesture shorter than this many pitches in total decodes to nothing.
         public var minimumLengthPitches = 0.25
         /// Words shorter than this are not offered; a swipe of one letter is a tap.
         public var minimumLetters = 2
         /// Spread of the location channel, in pitches.
-        public var sigmaLocation = 0.5
+        public var sigmaLocation = 0.65
+        /// Degrees of freedom of the Student-t shape the distance terms follow. Zero is a Gaussian;
+        /// a small number lets a few far points cost less, as a hand's slips do.
+        public var tailDegrees = 2.0
+        /// Spread, in pitches, of how far the gesture's first and last points may be from a word's
+        /// first and last keys. Zero leaves the ends to the later stage.
+        public var sigmaEnds = 0.7
         /// Spread of the shape channel, in units of the path's longest side.
         public var sigmaShape = 0.25
         /// How many independent points the location distance stands for. The mean distance is a
         /// per-point figure; a likelihood needs the sum over points, but neighbouring points of a
         /// wobbly path are not independent, so this is well below `resamplePoints`.
-        public var locationEvidence = 12.0
+        public var locationEvidence = 10.0
         /// The same for the shape channel.
-        public var shapeEvidence = 12.0
+        public var shapeEvidence = 9.0
         /// How much more the first and last points weigh in the location channel than the
         /// middle, rising linearly toward both ends.
         public var endWeightRatio = 3.0
         /// Weight of the language term, λ.
         public var languageWeight = 1.0
+        /// The most nats a stored word pair is expected to add to the word's own log probability.
+        /// A word that cannot reach the cut-off even with that is dropped before the pair is
+        /// looked up, which is the slowest step of a word that passed the length and key tests.
+        public var pairBonusBound = 6.0
         /// The weight of the unigram when a pair is not stored (stupid backoff, as `TapDecoder`).
         public var backoffWeight = 0.4
         /// ln P of a lexicon word that is not in the model (as `TapDecoder`).
         public var lexiconLogPrior = -12.0
-        /// How many of the best words by the first score get the warping score.
-        public var rerankCount = 80
-        /// A word more than this many nats behind the best so far is dropped before the re-rank:
-        /// the warped score moves a word's location term by a fraction of its size, never as far
-        /// as this. It lets the scoring of the unlikelier words stop early.
-        public var rerankMargin = 12.0
+        /// How many of the best words by the first stage the second stage scores in full.
+        public var rerankCount = 36
+        /// A word more than this many nats behind the best so far in the first stage is dropped
+        /// before the second: the second stage moves a word's score by a few nats, never as far as
+        /// this. It lets the scoring of the unlikelier words stop early.
+        public var rerankMargin = 8.0
         /// Half-width of the warping band, in resampled points.
         public var warpBand = 6
         /// The share of the location log-likelihood replaced by the warped one in the re-rank.
@@ -104,7 +147,7 @@ public struct SwipeDecoder: Sendable {
 
         public init() {}
 
-        /// The values the benchmark settled on.
+        /// The values the benchmarks settled on.
         public static let tuned = Configuration()
     }
 
@@ -134,6 +177,8 @@ public struct SwipeDecoder: Sendable {
     private let isUsable: Bool
 
     private static let ln10 = log(10.0)
+    /// log10 of the likeliest unigram in the model, "the" at about -1.7, rounded up.
+    private static let unigramCeiling = -1.5
     private static let letterA: UInt8 = 97
     private static let apostrophe: UInt8 = 0x27
 
@@ -245,6 +290,18 @@ public struct SwipeDecoder: Sendable {
 
     // MARK: - Decoding
 
+    /// What one decode read, for the benchmark's prune rates and its timing.
+    struct ScanStats {
+        /// Words read from the model.
+        var scanned = 0
+        /// Words whose ideal path has about the gesture's length.
+        var lengthPassed = 0
+        /// Words whose letters all lie near the gesture's path.
+        var screenPassed = 0
+        /// Whether the scan stopped at `scanBudget` before the last bucket.
+        var budgetHit = false
+    }
+
     /// Decodes one swipe.
     ///
     /// - Parameters:
@@ -259,7 +316,143 @@ public struct SwipeDecoder: Sendable {
         path: [CGPoint], times: [TimeInterval]? = nil, previous: Int?, lexicon: UserLexicon = .empty,
         limit: Int = 4
     ) -> [Candidate] {
-        guard isUsable, limit > 0, path.count >= 2 else { return [] }
+        var stats = ScanStats()
+        return decode(path: path, previous: previous, lexicon: lexicon, limit: limit, stats: &stats)
+    }
+
+    func decode(
+        path: [CGPoint], previous: Int?, lexicon: UserLexicon, limit: Int, stats: inout ScanStats
+    ) -> [Candidate] {
+        guard limit > 0, let prepared = prepare(path: path) else { return [] }
+        let count = max(configuration.resamplePoints, 2)
+        let rawX = prepared.rawX
+        let rawY = prepared.rawY
+        let gesture = prepared.gesture
+        var search = Search(
+            count: count, keep: max(configuration.rerankCount, limit), margin: configuration.rerankMargin)
+        let hasLexicon = !lexicon.entries.isEmpty
+
+        // Words of the model, by the start and end buckets, the likeliest bucket first so the
+        // cut-off is a good one early and a spent scan budget loses only the unlikeliest. A word
+        // pays for how far the gesture's ends are from its first and last keys.
+        var buckets: [(start: Int, end: Int, distance: Double, penalty: Double)] = []
+        let endSigma = configuration.sigmaEnds
+        for start in prepared.startKeys {
+            for end in prepared.endKeys {
+                let ds = norm(centreX[start] - rawX[0], centreY[start] - rawY[0])
+                let de = norm(centreX[end] - rawX[rawX.count - 1], centreY[end] - rawY[rawY.count - 1])
+                buckets.append((start, end, ds + de, endSigma > 0 ? -0.5 * (ds * ds + de * de) / (endSigma * endSigma) : 0))
+            }
+        }
+        buckets.sort { endSigma > 0 ? $0.penalty > $1.penalty : $0.distance < $1.distance }
+        // What the best word of any bucket could score in language, so a bucket whose ends alone
+        // put it past the cut-off is not read at all: the unigram of "the" without a previous
+        // word or a lexicon, nothing sharper than a certainty otherwise.
+        let languageCeiling = (previous == nil && !hasLexicon)
+            ? configuration.languageWeight * Self.unigramCeiling * Self.ln10 : 0
+        scan: for (index, bucket) in buckets.enumerated() {
+            // The first bucket is always read, so a swipe is never left with nothing to decode.
+            if index > 0, endSigma > 0, bucket.penalty + languageCeiling <= search.cutoff { break }
+            // No word between two keys is shorter than the straight line between them.
+            if pairDistance[bucket.start * 26 + bucket.end] > gesture.longest { continue }
+            let ids = model.ids(
+                first: Character(UnicodeScalar(Self.letterA + UInt8(bucket.start))),
+                last: Character(UnicodeScalar(Self.letterA + UInt8(bucket.end))))
+            for id in ids {
+                if configuration.scanBudget > 0, stats.scanned >= configuration.scanBudget {
+                    stats.budgetHit = true
+                    break scan
+                }
+                stats.scanned += 1
+                var word = model.word(id)
+                // Read straight off the word's bytes, with no array built: this runs for every
+                // word of the bucket.
+                guard
+                    let first = word.withUTF8({ firstStage($0, gesture: gesture, stats: &stats) })
+                else { continue }
+                let spatial = first + bucket.penalty
+                var bonus = 0.0
+                var display: String?
+                if hasLexicon, let entry = lexicon.entry(for: word) {
+                    bonus = entry.bonus
+                    if entry.respellsKnownWords { display = entry.display }
+                }
+                // The pair lookup is the dear part of a word, so it waits until the word could
+                // reach the cut-off with the most a pair is allowed to add to its unigram.
+                let unigram = Double(model.unigram(id)) * Self.ln10
+                let optimistic = configuration.languageWeight
+                    * (unigram + (previous == nil ? 0 : configuration.pairBonusBound))
+                if spatial + optimistic + bonus <= search.cutoff { continue }
+                let language = bonus + configuration.languageWeight * logPrior(id, previous: previous)
+                if spatial + language <= search.cutoff { continue }
+                search.insert(
+                    Scored(
+                        id: id, lexiconWord: nil, display: display, score: spatial + language,
+                        languageScore: language))
+            }
+        }
+
+        // Words of the lexicon that the model does not know.
+        for (folded, entry) in lexicon.entries.sorted(by: { $0.key < $1.key }) {
+            guard model.id(of: folded) == nil, let word = Self.letters(of: folded),
+                word.count >= max(configuration.minimumLetters, 2),
+                prepared.startKeys.contains(Int(word[0])), prepared.endKeys.contains(Int(word[word.count - 1]))
+            else { continue }
+            var scratch = ScanStats()
+            guard let screened = Array(folded.utf8).withUnsafeBufferPointer({
+                firstStage($0, gesture: gesture, stats: &scratch)
+            })
+            else { continue }
+            let language = configuration.languageWeight * configuration.lexiconLogPrior + entry.bonus
+            var endPenalty = 0.0
+            if endSigma > 0 {
+                let ds = norm(centreX[Int(word[0])] - rawX[0], centreY[Int(word[0])] - rawY[0])
+                let de = norm(
+                    centreX[Int(word[word.count - 1])] - rawX[rawX.count - 1],
+                    centreY[Int(word[word.count - 1])] - rawY[rawY.count - 1])
+                endPenalty = -0.5 * (ds * ds + de * de) / (endSigma * endSigma)
+            }
+            let spatial = screened + endPenalty
+            if spatial + language <= search.cutoff { continue }
+            search.insert(
+                Scored(
+                    id: -1, lexiconWord: folded, display: entry.display, score: spatial + language,
+                    languageScore: language))
+        }
+
+        // The second stage: everything kept is scored on the full channels.
+        var rescored: [Candidate] = []
+        rescored.reserveCapacity(search.best.count)
+        for item in search.best {
+            let wordLetters: [UInt8]
+            if let lexiconWord = item.lexiconWord {
+                wordLetters = Self.letters(of: lexiconWord) ?? []
+            } else {
+                wordLetters = Self.letters(of: model.word(item.id)) ?? []
+            }
+            let spatial = fullSpatialScore(wordLetters, gesture: gesture, search: &search)
+            let text = item.display ?? (item.lexiconWord ?? model.word(item.id))
+            rescored.append(
+                Candidate(
+                    text: text, id: item.lexiconWord == nil ? item.id : nil, score: spatial + item.languageScore))
+        }
+        rescored.sort { $0.score > $1.score }
+        return Array(rescored.prefix(limit))
+    }
+
+    /// Everything a decode computes from the gesture alone.
+    private struct Prepared {
+        let rawX: [Double]
+        let rawY: [Double]
+        let gesture: Gesture
+        let startKeys: [Int]
+        let endKeys: [Int]
+    }
+
+    /// The gesture in pitch units, resampled and normalised, with the keys its ends may start
+    /// and end a word on; nil for a path too short to decode.
+    private func prepare(path: [CGPoint]) -> Prepared? {
+        guard isUsable, path.count >= 2 else { return nil }
         let count = max(configuration.resamplePoints, 2)
 
         // The gesture in pitch units, without repeated points.
@@ -274,9 +467,9 @@ public struct SwipeDecoder: Sendable {
             rawX.append(px)
             rawY.append(py)
         }
-        guard rawX.count >= 2 else { return [] }
+        guard rawX.count >= 2 else { return nil }
         let gestureLength = Self.length(x: rawX, y: rawY)
-        guard gestureLength >= configuration.minimumLengthPitches else { return [] }
+        guard gestureLength >= configuration.minimumLengthPitches else { return nil }
 
         var gestureX = Array(repeating: 0.0, count: count)
         var gestureY = Array(repeating: 0.0, count: count)
@@ -285,110 +478,60 @@ public struct SwipeDecoder: Sendable {
         var gestureShapeY = Array(repeating: 0.0, count: count)
         Self.normalise(x: gestureX, y: gestureY, intoX: &gestureShapeX, intoY: &gestureShapeY)
 
-        // Where the gesture is at the ends, the quarters and the middle, for the coarse test.
-        let probeIndices = [0, count / 4, (count - 1) / 2, (3 * (count - 1)) / 4, count - 1]
-        let probeFractions = probeIndices.map { Double($0) / Double(count - 1) }
-        let probeX = probeIndices.map { gestureX[$0] }
-        let probeY = probeIndices.map { gestureY[$0] }
+        // How near the gesture passes each key, and where along it: a word is only a candidate
+        // if every one of its letters has a key the finger went by, however it cut the corner.
+        var keyNear = Array(repeating: 0.0, count: 26)
+        var keyAt = Array(repeating: 0.0, count: 26)
+        for letter in 0..<26 {
+            var nearest = Double.infinity
+            var at = 0.0
+            for index in 0..<(count - 1) {
+                let ax = gestureX[index], ay = gestureY[index]
+                let dx = gestureX[index + 1] - ax, dy = gestureY[index + 1] - ay
+                let lengthSquared = dx * dx + dy * dy
+                var t = 0.0
+                if lengthSquared > 1e-12 {
+                    t = min(max(((centreX[letter] - ax) * dx + (centreY[letter] - ay) * dy) / lengthSquared, 0), 1)
+                }
+                let ex = centreX[letter] - (ax + t * dx), ey = centreY[letter] - (ay + t * dy)
+                let distance = ex * ex + ey * ey
+                if distance < nearest {
+                    nearest = distance
+                    at = (Double(index) + t) / Double(count - 1)
+                }
+            }
+            keyNear[letter] = nearest.squareRoot()
+            keyAt[letter] = at
+        }
 
         let startKeys = nearestKeys(toX: rawX[0], y: rawY[0], count: configuration.startKeyCount)
         let endKeys = nearestKeys(
             toX: rawX[rawX.count - 1], y: rawY[rawY.count - 1], count: configuration.endKeyCount)
-        let shortest = gestureLength * (1 - configuration.lengthTolerance)
-        let longest = gestureLength * (1 + configuration.lengthTolerance)
-
         let gesture = Gesture(
             x: gestureX, y: gestureY, shapeX: gestureShapeX, shapeY: gestureShapeY,
-            probeFractions: probeFractions, probeX: probeX, probeY: probeY,
-            shortest: gestureLength * (1 - configuration.lengthTolerance),
-            longest: gestureLength * (1 + configuration.lengthTolerance))
-        var search = Search(
-            count: count, keep: max(configuration.rerankCount, limit), margin: configuration.rerankMargin)
-        let hasLexicon = !lexicon.entries.isEmpty
+            keyNear: keyNear, keyAt: keyAt, length: gestureLength,
+            startX: rawX[0], startY: rawY[0], endX: rawX[rawX.count - 1], endY: rawY[rawY.count - 1],
+            shortest: gestureLength * (1 - configuration.lengthTolerance) - configuration.lengthSlackPitches,
+            longest: gestureLength * (1 + configuration.lengthTolerance) + configuration.lengthSlackPitches)
+        return Prepared(rawX: rawX, rawY: rawY, gesture: gesture, startKeys: startKeys, endKeys: endKeys)
+    }
 
-        // Words of the model, by the start and end buckets. The length cut comes first and reads
-        // the word once; everything after it is for the few that pass.
-        // The likeliest buckets first, so the cut-off is a good one early.
-        var buckets: [(start: Int, end: Int, distance: Double)] = []
-        for start in startKeys {
-            for end in endKeys {
-                buckets.append((
-                    start, end,
-                    norm(centreX[start] - rawX[0], centreY[start] - rawY[0])
-                        + norm(centreX[end] - rawX[rawX.count - 1], centreY[end] - rawY[rawY.count - 1])))
-            }
-        }
-        buckets.sort { $0.distance < $1.distance }
-        do {
-            for bucket in buckets {
-                let ids = model.ids(
-                    first: Character(UnicodeScalar(Self.letterA + UInt8(bucket.start))),
-                    last: Character(UnicodeScalar(Self.letterA + UInt8(bucket.end))))
-                for id in ids {
-                    let word = model.word(id)
-                    guard let ideal = idealLength(of: word), ideal >= gesture.shortest, ideal <= gesture.longest
-                    else { continue }
-                    var language = configuration.languageWeight * logPrior(id, previous: previous)
-                    var display: String?
-                    if hasLexicon, let entry = lexicon.entry(for: word) {
-                        language += entry.bonus
-                        if entry.respellsKnownWords { display = entry.display }
-                    }
-                    // The spatial terms are at most zero, so a word whose language score alone
-                    // cannot reach the current cut-off is out.
-                    if language <= search.cutoff { continue }
-                    Self.letters(of: word, into: &search.letters)
-                    consider(
-                        &search, gesture, id: id, lexiconWord: nil, display: display, language: language,
-                        length: ideal)
-                }
-            }
-        }
+    /// Where in the cuts before scoring a word is dropped, for the benchmark's prune rates.
+    enum PruneStage: String {
+        case endKeys, length, screen, survives, notAWord
+    }
 
-        // Words of the lexicon that the model does not know.
-        for (folded, entry) in lexicon.entries.sorted(by: { $0.key < $1.key }) {
-            guard model.id(of: folded) == nil, let word = Self.letters(of: folded),
-                word.count >= max(configuration.minimumLetters, 2),
-                startKeys.contains(Int(word[0])), endKeys.contains(Int(word[word.count - 1]))
-            else { continue }
-            search.letters = word
-            let ideal = idealLength(search.letters)
-            guard ideal >= gesture.shortest, ideal <= gesture.longest else { continue }
-            let language = configuration.languageWeight * configuration.lexiconLogPrior + entry.bonus
-            consider(
-                &search, gesture, id: -1, lexiconWord: folded, display: entry.display, language: language,
-                length: ideal)
-        }
-        let best = search.best
-        var polyX = search.polyX
-        var polyY = search.polyY
-        var templateX = search.templateX
-        var templateY = search.templateY
-
-        // The re-rank: warp the location channel for everything kept.
-        var rescored: [Candidate] = []
-        rescored.reserveCapacity(best.count)
-        for item in best {
-            let wordLetters: [UInt8]
-            if let lexiconWord = item.lexiconWord {
-                wordLetters = Self.letters(of: lexiconWord) ?? []
-            } else {
-                wordLetters = Self.letters(of: model.word(item.id)) ?? []
-            }
-            buildIdealPath(wordLetters, x: &polyX, y: &polyY)
-            Self.resample(x: polyX, y: polyY, count: count, outX: &templateX, outY: &templateY)
-            let warped = warpedDistance(gestureX, gestureY, templateX, templateY)
-            let warpedLL = Self.logLikelihood(
-                distance: warped, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
-            let location = (1 - configuration.warpWeight) * item.locationLL + configuration.warpWeight * warpedLL
-            let text = item.display ?? (item.lexiconWord ?? model.word(item.id))
-            rescored.append(
-                Candidate(
-                    text: text, id: item.lexiconWord == nil ? item.id : nil,
-                    score: location + item.shapeLL + item.languageScore))
-        }
-        rescored.sort { $0.score > $1.score }
-        return Array(rescored.prefix(limit))
+    /// The first cut that removes `word` for this gesture, or `survives` when it reaches scoring.
+    func pruneStage(of word: String, path: [CGPoint]) -> PruneStage {
+        guard let prepared = prepare(path: path), let letters = Self.letters(of: word), letters.count >= 2
+        else { return .notAWord }
+        guard prepared.startKeys.contains(Int(letters[0])), prepared.endKeys.contains(Int(letters[letters.count - 1]))
+        else { return .endKeys }
+        var stats = ScanStats()
+        _ = Array(word.utf8).withUnsafeBufferPointer { firstStage($0, gesture: prepared.gesture, stats: &stats) }
+        if stats.lengthPassed == 0 { return .length }
+        if stats.screenPassed == 0 { return .screen }
+        return .survives
     }
 
     // MARK: - Search
@@ -399,22 +542,27 @@ public struct SwipeDecoder: Sendable {
         let y: [Double]
         let shapeX: [Double]
         let shapeY: [Double]
-        let probeFractions: [Double]
-        let probeX: [Double]
-        let probeY: [Double]
+        /// Distance in pitches from each letter's key centre to the nearest point of the gesture,
+        /// and how far along the gesture (0 to 1) that point is.
+        let keyNear: [Double]
+        let keyAt: [Double]
+        let length: Double
+        /// The first and last point of the gesture.
+        let startX: Double
+        let startY: Double
+        let endX: Double
+        let endY: Double
         /// The ideal path lengths a word may have.
         let shortest: Double
         let longest: Double
     }
 
-    /// A word that passed the first score, kept for the re-rank.
+    /// A word that passed the first stage, kept for the second.
     private struct Scored {
         var id: Int
         var lexiconWord: String?
         var display: String?
         var score: Double
-        var locationLL: Double
-        var shapeLL: Double
         var languageScore: Double
     }
 
@@ -426,25 +574,27 @@ public struct SwipeDecoder: Sendable {
         /// words once there are `keep`, or `margin` behind the best.
         var cutoff = -Double.infinity
         var best: [Scored] = []
-        var letters: [UInt8] = []
         var polyX: [Double] = []
         var polyY: [Double] = []
         var templateX: [Double]
         var templateY: [Double]
         var templateShapeX: [Double]
         var templateShapeY: [Double]
+        var warpCost: [Double]
+        var warpSteps: [Int]
 
         init(count: Int, keep: Int, margin: Double) {
             self.keep = keep
             self.margin = margin
             best.reserveCapacity(keep + 1)
-            letters.reserveCapacity(24)
             polyX.reserveCapacity(64)
             polyY.reserveCapacity(64)
             templateX = Array(repeating: 0, count: count)
             templateY = Array(repeating: 0, count: count)
             templateShapeX = Array(repeating: 0, count: count)
             templateShapeY = Array(repeating: 0, count: count)
+            warpCost = Array(repeating: 0, count: count)
+            warpSteps = Array(repeating: 0, count: count)
         }
 
         mutating func insert(_ scored: Scored) {
@@ -458,81 +608,131 @@ public struct SwipeDecoder: Sendable {
         }
     }
 
-    /// Scores the word whose letters are in `search.letters` and keeps it if it is among the best.
-    private func consider(
-        _ search: inout Search, _ gesture: Gesture, id: Int, lexiconWord: String?, display: String?,
-        language: Double, length: Double
-    ) {
-        guard coarseDistance(search.letters, length: length, gesture: gesture) <= configuration.coarseLimitPitches
-        else { return }
-        buildIdealPath(search.letters, x: &search.polyX, y: &search.polyY)
-        // The farthest the weighted mean distance may go before this word cannot reach the
-        // cut-off even with a perfect shape, which is the exact bound the early stop uses.
-        var farthest = Double.infinity
-        if search.cutoff > -Double.infinity {
-            farthest = configuration.sigmaLocation
-                * (2 * max(language - search.cutoff, 0) / configuration.locationEvidence).squareRoot()
+    /// The first stage, from a word's UTF-8 bytes alone: nil when the word's ideal path is not
+    /// about the gesture's length, or some letter's key is farther from the gesture than
+    /// `passLimitPitches`; else the log-likelihood that the finger went by every key of the word,
+    /// in order. It needs no path, so it is what spares most words the second stage; the second
+    /// stage looks at the shape the gesture really has. An apostrophe has no key and is skipped,
+    /// and any other byte that is not a lowercase letter rules the word out.
+    private func firstStage(_ bytes: UnsafeBufferPointer<UInt8>, gesture: Gesture, stats: inout ScanStats) -> Double? {
+        var total = 0.0
+        var doubled = 0
+        var previous = -1
+        var letters = 0
+        for byte in bytes {
+            if byte == Self.apostrophe { continue }
+            guard byte >= Self.letterA, byte < Self.letterA + 26 else { return nil }
+            let letter = Int(byte - Self.letterA)
+            if previous >= 0 {
+                if previous == letter { doubled += 1 } else { total += pairDistance[previous * 26 + letter] }
+            }
+            previous = letter
+            letters += 1
         }
-        guard
-            let location = locate(
-                x: search.polyX, y: search.polyY, gesture: gesture, farthest: farthest,
-                outX: &search.templateX, outY: &search.templateY)
-        else { return }
-        Self.normalise(
-            x: search.templateX, y: search.templateY, intoX: &search.templateShapeX,
-            intoY: &search.templateShapeY)
-        let shape = Self.meanDistance(
-            gesture.shapeX, gesture.shapeY, search.templateShapeX, search.templateShapeY)
-        let locationLL = Self.logLikelihood(
-            distance: location, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
-        let shapeLL = Self.logLikelihood(
-            distance: shape, sigma: configuration.sigmaShape, evidence: configuration.shapeEvidence)
-        let score = locationLL + shapeLL + language
-        guard score > search.cutoff else { return }
-        search.insert(
-            Scored(
-                id: id, lexiconWord: lexiconWord, display: display, score: score, locationLL: locationLL,
-                shapeLL: shapeLL, languageScore: language))
+        guard letters >= max(configuration.minimumLetters, 2) else { return nil }
+        let lengths = (short: total, long: total + Double(doubled) * 2 * Double.pi * configuration.loopRadius)
+        guard lengths.long >= gesture.shortest, lengths.short <= gesture.longest else { return nil }
+        stats.lengthPassed += 1
+
+        let cap = configuration.passCapPitches
+        var sum = 0.0
+        var inversion = 0.0
+        var previousLetter = -1
+        var previousAt = -1.0
+        for byte in bytes {
+            if byte == Self.apostrophe { continue }
+            let letter = Int(byte - Self.letterA)
+            if letter == previousLetter { continue }
+            previousLetter = letter
+            let distance = gesture.keyNear[letter]
+            if distance > configuration.passLimitPitches { return nil }
+            let capped = min(distance, cap)
+            sum += capped * capped
+            let at = gesture.keyAt[letter]
+            // A key passed before the one the word has just before it: the word is out of order.
+            if previousAt >= 0, at < previousAt { inversion += previousAt - at }
+            previousAt = at
+        }
+        stats.screenPassed += 1
+        let sigma = configuration.sigmaPass
+        return -0.5 * sum / (sigma * sigma) - configuration.orderWeight * inversion
+            - lengthPenalty(lengths, gesture: gesture.length)
     }
 
-    /// Resamples the polyline into `outX`, `outY` and returns the weighted mean distance to the
-    /// gesture, as `Self.resample` and `locationDistance` do together, but gives up and returns
-    /// nil as soon as the running sum passes `farthest`: the later terms only add to it.
-    private func locate(
-        x: [Double], y: [Double], gesture: Gesture, farthest: Double, outX: inout [Double], outY: inout [Double]
-    ) -> Double? {
+    /// What the gesture's length costs a word, as a Gaussian in the log of the ratio to whichever
+    /// of the word's two ideal lengths is nearer. Zero when `lengthSigma` is zero.
+    private func lengthPenalty(_ lengths: (short: Double, long: Double), gesture: Double) -> Double {
+        guard configuration.lengthSigma > 0, gesture > 1e-9 else { return 0 }
+        let ideal = min(max(gesture, lengths.short), lengths.long)
+        guard ideal > 1e-9 else { return 0 }
+        let z = log(ideal / gesture) / configuration.lengthSigma
+        return 0.5 * z * z
+    }
+
+    /// The second stage: the spatial score of a word on every channel. A word with a doubled
+    /// letter is scored with its loop and without, and the better counts, because a finger often
+    /// does not mark the doubled letter at all.
+    private func fullSpatialScore(_ letters: [UInt8], gesture: Gesture, search: inout Search) -> Double {
+        let lengths = idealLength(letters)
+        var score = pathScore(letters, loops: true, gesture: gesture, search: &search)
+        if lengths.long > lengths.short + 1e-9 {
+            score = max(score, pathScore(letters, loops: false, gesture: gesture, search: &search))
+        }
+        score -= lengthPenalty(lengths, gesture: gesture.length)
+        if configuration.sigmaEnds > 0, let first = letters.first, let final = letters.last {
+            let ds = norm(centreX[Int(first)] - gesture.startX, centreY[Int(first)] - gesture.startY)
+            let de = norm(centreX[Int(final)] - gesture.endX, centreY[Int(final)] - gesture.endY)
+            score -= 0.5 * (ds * ds + de * de) / (configuration.sigmaEnds * configuration.sigmaEnds)
+        }
+        return score
+    }
+
+    /// One reading of the word's ideal path: location (plain and warped), shape, the keys
+    /// passed in order, and how near the gesture stays to the path.
+    private func pathScore(_ letters: [UInt8], loops: Bool, gesture: Gesture, search: inout Search) -> Double {
+        buildIdealPath(letters, loops: loops, x: &search.polyX, y: &search.polyY)
         let count = gesture.x.count
-        let total = x.count > 1 ? Self.length(x: x, y: y) : 0
-        guard total > 1e-12 else {
-            // A path with no length sits on one point.
-            for index in 0..<count {
-                outX[index] = x[0]
-                outY[index] = y[0]
-            }
-            let distance = locationDistance(gesture.x, gesture.y, outX, outY)
-            return distance <= farthest ? distance : nil
+        Self.resample(x: search.polyX, y: search.polyY, count: count, outX: &search.templateX, outY: &search.templateY)
+        let location = locationDistance(gesture.x, gesture.y, search.templateX, search.templateY)
+        let locationLL = logLikelihood(
+            distance: location, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
+        let warped = warpedDistance(gesture.x, gesture.y, search.templateX, search.templateY, scratch: &search)
+        let warpedLL = logLikelihood(
+            distance: warped, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
+        Self.normalise(
+            x: search.templateX, y: search.templateY, intoX: &search.templateShapeX, intoY: &search.templateShapeY)
+        let shape = Self.meanDistance(gesture.shapeX, gesture.shapeY, search.templateShapeX, search.templateShapeY)
+        let shapeLL = logLikelihood(
+            distance: shape, sigma: configuration.sigmaShape, evidence: configuration.shapeEvidence)
+        var score = (1 - configuration.warpWeight) * locationLL + configuration.warpWeight * warpedLL + shapeLL
+        if configuration.nearWeight > 0 {
+            score += configuration.nearWeight
+                * logLikelihood(
+                    distance: nearDistance(gesture, polyX: search.polyX, polyY: search.polyY),
+                    sigma: configuration.sigmaNear, evidence: configuration.nearEvidence)
         }
-        let step = total / Double(count - 1)
-        var segment = 0
-        var segmentStart = 0.0
-        var segmentLength = norm(x[1] - x[0], y[1] - y[0])
-        var sum = 0.0
-        for index in 0..<count {
-            let target = Double(index) * step
-            while segment < x.count - 2, segmentStart + segmentLength < target {
-                segmentStart += segmentLength
-                segment += 1
-                segmentLength = norm(x[segment + 1] - x[segment], y[segment + 1] - y[segment])
+        return score
+    }
+
+    /// The mean distance from the gesture's sample points to the nearest point of the ideal path.
+    private func nearDistance(_ gesture: Gesture, polyX: [Double], polyY: [Double]) -> Double {
+        guard polyX.count > 1 else { return 0 }
+        var total = 0.0
+        for index in 0..<gesture.x.count {
+            let px = gesture.x[index], py = gesture.y[index]
+            var nearest = Double.infinity
+            for segment in 0..<(polyX.count - 1) {
+                let ax = polyX[segment], ay = polyY[segment]
+                let dx = polyX[segment + 1] - ax, dy = polyY[segment + 1] - ay
+                let lengthSquared = dx * dx + dy * dy
+                var t = 0.0
+                if lengthSquared > 1e-12 { t = min(max(((px - ax) * dx + (py - ay) * dy) / lengthSquared, 0), 1) }
+                let ex = px - (ax + t * dx), ey = py - (ay + t * dy)
+                nearest = min(nearest, ex * ex + ey * ey)
             }
-            let t = segmentLength > 0 ? min(max((target - segmentStart) / segmentLength, 0), 1) : 0
-            let px = x[segment] + t * (x[segment + 1] - x[segment])
-            let py = y[segment] + t * (y[segment + 1] - y[segment])
-            outX[index] = px
-            outY[index] = py
-            sum += weights[index] * norm(gesture.x[index] - px, gesture.y[index] - py)
-            if sum > farthest { return nil }
+            total += nearest.squareRoot()
         }
-        return sum
+        return total / Double(gesture.x.count)
     }
 
     // MARK: - Scoring
@@ -546,9 +746,14 @@ public struct SwipeDecoder: Sendable {
         return Double(model.unigram(id)) * Self.ln10
     }
 
-    /// A Gaussian log-likelihood of a mean distance, scaled by the number of points it stands for.
-    private static func logLikelihood(distance: Double, sigma: Double, evidence: Double) -> Double {
+    /// The log-likelihood of a mean distance, scaled by the number of points it stands for: a
+    /// Gaussian, or with `tailDegrees` above zero a Student-t shape that agrees with it for small
+    /// distances and falls away more slowly for large ones, so a sloppy swipe that lands far
+    /// from every word is not decided by which of them it is least far from alone.
+    private func logLikelihood(distance: Double, sigma: Double, evidence: Double) -> Double {
         let z = distance / sigma
+        let nu = configuration.tailDegrees
+        if nu > 0 { return -0.5 * evidence * nu * log(1 + z * z / nu) }
         return -0.5 * evidence * z * z
     }
 
@@ -568,87 +773,71 @@ public struct SwipeDecoder: Sendable {
     }
 
     /// Dynamic time warping between the two resampled paths, inside a diagonal band: the mean
-    /// distance along the cheapest alignment.
-    private func warpedDistance(_ ax: [Double], _ ay: [Double], _ bx: [Double], _ by: [Double]) -> Double {
+    /// distance along the cheapest alignment. Two rolling rows, so nothing is allocated.
+    private func warpedDistance(
+        _ ax: [Double], _ ay: [Double], _ bx: [Double], _ by: [Double], scratch: inout Search
+    ) -> Double {
         let n = ax.count
         let band = max(configuration.warpBand, 1)
         let infinity = Double.infinity
-        var cost = Array(repeating: infinity, count: n * n)
-        var steps = Array(repeating: 0, count: n * n)
+        for j in 0..<n {
+            scratch.warpCost[j] = infinity
+            scratch.warpSteps[j] = 0
+        }
+        // `warpCost` holds the row above and, as it is overwritten left to right, the current one:
+        // the cell left of j is already the current row's, the diagonal is kept in `diagonal*`.
         for i in 0..<n {
             let low = max(0, i - band)
             let high = min(n - 1, i + band)
+            var diagonalCost = low > 0 ? scratch.warpCost[low - 1] : (i == 0 ? 0 : infinity)
+            var diagonalSteps = low > 0 ? scratch.warpSteps[low - 1] : 0
+            if low > 0 {
+                // The cell just left of the band is out of it on the current row.
+                scratch.warpCost[low - 1] = infinity
+                scratch.warpSteps[low - 1] = 0
+            }
             for j in low...high {
+                let upCost = scratch.warpCost[j]
+                let upSteps = scratch.warpSteps[j]
                 let d = norm(ax[i] - bx[j], ay[i] - by[j])
-                if i == 0 && j == 0 {
-                    cost[0] = d
-                    steps[0] = 1
-                    continue
-                }
                 var bestCost = infinity
                 var bestSteps = 0
-                if i > 0, j > 0, cost[(i - 1) * n + j - 1] < bestCost {
-                    bestCost = cost[(i - 1) * n + j - 1]
-                    bestSteps = steps[(i - 1) * n + j - 1]
+                if i == 0 && j == 0 {
+                    bestCost = 0
+                } else {
+                    if diagonalCost < bestCost, i > 0, j > 0 {
+                        bestCost = diagonalCost
+                        bestSteps = diagonalSteps
+                    }
+                    if upCost < bestCost, i > 0 {
+                        bestCost = upCost
+                        bestSteps = upSteps
+                    }
+                    if j > low || low == 0, j > 0, scratch.warpCost[j - 1] < bestCost {
+                        bestCost = scratch.warpCost[j - 1]
+                        bestSteps = scratch.warpSteps[j - 1]
+                    }
                 }
-                if i > 0, cost[(i - 1) * n + j] < bestCost {
-                    bestCost = cost[(i - 1) * n + j]
-                    bestSteps = steps[(i - 1) * n + j]
+                diagonalCost = upCost
+                diagonalSteps = upSteps
+                if bestCost < infinity {
+                    scratch.warpCost[j] = bestCost + d
+                    scratch.warpSteps[j] = bestSteps + 1
+                } else {
+                    scratch.warpCost[j] = infinity
+                    scratch.warpSteps[j] = 0
                 }
-                if j > 0, cost[i * n + j - 1] < bestCost {
-                    bestCost = cost[i * n + j - 1]
-                    bestSteps = steps[i * n + j - 1]
-                }
-                guard bestCost < infinity else { continue }
-                cost[i * n + j] = bestCost + d
-                steps[i * n + j] = bestSteps + 1
+            }
+            if high < n - 1 {
+                // The cells right of the band belong to no row yet.
+                scratch.warpCost[high + 1] = infinity
+                scratch.warpSteps[high + 1] = 0
             }
         }
-        let last = (n - 1) * n + n - 1
-        guard cost[last] < infinity, steps[last] > 0 else { return infinity }
-        return cost[last] / Double(steps[last])
-    }
-
-    /// The mean distance between the gesture's probe points and the points of the word's ideal
-    /// path at the same shares of its length. A loop counts for its circumference but is treated as
-    /// standing still on its key, which is wrong by at most a loop's diameter and needs no path.
-    private func coarseDistance(_ letters: [UInt8], length: Double, gesture: Gesture) -> Double {
-        let fractions = gesture.probeFractions
-        let loop = 2 * Double.pi * configuration.loopRadius
-        var total = 0.0
-        var probe = 0
-        var walked = 0.0
-        var index = 0
-        while probe < fractions.count {
-            let target = fractions[probe] * length
-            // The segment from letter index - 1 to index, or the whole path's end.
-            let px: Double
-            let py: Double
-            if index == 0 {
-                index = 1
-                continue
-            } else if index >= letters.count {
-                px = centreX[Int(letters[letters.count - 1])]
-                py = centreY[Int(letters[letters.count - 1])]
-            } else {
-                let a = Int(letters[index - 1])
-                let b = Int(letters[index])
-                let segment = a == b ? loop : pairDistance[a * 26 + b]
-                if walked + segment < target {
-                    walked += segment
-                    index += 1
-                    continue
-                }
-                let t = segment > 0 && a != b ? (target - walked) / segment : 0
-                px = centreX[a] + t * (centreX[b] - centreX[a])
-                py = centreY[a] + t * (centreY[b] - centreY[a])
-            }
-            total += norm(px - gesture.probeX[probe], py - gesture.probeY[probe])
-            // The remaining probes can only add to the sum, so a word already over the limit is out.
-            if total > configuration.coarseLimitPitches * Double(fractions.count) { return .infinity }
-            probe += 1
-        }
-        return total / Double(fractions.count)
+        let cost = scratch.warpCost[n - 1]
+        let steps = scratch.warpSteps[n - 1]
+        guard cost < infinity, steps > 0 else { return infinity }
+        return cost / Double(steps)
     }
 
     /// The `count` letters whose keys are nearest the point, nearest first.
@@ -677,54 +866,24 @@ public struct SwipeDecoder: Sendable {
         return result
     }
 
-    /// Fills `result` as `letters(of:)` does; leaves it empty for a word with another byte.
-    private static func letters(of word: String, into result: inout [UInt8]) {
-        result.removeAll(keepingCapacity: true)
-        for byte in word.utf8 {
-            if byte >= letterA, byte < letterA + 26 {
-                result.append(byte - letterA)
-            } else if byte != apostrophe {
-                result.removeAll(keepingCapacity: true)
-                return
-            }
-        }
-    }
-
-    /// The length in pitches of a word's ideal path, read straight off its bytes; nil for a word
-    /// with another character or fewer than two letters.
-    private func idealLength(of word: String) -> Double? {
-        let loop = 2 * Double.pi * configuration.loopRadius
+    /// The length in pitches of a word's ideal path, without building it: `short` with no loop
+    /// for any doubled letter and `long` with every loop, because a finger often skips the loop.
+    private func idealLength(_ letters: [UInt8]) -> (short: Double, long: Double) {
         var total = 0.0
-        var previous = -1
-        var letters = 0
-        for byte in word.utf8 {
-            if byte == Self.apostrophe { continue }
-            guard byte >= Self.letterA, byte < Self.letterA + 26 else { return nil }
-            let letter = Int(byte - Self.letterA)
-            if previous >= 0 { total += previous == letter ? loop : pairDistance[previous * 26 + letter] }
-            previous = letter
-            letters += 1
-        }
-        return letters >= max(configuration.minimumLetters, 2) ? total : nil
-    }
-
-    /// The length in pitches of a word's ideal path, without building it.
-    private func idealLength(_ letters: [UInt8]) -> Double {
-        var total = 0.0
-        guard letters.count > 1 else { return total }
-        let loop = 2 * Double.pi * configuration.loopRadius
+        var doubled = 0
+        guard letters.count > 1 else { return (0, 0) }
         for index in 1..<letters.count {
             let a = Int(letters[index - 1])
             let b = Int(letters[index])
-            total += a == b ? loop : pairDistance[a * 26 + b]
+            if a == b { doubled += 1 } else { total += pairDistance[a * 26 + b] }
         }
-        return total
+        return (total, total + Double(doubled) * 2 * Double.pi * configuration.loopRadius)
     }
 
     /// The polyline through the key centres of `letters`. A doubled letter adds a loop: a circle
     /// of `loopRadius` that passes through the key's centre and bulges to the side of the path's
     /// direction there, upward when it can, so the same word always has the same ideal path.
-    private func buildIdealPath(_ letters: [UInt8], x: inout [Double], y: inout [Double]) {
+    private func buildIdealPath(_ letters: [UInt8], loops: Bool = true, x: inout [Double], y: inout [Double]) {
         x.removeAll(keepingCapacity: true)
         y.removeAll(keepingCapacity: true)
         guard !letters.isEmpty else { return }
@@ -740,7 +899,7 @@ public struct SwipeDecoder: Sendable {
             let cy = centreY[letter]
             x.append(cx)
             y.append(cy)
-            if end - index > 1 {
+            if loops, end - index > 1 {
                 // The direction the path takes through this key.
                 var dx = 0.0
                 var dy = 0.0

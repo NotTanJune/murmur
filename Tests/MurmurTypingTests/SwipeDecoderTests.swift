@@ -62,7 +62,11 @@ struct SwipeFixture {
     @Test("Common words decode from their ideal paths")
     func commonWords() throws {
         let fixture = try SwipeFixture()
-        for word in ["the", "and", "quick", "keyboard", "because", "people", "swipe", "typing"] {
+        // "swipe" was in this list while the spatial evidence was narrow. Its exact path now ranks
+        // third, behind the far likelier "store" and "stripe", because the likelihood forgives a
+        // sloppy finger and a rare word pays for it (see `Configuration`'s note on the sloppy
+        // benchmark); the words left are ones the model also finds frequent.
+        for word in ["the", "and", "quick", "keyboard", "because", "people", "typing"] {
             let candidates = fixture.decode(fixture.decoder.idealPath(for: word))
             #expect(candidates.first?.text == word, "\(word) decoded as \(candidates.map(\.text))")
         }
@@ -81,18 +85,23 @@ struct SwipeFixture {
     @Test("Candidates start and end on the keys nearest the path's ends")
     func prunedByEnds() throws {
         let fixture = try SwipeFixture()
-        func nearest(_ point: CGPoint) -> Set<Character> {
-            let ranked = "abcdefghijklmnopqrstuvwxyz".sorted {
-                hypot(fixture.centre($0).x - point.x, fixture.centre($0).y - point.y)
-                    < hypot(fixture.centre($1).x - point.x, fixture.centre($1).y - point.y)
+        // The decoder admits the nearest `startKeyCount` keys, but only those within the reach
+        // (the nearest key always counts). The count and the reach were three and 1.2 pitches
+        // before the sloppy benchmark; five and 1.8 let a swipe that began a key off find its word.
+        let configuration = fixture.decoder.configuration
+        let reach = configuration.keyReachPitches * fixture.decoder.pitch
+        func nearest(_ point: CGPoint, count: Int) -> Set<Character> {
+            func distance(_ letter: Character) -> Double {
+                hypot(fixture.centre(letter).x - point.x, fixture.centre(letter).y - point.y)
             }
-            return Set(ranked.prefix(3))
+            let ranked = "abcdefghijklmnopqrstuvwxyz".sorted { distance($0) < distance($1) }
+            return Set(ranked.prefix(count).enumerated().filter { $0.offset == 0 || distance($0.element) <= reach }.map(\.element))
         }
         var seen = 0
         for word in ["hello", "he", "the", "are", "to", "see"] {
             let path = fixture.decoder.idealPath(for: word)
-            let starts = nearest(path.first!)
-            let ends = nearest(path.last!)
+            let starts = nearest(path.first!, count: configuration.startKeyCount)
+            let ends = nearest(path.last!, count: configuration.endKeyCount)
             for candidate in fixture.decode(path, limit: 80) {
                 seen += 1
                 #expect(starts.contains(candidate.text.first!), "\(candidate.text) starts off the start keys")
@@ -136,6 +145,122 @@ struct SwipeFixture {
         let withBut = fixture.decoder.decode(path: ambiguous, times: nil, previous: butFirst.id)
         #expect(withBit.first?.id == bit, "after \(model.word(bitFirst.id)): \(withBit.map(\.text))")
         #expect(withBut.first?.id == but, "after \(model.word(butFirst.id)): \(withBut.map(\.text))")
+    }
+
+    /// The vertices of a word's ideal path with each interior one pulled `pull` pitches toward the
+    /// chord between its neighbours, as a thumb rounds a corner. Doubled letters are written once
+    /// (the finger made no loop), so the word's letters are given already collapsed.
+    private func cornerCut(_ letters: String, pull: Double, fixture: SwipeFixture) -> [CGPoint] {
+        let vertices = fixture.path(through: letters)
+        let pitch = fixture.decoder.pitch
+        var result = [vertices[0]]
+        for index in 1..<(vertices.count - 1) {
+            let here = vertices[index]
+            let toX = (vertices[index - 1].x + vertices[index + 1].x) / 2 - here.x
+            let toY = (vertices[index - 1].y + vertices[index + 1].y) / 2 - here.y
+            let distance = hypot(toX, toY)
+            let step = min(pull * pitch, 0.9 * distance)
+            result.append(CGPoint(x: here.x + step * toX / max(distance, 1e-9), y: here.y + step * toY / max(distance, 1e-9)))
+        }
+        result.append(vertices[vertices.count - 1])
+        return result
+    }
+
+    /// The word in the model whose pair with `word` gains the most over `word`'s own unigram,
+    /// that is, the word before it that most favours it.
+    private func mostFavouringPrevious(of word: String, model: TypingModel) throws -> Int {
+        let id = try #require(model.id(of: word))
+        var best: (id: Int, gain: Float)?
+        for previous in 0..<model.wordCount {
+            guard let pair = model.pairLogP(previous, id) else { continue }
+            let gain = pair - model.unigram(id)
+            if gain > (best?.gain ?? 0) { best = (previous, gain) }
+        }
+        return try #require(best).id
+    }
+
+    @Test("A swipe that cuts every corner by almost half a pitch still decodes")
+    func cornerCutting() throws {
+        let fixture = try SwipeFixture()
+        for (word, letters) in [
+            ("because", "because"), ("keyboard", "keyboard"), ("people", "people"), ("typing", "typing"),
+            ("quick", "quick"),
+        ] {
+            let path = cornerCut(letters, pull: 0.45, fixture: fixture)
+            let candidates = fixture.decode(path, limit: 3)
+            #expect(candidates.first?.text == word, "\(word) cut at the corners decoded as \(candidates.map(\.text))")
+        }
+        // "hello" swiped with no loop for its doubled l and the corners cut ends on the o, one key
+        // from the p of the likelier "help": it is among the first three alone, and first when the
+        // word before it fits it.
+        let hello = cornerCut("helo", pull: 0.45, fixture: fixture)
+        #expect(fixture.decode(hello, limit: 3).contains { $0.text == "hello" })
+        let previous = try mostFavouringPrevious(of: "hello", model: fixture.model)
+        let withContext = fixture.decoder.decode(path: hello, times: nil, previous: previous, limit: 3)
+        #expect(withContext.first?.text == "hello", "after \(fixture.model.word(previous)): \(withContext.map(\.text))")
+    }
+
+    @Test("A doubled letter with no loop decodes as the word with the doubled letter")
+    func missingLoop() throws {
+        let fixture = try SwipeFixture()
+        for (word, letters) in [("hello", "helo"), ("letter", "leter"), ("coffee", "cofe"), ("little", "litle")] {
+            let candidates = fixture.decode(fixture.path(through: letters), limit: 3)
+            #expect(candidates.contains { $0.text == word }, "\(word) without its loop decoded as \(candidates.map(\.text))")
+        }
+    }
+
+    @Test("A swipe that lifts early or runs on past the last key still decodes")
+    func endMisses() throws {
+        let fixture = try SwipeFixture()
+        let pitch = fixture.decoder.pitch
+        // "people" lifted half a pitch short of the e, and "keyboard" carried on 0.5 pitch.
+        var early = fixture.path(through: "people")
+        let e = early[early.count - 1], l = early[early.count - 2]
+        let toward = hypot(l.x - e.x, l.y - e.y)
+        early[early.count - 1] = CGPoint(x: e.x + 0.5 * pitch * (l.x - e.x) / toward, y: e.y + 0.5 * pitch * (l.y - e.y) / toward)
+        #expect(fixture.decode(early, limit: 3).contains { $0.text == "people" })
+
+        var long = fixture.path(through: "keyboard")
+        let d = long[long.count - 1], r = long[long.count - 2]
+        let away = hypot(d.x - r.x, d.y - r.y)
+        long.append(CGPoint(x: d.x + 0.5 * pitch * (d.x - r.x) / away, y: d.y + 0.5 * pitch * (d.y - r.y) / away))
+        #expect(fixture.decode(long, limit: 3).contains { $0.text == "keyboard" })
+    }
+
+    @Test("A swipe that starts a key off finds its word, and the previous word makes it first")
+    func startOneKeyOff() throws {
+        let fixture = try SwipeFixture()
+        let model = fixture.model
+        // The ideal path of hello with its first point on the g, one key to the left of the h.
+        var path = fixture.path(through: "helo")
+        path[0] = fixture.centre("g")
+        let alone = fixture.decode(path, limit: 4)
+        #expect(alone.contains { $0.text == "hello" }, "started on g, decoded as \(alone.map(\.text))")
+
+        // The preceding word that most favours hello over its own unigram, among the model's pairs.
+        let favouring = try mostFavouringPrevious(of: "hello", model: model)
+        let withContext = fixture.decoder.decode(path: path, times: nil, previous: favouring, limit: 4)
+        #expect(withContext.first?.text == "hello", "after \(model.word(favouring)): \(withContext.map(\.text))")
+    }
+
+    @Test("The scan budget caps the words read")
+    func scanBudget() throws {
+        var configuration = SwipeDecoder.Configuration.tuned
+        configuration.scanBudget = 40
+        let fixture = try SwipeFixture(configuration: configuration)
+        var stats = SwipeDecoder.ScanStats()
+        _ = fixture.decoder.decode(
+            path: fixture.decoder.idealPath(for: "the"), previous: nil, lexicon: .empty, limit: 3, stats: &stats)
+        #expect(stats.scanned == 40)
+        #expect(stats.budgetHit)
+
+        // With the default budget a clean "the" is not cut short.
+        let full = try SwipeFixture()
+        var fullStats = SwipeDecoder.ScanStats()
+        let result = full.decoder.decode(
+            path: full.decoder.idealPath(for: "the"), previous: nil, lexicon: .empty, limit: 3, stats: &fullStats)
+        #expect(result.first?.text == "the")
+        #expect(fullStats.scanned <= full.decoder.configuration.scanBudget)
     }
 
     @Test("A word of the user's lexicon that the model lacks can be swiped")

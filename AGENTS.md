@@ -675,7 +675,7 @@ cancelled swipe emits `swipeUpdate([])`, which only clears the trail. **Decode.*
 moves the controller decodes off the main thread at most every `swipeLiveDecodeSeconds` (70 ms)
 and shows the best reading in the strip's centre cell (`swipePreview`); a result overtaken by a
 newer one or by the end of the swipe is dropped by a generation counter. At the lift it decodes
-once on the main thread, because the benchmark's 99th percentile is 0.81 ms in a release build
+once on the main thread, because the benchmark's 99th percentile is 0.54 ms in a release build
 on a Mac (2026-11-25; a phone is slower, unmeasured) and the word must be in the field before any
 later effect or key. **What
 is typed.** The word goes in after a space unless the text before the cursor is empty, ends in
@@ -699,6 +699,22 @@ is verified on a device:** the 0.36 s window and the one-pitch threshold against
 trail's width and look, whether the lift-time decode is quick enough on a phone, how often the
 live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
 whether the owed-space rules feel right in Notes and Messages.
+
+**The swipe decoder is tuned on sloppy swipes, which are still simulated.** The owner found
+swiping inaccurate unless exact (2026-11-25). The first benchmark swiped neat paths with no
+previous word. `SwipeBenchTests.sloppySentences` swipes 229 sentences word by word with the
+previous word as context and with cut corners, overshoot, missing doubled-letter loops, ends up
+to 0.6 pitch off the key and a constant thumb offset; odd sentences are held out. Held-out
+first-choice accuracy with context went from 70.8% to 85.3% (top three 78.6% to 94.2%); the neat
+benchmark is 92.65%. What changed: the decoder reads the five nearest keys at each end within
+1.8 pitches (three within 1.2 before, which threw away about 10% of intended words), allows 50%
+plus 0.6 pitch of length difference, ranks cheaply first on how near the finger passed each key
+in order and re-scores the best 36, and scores a doubled letter with and without its loop.
+`scanBudget` (4,000 words read) exists only to keep a debug build under 15 ms; without it
+accuracy is 0.8 points higher. The cost: an exact swipe of a rare word can lose to a common
+look-alike ("swipe" reads "store" first). The noise model is a guess, so these numbers say
+nothing certain about a thumb; `swipe-samples.jsonl` from the owner's phone is what to tune on
+next.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
