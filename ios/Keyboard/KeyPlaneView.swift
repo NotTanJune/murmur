@@ -312,6 +312,22 @@ final class KeyPlaneView: UIView {
         return CGPoint(x: point.x, y: point.y + state.stripHeight)
     }
 
+    /// When the last finger landed on the plane, for `point(inside:with:)`.
+    private var lastTouchDown: TimeInterval = -.infinity
+
+    /// The plane also takes a touch that lands just above it, in the strip's lowest
+    /// `typingStripReach` points, while typing is under way. The top row's own hit area ends at
+    /// the plane's top edge, and a fast thumb overshoots it; without this the strip's SwiftUI
+    /// view takes the touch and nothing is typed.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) { return true }
+        guard point.y < 0, point.y >= -DS.Keyboard.typingStripReach,
+            point.x >= bounds.minX, point.x <= bounds.maxX
+        else { return false }
+        let now = event?.timestamp ?? ProcessInfo.processInfo.systemUptime
+        return now - lastTouchDown <= DS.Keyboard.typingStripReachSeconds
+    }
+
     /// Touches of one event in a steady order, so two fingers that land together are typed in
     /// the order they came and not in a set's order.
     private func ordered(_ touches: Set<UITouch>) -> [UITouch] {
@@ -351,7 +367,13 @@ final class KeyPlaneView: UIView {
             let id = nextTouchID
             nextTouchID += 1
             touchIDs[ObjectIdentifier(touch)] = id
-            let point = enginePoint(touch)
+            // A touch taken from the strip (`point(inside:with:)`) lands on the top row's edge.
+            var point = enginePoint(touch)
+            if point.y < state.stripHeight {
+                TypingDiagnostics.log("reach", ["x": Double(point.x), "y": Double(point.y)])
+                point.y = state.stripHeight
+            }
+            lastTouchDown = touch.timestamp
             logTouch("began", id: id, touch: touch, point: point, event: event)
             if let frame = HitTester.key(at: point, frames: state.frames, bias: [:]),
                 frame.kind.characterValue == nil

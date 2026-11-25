@@ -306,6 +306,14 @@ public enum DS {
         public static let stripHeightLandscape: CGFloat = 44
         /// Between the strip and the first row: 8 pt upright, 6 pt turned.
         public static let stripGap: CGFloat = 8
+        /// While a burst of typing is under way, a touch this far up into the suggestion strip
+        /// counts as a tap on the top row, as on Apple's keyboard, where a fast thumb aimed at
+        /// the top row lands high. On 2026-11-25 an `e` landed 0.3 pt above the key plane and was
+        /// not typed. The strip keeps its upper part, where the suggestions' text sits.
+        public static let typingStripReach: CGFloat = 12
+        /// How long after a key goes down the reach above applies. Fast typing puts the next
+        /// key within about 150 ms; choosing a suggestion takes longer than this.
+        public static let typingStripReachSeconds: Double = 0.35
         public static let stripGapLandscape: CGFloat = 6
         public static let keycapHeight: CGFloat = 43
         public static let keycapHeightLandscape: CGFloat = 32

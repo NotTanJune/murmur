@@ -665,6 +665,7 @@ final class TypingController {
         guard let result, let replacement = result.replacement else { return before }
 
         let typed = smartApostrophes(replacement.text)
+        TypingDiagnostics.log("replace", ["from": result.word.text, "to": typed])
         for _ in 0..<result.word.text.count { proxy.deleteBackward() }
         proxy.insertText(typed)
         undo = UndoOffer(original: result.word.text, replacement: typed, terminator: terminator)
@@ -683,6 +684,7 @@ final class TypingController {
         KeyFeedback.press()
         let before = proxy.documentContextBeforeInput ?? ""
         if offer.isConsistent(with: before) {
+            TypingDiagnostics.log("undo", ["from": offer.replacement, "to": offer.original])
             for _ in 0..<offer.restoreDeleteCount { proxy.deleteBackward() }
             proxy.insertText(offer.original)
             autocorrector?.recordUndo(offer)
@@ -747,8 +749,10 @@ final class TypingController {
         for effect in effects {
             switch effect {
             case .deleteBackward(let count):
+                TypingDiagnostics.log("rule", ["delete": count])
                 for _ in 0..<count { proxy()?.deleteBackward() }
             case .insert(let text, _):
+                TypingDiagnostics.log("rule", ["text": text])
                 proxy()?.insertText(text)
             case .setShift(let state):
                 engine.setShift(state)
@@ -995,6 +999,7 @@ final class TypingController {
             perform(fix)
         }
         let edit = SuggestionEngine.edit(applying: suggestion, before: before)
+        TypingDiagnostics.log("suggest", ["delete": edit.deleteCount, "text": edit.insert])
         for _ in 0..<edit.deleteCount { proxy.deleteBackward() }
         let text = traits.smartQuotes ? edit.insert.replacingOccurrences(of: "'", with: "’") : edit.insert
         proxy.insertText(text)

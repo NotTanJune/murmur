@@ -643,6 +643,17 @@ body so its layer has a bitmap. **Do not set either back to `.clear`, and do not
 `draw`.** Whether a fill that faint counts as drawn is unverified until a lab run shows no
 `_UIRemoteView` touches; if it does not, raise the alpha or draw the keyboard's own backdrop.
 
+**The top row reaches into the strip while typing.** For `DS.Keyboard.typingStripReachSeconds`
+(0.35 s) after any finger lands on the key plane, the plane also takes a touch in the strip's
+lowest `typingStripReach` (12 pt) and types the top-row key under it (`KeyPlaneView.point(inside:with:)`;
+the touch-down is clamped to the row's top edge and logged as `reach`). On 2026-11-25, with the
+lost taps fixed, a pangram came out 41 for 41 at 7 keys a second, and in the free sentence after
+it the `e` of "the" landed 0.3 pt above the plane, went to the strip's SwiftUI view and was not
+typed. One sample; the reach and the window are guesses, unverified on a device. A suggestion
+tapped in its lowest 12 pt within 0.35 s of a key types a letter instead, which is the cost.
+The diagnostics log also records what the keyboard changed by itself: `replace` (autocorrect),
+`undo`, `suggest` and `rule` (the text rules).
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly
