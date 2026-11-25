@@ -42,9 +42,7 @@ struct KeyPlaneState: Equatable {
 @MainActor
 final class KeyPlaneView: UIView {
     /// The swipe trail's thickness, from Settings. The controller sets it at each touch-down.
-    var swipeTrailWidth: CGFloat = DS.Keyboard.swipeTrailWidth {
-        didSet { if swipeTrailWidth != oldValue { trail.lineWidth = swipeTrailWidth } }
-    }
+    var swipeTrailWidth: CGFloat = DS.Keyboard.swipeTrailWidth
 
     /// Where finger events go. Set by `TypingController.attach`.
     var onTouch: ((TouchEvent) -> Void)?
@@ -73,7 +71,7 @@ final class KeyPlaneView: UIView {
     private var displayLink: CADisplayLink?
     private var trackpadActive = false
     private var popup: CALayer?
-    /// The swipe's trail: one stroked path above the keys. It is a layer of this view, so it
+    /// The swipe's trail: one filled, tapered shape above the keys. It is a layer of this view, so it
     /// needs no SwiftUI and no drawing pass; each update only swaps its path.
     private let trail = CAShapeLayer()
     /// The points the trail still draws, in this view's coordinates, with the time each arrived.
@@ -94,10 +92,10 @@ final class KeyPlaneView: UIView {
         globeButton.addTarget(self, action: #selector(globeLanded), for: .touchDown)
         globeButton.isHidden = true
         addSubview(globeButton)
-        trail.fillColor = nil
-        trail.lineCap = .round
-        trail.lineJoin = .round
-        trail.lineWidth = swipeTrailWidth
+        trail.strokeColor = nil
+        trail.shadowOffset = .zero
+        trail.shadowRadius = DS.Keyboard.swipeTrailBlur
+        trail.shadowOpacity = 1
         // Above every key layer, which sit at zero and are rebuilt on each reload.
         trail.zPosition = 1
         layer.addSublayer(trail)
@@ -156,7 +154,9 @@ final class KeyPlaneView: UIView {
         keyLayers = state.frames.map(makeLayers)
         for item in keyLayers { layer.addSublayer(item.body) }
         applyPressedAndTrackpad()
-        trail.strokeColor = resolved(DS.Keyboard.swipeTrailUIColor).cgColor
+        let trailColor = resolved(DS.Keyboard.swipeTrailUIColor).cgColor
+        trail.fillColor = trailColor
+        trail.shadowColor = trailColor
         CATransaction.commit()
         updateGlobeButton()
         rebuildAccessibility()
@@ -479,45 +479,148 @@ final class KeyPlaneView: UIView {
     /// Shows the swipe's path so far, in the engine's coordinates, as the last
     /// `swipeTrailSeconds` of it. The controller sends the whole path at each move; the view
     /// stamps the points it has not seen with the time they arrive (a move and its update are one
-    /// run-loop turn apart). An empty path clears the trail.
+    /// run-loop turn apart). An empty path ends the swipe: the trail fades where it is.
     func setSwipePath(_ path: [CGPoint]) {
         guard !path.isEmpty else {
             guard !trailPoints.isEmpty || trailTaken != 0 else { return }
             trailPoints.removeAll(keepingCapacity: true)
             trailTaken = 0
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            trail.path = nil
-            CATransaction.commit()
+            fadeTrail()
             return
         }
-        if path.count < trailTaken {
+        if path.count < trailTaken || trailTaken == 0 {
+            // A new swipe: whatever is left of the last one goes at once.
             trailPoints.removeAll(keepingCapacity: true)
             trailTaken = 0
+            trailGeneration += 1
+            trail.removeAllAnimations()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            trail.opacity = 1
+            CATransaction.commit()
         }
         let now = ProcessInfo.processInfo.systemUptime
         for point in path[trailTaken...] {
-            trailPoints.append((CGPoint(x: point.x, y: point.y - state.stripHeight), now))
+            let local = CGPoint(x: point.x, y: point.y - state.stripHeight)
+            if let last = trailPoints.last,
+                hypot(local.x - last.point.x, local.y - last.point.y) < DS.Keyboard.swipeTrailMinimumStep
+            {
+                continue
+            }
+            trailPoints.append((local, now))
         }
         trailTaken = path.count
         redrawTrail(at: now)
     }
 
-    /// Drops the points older than the trail's span and strokes the rest as one path. The only
-    /// allocation is the path itself.
+    /// Counts swipes, so a fade that finishes after the next swipe began leaves its trail alone.
+    private var trailGeneration = 0
+
+    /// The finger lifted: the trail fades out where it is, then goes.
+    private func fadeTrail() {
+        guard trail.path != nil else { return }
+        trailGeneration += 1
+        let generation = trailGeneration
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(DS.Keyboard.swipeTrailFadeSeconds)
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, self.trailGeneration == generation else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.trail.path = nil
+            self.trail.shadowPath = nil
+            self.trail.opacity = 1
+            CATransaction.commit()
+        }
+        trail.opacity = 0
+        CATransaction.commit()
+    }
+
+    /// Drops the points older than the trail's span and fills the rest as one tapered shape: as
+    /// wide as `swipeTrailWidth` under the finger with a round end, narrowing to nothing where
+    /// the oldest point is about to expire. The centre line is rounded once (each corner cut at
+    /// its quarter points) so the shape curves instead of bending at each touch sample.
     private func redrawTrail(at now: TimeInterval) {
-        let cutoff = now - DS.Keyboard.swipeTrailSeconds
+        let span = DS.Keyboard.swipeTrailSeconds
+        let cutoff = now - span
         let expired = trailPoints.firstIndex { $0.time >= cutoff } ?? trailPoints.count
         if expired > 0 { trailPoints.removeFirst(expired) }
-        let path = CGMutablePath()
-        if let first = trailPoints.first {
-            path.move(to: first.point)
-            for item in trailPoints.dropFirst() { path.addLine(to: item.point) }
-        }
+        let outline = trailOutline(at: now, span: span)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        trail.path = trailPoints.isEmpty ? nil : path
+        trail.path = outline
+        trail.shadowPath = outline
         CATransaction.commit()
+    }
+
+    private func trailOutline(at now: TimeInterval, span: TimeInterval) -> CGPath? {
+        guard let head = trailPoints.last else { return nil }
+        let headRadius = swipeTrailWidth / 2
+        // One round of corner cutting; the ends stay where they are.
+        var centre: [(point: CGPoint, time: TimeInterval)] = []
+        centre.reserveCapacity(trailPoints.count * 2)
+        centre.append(trailPoints[0])
+        if trailPoints.count > 2 {
+            for index in 0..<(trailPoints.count - 1) {
+                let a = trailPoints[index], b = trailPoints[index + 1]
+                centre.append((
+                    CGPoint(x: a.point.x * 0.75 + b.point.x * 0.25, y: a.point.y * 0.75 + b.point.y * 0.25),
+                    a.time * 0.75 + b.time * 0.25
+                ))
+                centre.append((
+                    CGPoint(x: a.point.x * 0.25 + b.point.x * 0.75, y: a.point.y * 0.25 + b.point.y * 0.75),
+                    a.time * 0.25 + b.time * 0.75
+                ))
+            }
+        }
+        if trailPoints.count > 1 { centre.append(head) }
+
+        let path = CGMutablePath()
+        guard centre.count > 1 else {
+            // The swipe has one point so far: a dot under the finger.
+            path.addEllipse(in: CGRect(
+                x: head.point.x - headRadius, y: head.point.y - headRadius,
+                width: headRadius * 2, height: headRadius * 2))
+            return path
+        }
+
+        // Each centre point gets a left and a right edge point, half the local width out along
+        // the normal. Left edge forward, round the finger's end, right edge back: one outline
+        // whose inside is on the same side all the way, so it fills even where it crosses itself.
+        var left: [CGPoint] = []
+        var right: [CGPoint] = []
+        left.reserveCapacity(centre.count)
+        right.reserveCapacity(centre.count)
+        var direction = CGVector(dx: 1, dy: 0)
+        for index in centre.indices {
+            let before = centre[max(index - 1, 0)].point
+            let after = centre[min(index + 1, centre.count - 1)].point
+            let dx = after.x - before.x, dy = after.y - before.y
+            let length = hypot(dx, dy)
+            if length > 0 { direction = CGVector(dx: dx / length, dy: dy / length) }
+            let remaining = max(0, min(1, 1 - (now - centre[index].time) / span))
+            let radius = headRadius * CGFloat(pow(remaining, DS.Keyboard.swipeTrailTaper))
+            let point = centre[index].point
+            left.append(CGPoint(x: point.x - direction.dy * radius, y: point.y + direction.dx * radius))
+            right.append(CGPoint(x: point.x + direction.dy * radius, y: point.y - direction.dx * radius))
+        }
+        path.move(to: left[0])
+        for point in left.dropFirst() { path.addLine(to: point) }
+        // The round end: from the left edge point, through straight ahead, to the right one.
+        if let lastLeft = left.last, let lastRight = right.last {
+            let radius = hypot(lastLeft.x - head.point.x, lastLeft.y - head.point.y)
+            let start = atan2(lastLeft.y - head.point.y, lastLeft.x - head.point.x)
+            let segments = DS.Keyboard.swipeTrailCapSegments
+            for step in 1..<segments {
+                let angle = start - CGFloat.pi * CGFloat(step) / CGFloat(segments)
+                path.addLine(to: CGPoint(
+                    x: head.point.x + cos(angle) * radius, y: head.point.y + sin(angle) * radius))
+            }
+            path.addLine(to: lastRight)
+        }
+        for point in right.reversed().dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+        return path
     }
 
     // MARK: - Pop-up

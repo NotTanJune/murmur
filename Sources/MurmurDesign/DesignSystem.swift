@@ -3,6 +3,7 @@ import SwiftUI
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
+import CoreText
 import UIKit
 #endif
 
@@ -349,16 +350,29 @@ public enum DS {
         /// most this often. A decode costs well under a millisecond on a Mac, but the finger
         /// moves 60 to 120 times a second and a reading that changes every frame only flickers.
         public static let swipeLiveDecodeSeconds: Double = 0.07
-        /// How much of the swipe's path the trail keeps drawing: the last stretch of it, so the
-        /// line follows the finger and fades behind it instead of drawing the whole word.
-        public static let swipeTrailSeconds: Double = 0.45
-        /// The trail's line width. Unmeasured against the stock keyboard's trail.
-        public static let swipeTrailWidth: CGFloat = 8
-        /// The trail's other thicknesses (Settings, Swipe trail): thin, thick and bold beside
-        /// the regular `swipeTrailWidth`.
-        public static let swipeTrailWidthThin: CGFloat = 4
-        public static let swipeTrailWidthThick: CGFloat = 12
-        public static let swipeTrailWidthBold: CGFloat = 16
+        /// How much of the swipe's path the trail keeps drawing: the last stretch of it, so it
+        /// follows the finger and thins out behind it instead of drawing the whole word.
+        public static let swipeTrailSeconds: Double = 0.55
+        /// The trail's width at the finger. It tapers to nothing at its tail, as the stock
+        /// keyboard's and Gboard's do (the owner's screen recordings, 2026-11-25): the first
+        /// version was one even 8 pt line cut off at its end, which read as rigid.
+        public static let swipeTrailWidth: CGFloat = 11
+        /// The trail's other widths at the finger (Settings, Swipe trail): thin, thick and bold
+        /// beside the regular `swipeTrailWidth`.
+        public static let swipeTrailWidthThin: CGFloat = 6
+        public static let swipeTrailWidthThick: CGFloat = 15
+        public static let swipeTrailWidthBold: CGFloat = 19
+        /// How the width falls off from the finger to the tail: the share of the trail's span
+        /// still to run, raised to this power. Under 1 keeps the body full for longer.
+        public static let swipeTrailTaper: Double = 0.8
+        /// The soft edge around the trail, as a blur radius.
+        public static let swipeTrailBlur: CGFloat = 2.5
+        /// How long the trail takes to fade once the finger lifts.
+        public static let swipeTrailFadeSeconds: Double = 0.22
+        /// Points of the path closer together than this are merged before the trail is drawn.
+        public static let swipeTrailMinimumStep: CGFloat = 0.75
+        /// How many straight pieces draw the rounded end at the finger.
+        public static let swipeTrailCapSegments = 8
         /// The trail's strength as a share of the label colour.
         public static let swipeTrailOpacity: CGFloat = 0.35
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
@@ -492,14 +506,30 @@ public enum DS {
         /// the old 22.5 pt face's), labels (`123`, `return`) at 16 pt.
         public static let letterUIFont = UIFont.systemFont(ofSize: 24.5)
         /// Capital letters on the keys. The stock keyboard sets its keys in SF Compact, which
-        /// apps cannot ask for: capitals at about 23 pt, lowercase at about 24.5 pt (fitted on
-        /// 2026-11-25 to letter widths measured from screenshots; SF Compact's widths matched to
-        /// 0.2 pt). In SF Pro at `letterUIFont`'s size the capitals came out 10% taller and about
-        /// 18% wider than stock. SF Pro's semi-condensed width (`wdth` 80, raw width -0.1) at
-        /// 23 pt is within 0.4 pt of the stock widths. Lowercase stays standard width, where SF
+        /// apps cannot ask for and may not bundle: capitals at about 23 pt, lowercase at about
+        /// 24.5 pt (fitted on 2026-11-25 to letter widths measured from screenshots; SF Compact
+        /// matched to 0.2 pt). In SF Pro at `letterUIFont`'s size the capitals came out 10% taller
+        /// and about 18% wider than stock. The semi-condensed width (`wdth` 80) at 23 pt was then
+        /// 0.7 pt too narrow on the straight letters and a little tall, and the owner called it
+        /// weird. This is SF Pro at the stock capitals' height with `wdth` 90: straight letters
+        /// within 0.4 pt on the Mac, round ones (O, Q, G, C) about 1 pt wide, because SF Compact
+        /// flattens their sides and SF Pro does not. Lowercase stays standard width, where SF
         /// Pro already sits within 0.5 pt.
-        public static let capitalLetterUIFont = UIFont.systemFont(
-            ofSize: 23, weight: .regular, width: UIFont.Width(rawValue: -0.1))
+        public static let capitalLetterUIFont: UIFont = {
+            let base = UIFont.systemFont(ofSize: capitalLetterSize)
+            let variation = UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
+            let descriptor = base.fontDescriptor.addingAttributes([
+                variation: [capitalLetterWidthAxis: capitalLetterWidth]
+            ])
+            return UIFont(descriptor: descriptor, size: capitalLetterSize)
+        }()
+        /// The capitals' size: the stock capitals' height (15.6 pt) in SF Pro.
+        public static let capitalLetterSize: CGFloat = 22.25
+        /// The variable font's width axis (`wdth`) and the value the capitals use, where 100 is
+        /// standard. A named width snaps to a step (semi-condensed is 80), so the axis is set
+        /// directly.
+        public static let capitalLetterWidthAxis = 0x7764_7468
+        public static let capitalLetterWidth: CGFloat = 90
         public static let labelUIFont = UIFont.systemFont(ofSize: 16)
         public static let iconPointSize: CGFloat = 19
         #endif

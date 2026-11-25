@@ -700,16 +700,19 @@ trail's width and look, whether the lift-time decode is quick enough on a phone,
 live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
 whether the owed-space rules feel right in Notes and Messages.
 
-**Capitals on the keys are semi-condensed.** The stock keyboard sets its keys in SF Compact,
+**Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
 from the owner's screenshots, SF Compact matches the stock capitals at about 23 pt and the stock
 lowercase at about 24.5 pt, both to 0.2 pt. In SF Pro at 24.5 pt the capitals were 10% taller and
-about 18% wider than stock (2.4 pt off on average), which the owner noticed. Capitals are now
-`DS.Keyboard.capitalLetterUIFont`: SF Pro at 23 pt with the semi-condensed width
-(`UIFont.Width(rawValue: -0.1)`, the variable font's `wdth` 80), 0.4 pt off on average on the
-Mac. Lowercase stays `letterUIFont` at standard width, already within 0.5 pt. Whether iOS
-honours a raw width between its named ones is unverified on a device; if it does not, the
-capitals are still smaller than before but not narrower.
+about 18% wider than stock (2.4 pt off on average). The semi-condensed named width at 23 pt
+(`UIFont.Width(rawValue: -0.1)`, which iOS honoured as `wdth` 80) came out 0.7 pt too narrow on
+the phone and a little tall, and the owner called it weird. Capitals are now
+`DS.Keyboard.capitalLetterUIFont`: SF Pro at 22.25 pt (the stock capitals' 15.6 pt height) with
+the variable font's `wdth` axis set to 90 through `kCTFontVariationAttribute`, because a named
+width snaps to a step. On the Mac the straight letters are within 0.4 pt and the round ones (O,
+Q, G, C) about 1 pt wide: SF Compact flattens their sides and no width of SF Pro does. Whether
+iOS honours the axis set this way is unverified on a device; if it does not, the capitals are
+standard width at the smaller size. Lowercase stays `letterUIFont`, already within 0.5 pt.
 
 **A contact's name does not respell a plain word.** `UILexicon` supplies contacts' names, and many
 are also words (Will, Mark, May, Rose). Both decoders used the lexicon's spelling for any word it
@@ -723,9 +726,24 @@ otherwise worked out only after a text change or a host call, and a host call wi
 context reads as a sentence start. That second cause is suspected, not observed; the
 diagnostics log now records `autoshift` and `swipe-case` to settle it.
 
-**The swipe trail's thickness is a setting.** `Settings.swipeTrail` (thin, regular, thick, bold;
-4, 8, 12 and 16 pt), a `ChoiceKeys` card in the phone's Settings tab shown while swipe typing is
-on. The controller hands the width to the plane at each touch-down.
+**The swipe trail is a tapered shape, and its width is a setting.** The first trail was one even
+8 pt stroke of the last 0.45 s of the path; the owner called it static and rigid beside the stock
+keyboard's and Gboard's (screen recordings, 2026-11-25: Apple draws a soft grey comet, wide at
+the finger and thinning to nothing; Gboard a thin blue line that fades at its tail). The trail is
+now one filled outline in `KeyPlaneView.trailOutline`: the centre line is rounded once, each
+point's width falls from `swipeTrailWidth` under the finger to zero where the point is about to
+expire (`swipeTrailSeconds`, `swipeTrailTaper`), the finger's end is round, the layer's shadow
+gives a soft edge, and at lift the layer fades over `swipeTrailFadeSeconds` instead of
+vanishing. `Settings.swipeTrail` picks the width at the finger (thin, regular, thick, bold: 6,
+11, 15 and 19 pt), a `ChoiceKeys` card in the phone's Settings tab shown while swipe typing is
+on; the controller hands the width to the plane at each touch-down. Unverified on a device.
+
+**Swipe samples outlive a session.** The touch log is cleared at every appearance, so two swipe
+sessions were lost before they were read. While Typing diagnostics is on, each swiped word (its
+readings, the previous word and the path), each whole-word delete and each alternative chosen is
+also appended to `swipe-samples.jsonl` in the App Group (`TypingDiagnostics.logSwipeSample`),
+up to 2 MB, across appearances and expiries, until the switch is turned off. A screenshot hides
+any third-party keyboard until it is saved; Gboard does the same, so that is iOS and not a bug.
 
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:

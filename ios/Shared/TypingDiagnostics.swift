@@ -76,6 +76,7 @@ enum TypingDiagnostics {
         MurmurEnvironment.defaults.removeObject(forKey: defaultsKey)
         disarmStageTest()
         try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: swipeSamplesURL)
     }
 
     /// When the switch turns itself off, or nil when it is off already.
@@ -141,6 +142,37 @@ enum TypingDiagnostics {
             guard !flushScheduled else { return }
             flushScheduled = true
             queue.asyncAfter(deadline: .now() + 0.3) { flush() }
+        }
+    }
+
+    // MARK: - Swipe samples
+
+    /// Swiped words and their paths, kept apart from the touch log because that file is cleared
+    /// at every appearance: on 2026-11-25 two swipe sessions were gone by the time the log was
+    /// read. This one is only appended to, across appearances and expiries, while the switch is
+    /// on, stops growing at `swipeSampleLimit` bytes, and is deleted when the switch is turned
+    /// off. It is what the swipe decoder is tuned on.
+    static var swipeSamplesURL: URL { AppStorage.directory.appendingPathComponent("swipe-samples.jsonl") }
+    static let swipeSampleLimit = 2_000_000
+
+    static func logSwipeSample(_ fields: [String: Any]) {
+        guard isOn else { return }
+        var object = fields
+        object["t"] = ProcessInfo.processInfo.systemUptime
+        object["date"] = Date().timeIntervalSince1970
+        let line = encode(object) + "\n"
+        queue.async {
+            guard let data = line.data(using: .utf8) else { return }
+            let path = swipeSamplesURL
+            let size = (try? FileManager.default.attributesOfItem(atPath: path.path)[.size] as? Int) ?? 0
+            guard (size ?? 0) < swipeSampleLimit else { return }
+            if let handle = try? FileHandle(forWritingTo: path) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                try? data.write(to: path)
+            }
         }
     }
 

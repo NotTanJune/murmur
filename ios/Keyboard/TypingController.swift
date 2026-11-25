@@ -1224,7 +1224,9 @@ final class TypingController {
         refreshLexicon()
         var before = proxy.documentContextBeforeInput ?? ""
         let tail = String(before.suffix(Self.contextLimit))
-        let previous = SwipeInsertion.previousWord(before: tail).flatMap { model.id(of: $0) }
+        let previousWord = SwipeInsertion.previousWord(before: tail)
+        let previous = previousWord.flatMap { model.id(of: $0) }
+        swipeSamplePrevious = previousWord
 
         let started = ContinuousClock.now
         let candidates = decoder.decode(
@@ -1287,6 +1289,7 @@ final class TypingController {
         guard count == 1, let proxy = proxy(), offer.isConsistent(with: proxy.documentContextBeforeInput ?? "")
         else { return false }
         TypingDiagnostics.log("swipe-delete", ["word": offer.word, "count": offer.deleteCount])
+        TypingDiagnostics.logSwipeSample(["e": "swipe-delete"].merging(["word": offer.word, "count": offer.deleteCount]) { a, _ in a })
         undo = nil
         tracker.reset()
         pending.disarm()
@@ -1307,6 +1310,7 @@ final class TypingController {
             return
         }
         TypingDiagnostics.log("swipe-alt", ["from": offer.word, "to": next.word])
+        TypingDiagnostics.logSwipeSample(["e": "swipe-alt"].merging(["from": offer.word, "to": next.word]) { a, _ in a })
         for _ in 0..<offer.word.count { proxy.deleteBackward() }
         proxy.insertText(next.word)
         swipeOffer = next
@@ -1320,13 +1324,19 @@ final class TypingController {
 
     /// Diagnostics: one line per swipe with what was typed, the other readings, the decode time
     /// and the path (points to 0.1 pt), so real swipes can later tune the decoder.
+    /// The word before the last swipe, for the swipe sample's context.
+    @ObservationIgnored private var swipeSamplePrevious: String?
+
     private func logSwipe(readings: [String], milliseconds: Double, path: [CGPoint]) {
         guard TypingDiagnostics.isOn else { return }
         func tenth(_ value: CGFloat) -> Double { (Double(value) * 10).rounded() / 10 }
-        TypingDiagnostics.log("swipe", [
+        let fields: [String: Any] = [
             "word": readings.first ?? "", "alts": Array(readings.dropFirst()),
             "ms": (milliseconds * 100).rounded() / 100,
             "path": path.map { [tenth($0.x), tenth($0.y)] },
-        ])
+            "previous": swipeSamplePrevious ?? "",
+        ]
+        TypingDiagnostics.log("swipe", fields)
+        TypingDiagnostics.logSwipeSample(fields)
     }
 }
