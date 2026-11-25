@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail", "autoCapitalise"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.
@@ -90,6 +90,26 @@ struct SettingsReloadTests {
         settings.reloadFromDefaults()
         #expect(settings.hapticsEnabled, "a removed key falls back to on")
         #expect(defaults.object(forKey: "hapticsEnabled") == nil, "the reload does not write back")
+    }
+
+    @MainActor
+    @Test("Auto-capitalisation is off by default, persists and reloads without writing back")
+    func autoCapitalisePersistsAndReloads() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = Settings(defaults: defaults)
+        #expect(settings.autoCapitalise == false)
+        #expect(defaults.object(forKey: "autoCapitalise") == nil, "the default is not written")
+
+        settings.autoCapitalise = true
+        #expect(defaults.object(forKey: "autoCapitalise") as? Bool == true)
+        #expect(Settings(defaults: defaults).autoCapitalise, "a new instance reads the stored value")
+
+        defaults.removeObject(forKey: "autoCapitalise")
+        settings.reloadFromDefaults()
+        #expect(settings.autoCapitalise == false, "a removed key falls back to off")
+        #expect(defaults.object(forKey: "autoCapitalise") == nil, "the reload does not write back")
     }
 
     @MainActor

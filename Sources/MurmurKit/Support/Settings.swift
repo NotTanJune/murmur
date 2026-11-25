@@ -254,6 +254,13 @@ public final class Settings {
         didSet { persist(swipeTyping, Keys.swipeTyping) }
     }
 
+    /// Whether the iPhone keyboard capitalises by itself: the first letter of a sentence, a lone
+    /// "i", and "I'm" for "im". Off by default, at the owner's request (2026-11-25: "I usually
+    /// use lower case to type"); shift and caps lock still work. The Mac ignores it.
+    public var autoCapitalise: Bool {
+        didSet { persist(autoCapitalise, Keys.autoCapitalise) }
+    }
+
     /// The thickness of the swipe trail on the iPhone keyboard. The Mac ignores it.
     public var swipeTrail: SwipeTrailChoice {
         didSet { persist(swipeTrail.rawValue, Keys.swipeTrail) }
@@ -285,6 +292,7 @@ public final class Settings {
         static let hapticsEnabled = "hapticsEnabled"
         static let swipeTyping = "swipeTyping"
         static let swipeTrail = "swipeTrail"
+        static let autoCapitalise = "autoCapitalise"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -313,6 +321,7 @@ public final class Settings {
         let hapticsEnabled: Bool
         let swipeTyping: Bool
         let swipeTrail: SwipeTrailChoice
+        let autoCapitalise: Bool
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -336,6 +345,7 @@ public final class Settings {
             hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
             swipeTyping = defaults.object(forKey: Keys.swipeTyping) as? Bool ?? true
             swipeTrail = SwipeTrailChoice(rawValue: defaults.string(forKey: Keys.swipeTrail) ?? "") ?? .regular
+            autoCapitalise = defaults.object(forKey: Keys.autoCapitalise) as? Bool ?? false
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -369,6 +379,7 @@ public final class Settings {
         hapticsEnabled = values.hapticsEnabled
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
+        autoCapitalise = values.autoCapitalise
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -397,6 +408,7 @@ public final class Settings {
         hapticsEnabled = values.hapticsEnabled
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
+        autoCapitalise = values.autoCapitalise
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

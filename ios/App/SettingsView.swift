@@ -50,6 +50,7 @@ struct SettingsView: View {
                         isOn: $settings.hapticsEnabled
                     )
                     ToggleRow(title: "Swipe typing", isOn: $settings.swipeTyping)
+                    ToggleRow(title: "Auto-capitalisation", isOn: $settings.autoCapitalise)
                 }
 
                 if settings.swipeTyping {

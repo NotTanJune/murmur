@@ -398,7 +398,7 @@ final class TypingController {
             spellCheckingAllowed: spelling != .no,
             isSecure: secure ?? false,
             keyboardKind: Self.kind(of: keyboard),
-            autocapitalization: Self.mode(of: capitalisation),
+            autocapitalization: autoCapitals ? Self.mode(of: capitalisation) : .none,
             smartQuotes: quotes != .no,
             smartDashes: dashes != .no,
             returnKeyTitle: Self.title(for: returnKey))
@@ -653,7 +653,7 @@ final class TypingController {
             before = finishWord(before: before, terminator: String(mark))
         }
 
-        if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: mark) {
+        if textRulesApply, autoCapitals, let fix = TextRules.standaloneI(before: before, typed: mark) {
             perform(fix)
             before = String(before.dropLast()) + "I"
         }
@@ -699,13 +699,14 @@ final class TypingController {
         if isProseField,
             let period = TextRules.doubleSpacePeriod(before: before, lastSpaceTime: lastSpaceTime, now: time)
         {
-            perform(period)
+            // With auto-capitalisation off the period still goes in, without the shift after it.
+            perform(autoCapitals ? period : period.filter { if case .setShift = $0 { false } else { true } })
             lastSpaceTime = nil
             return
         }
         if finishesWord {
             before = finishWord(before: before, terminator: " ")
-            if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
+            if textRulesApply, autoCapitals, let fix = TextRules.standaloneI(before: before, typed: " ") {
                 perform(fix)
             }
         }
@@ -733,7 +734,12 @@ final class TypingController {
         noteAutocorrectTime(since: started)
         guard let result, let replacement = result.replacement else { return before }
 
-        let typed = smartApostrophes(replacement.text)
+        var typed = smartApostrophes(replacement.text)
+        // "im" becomes "I'm" by the contraction rule; with auto-capitalisation off a word typed
+        // in lowercase keeps its lowercase start ("i'm").
+        if !autoCapitals, result.word.text == result.word.text.lowercased(), let first = typed.first, first.isUppercase {
+            typed = first.lowercased() + typed.dropFirst()
+        }
         TypingDiagnostics.log("replace", ["from": result.word.text, "to": typed])
         for _ in 0..<result.word.text.count { proxy.deleteBackward() }
         proxy.insertText(typed)
@@ -988,6 +994,10 @@ final class TypingController {
 
     /// Turns shift on when the text asks for a capital next, and takes back only a shift that
     /// the text itself turned on. A tapped shift stays; caps lock is never touched.
+    /// Settings, Auto-capitalisation. Off, the field reads as asking for no capitals, so no
+    /// automatic shift is set anywhere; a lone "i" stays as typed and "im" becomes "i'm".
+    private var autoCapitals: Bool { Settings.shared.autoCapitalise }
+
     /// The trail's thickness for the Settings choice.
     private var swipeTrailWidth: CGFloat {
         switch Settings.shared.swipeTrail {
@@ -1114,7 +1124,7 @@ final class TypingController {
         undo = nil
         tracker.reset()
         let before = proxy.documentContextBeforeInput ?? ""
-        if suggestion.kind == .typed, textRulesApply,
+        if suggestion.kind == .typed, textRulesApply, autoCapitals,
             let fix = TextRules.standaloneI(before: before, typed: " ")
         {
             perform(fix)
@@ -1189,7 +1199,8 @@ final class TypingController {
         guard generation == swipeLiveGeneration, let live = swipeLive else { return }
         let text = word.map {
             SwipeInsertion.cased(
-                smartApostrophes($0), shift: engine.shift, sentenceCapital: live.sentenceCapital)
+                smartApostrophes($0), shift: engine.shift, sentenceCapital: live.sentenceCapital,
+                capitalisesI: autoCapitals)
         }
         if text != swipePreview { swipePreview = text }
     }
@@ -1242,7 +1253,7 @@ final class TypingController {
         let needsSpace = SwipeInsertion.needsLeadingSpace(before: before)
         if needsSpace, swipeOffer == nil, !WordAtCursor.trailingWord(of: before).isEmpty {
             before = finishWord(before: before, terminator: " ")
-            if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
+            if textRulesApply, autoCapitals, let fix = TextRules.standaloneI(before: before, typed: " ") {
                 perform(fix)
             }
         }
@@ -1255,13 +1266,15 @@ final class TypingController {
         var readings: [String] = []
         for candidate in candidates {
             let reading = SwipeInsertion.cased(
-                smartApostrophes(candidate.text), shift: shift, sentenceCapital: capital)
+                smartApostrophes(candidate.text), shift: shift, sentenceCapital: capital,
+                capitalisesI: autoCapitals)
             if !readings.contains(reading) { readings.append(reading) }
         }
         // A contact's name that is also a plain word types as the plain word; its capital form is
         // the first alternative in the strip.
         if let entry = autocorrector?.lexicon.entry(for: candidates[0].text), !entry.respellsKnownWords {
-            let name = SwipeInsertion.cased(smartApostrophes(entry.display), shift: shift, sentenceCapital: capital)
+            let name = SwipeInsertion.cased(
+                smartApostrophes(entry.display), shift: shift, sentenceCapital: capital, capitalisesI: autoCapitals)
             if !readings.contains(name) { readings.insert(name, at: 1) }
         }
         TypingDiagnostics.log("swipe-case", [

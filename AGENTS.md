@@ -745,6 +745,13 @@ also appended to `swipe-samples.jsonl` in the App Group (`TypingDiagnostics.logS
 up to 2 MB, across appearances and expiries, until the switch is turned off. A screenshot hides
 any third-party keyboard until it is saved; Gboard does the same, so that is iOS and not a bug.
 
+**Auto-capitalisation is a setting, off by default.** The owner types in lowercase and asked for
+it off (2026-11-25). `Settings.autoCapitalise` (key `autoCapitalise`, default false; Settings tab,
+Auto-capitalisation). Off, `TypingController` reads every field as asking for no capitals, so
+no automatic shift is set for typing, swiping or dictation; a lone "i" stays as typed, "im"
+becomes "i'm", and the double-space period types no shift after it. Shift and caps lock work as
+before. Do not flip the default without the owner.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

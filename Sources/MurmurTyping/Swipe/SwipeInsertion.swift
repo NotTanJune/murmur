@@ -98,16 +98,19 @@ public enum SwipeInsertion {
     }
 
     /// The word as it is typed. Caps lock uppercases it, shift or a sentence start capitalises its
-    /// first letter, and a lone "i" or "i'm" is always capital. A spelling with a capital inside
-    /// ("iPhone") keeps its own form when only the first letter is asked for.
-    public static func cased(_ word: String, shift: ShiftState, sentenceCapital: Bool) -> String {
+    /// first letter, and a lone "i" or "i'm" is capital unless `capitalisesI` is false (the owner
+    /// has auto-capitalisation off). A spelling with a capital inside ("iPhone") keeps its own
+    /// form when only the first letter is asked for.
+    public static func cased(
+        _ word: String, shift: ShiftState, sentenceCapital: Bool, capitalisesI: Bool = true
+    ) -> String {
         var result = word
         if shift == .capsLock {
             result = word.uppercased()
         } else if shift == .on || sentenceCapital {
             if !word.dropFirst().contains(where: \.isUppercase) { result = capitalised(word) }
         }
-        if result == "i" || result.hasPrefix("i'") || result.hasPrefix("i\u{2019}") {
+        if capitalisesI, result == "i" || result.hasPrefix("i'") || result.hasPrefix("i\u{2019}") {
             result = capitalised(result)
         }
         return result
