@@ -42,6 +42,7 @@ Filled in by executors and the owner.
 | Keyboard footprint at rest, Bark loaded | 50 MB (after one Bark dictation; not killed) | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
 | Keyboard peak footprint | 50 MB | 2026-11-25 | Setup "Memory" line, iPhone 15 Pro |
 | Extension memory limit | 177 MB (`Memory Limits: active 177 inactive 177`); typing budget (177 - 8) - 50 = 119 MB | 2026-11-25 | runningboardd, `log collect --device`, iPhone 15 Pro, iOS 27.2.1 |
+| Lost taps, same sentence, about 6 to 7 keys a second | Apple 0 of 41, Gboard 0 of 41, Murmur 6 of 41, Murmur with mic and haptics off 4 of 41; every lost tap seen by the host app in `_UIRemoteView`, in a gap between keycaps | 2026-11-25 | Typing lab touch spy, iPhone 15 Pro |
 | Autocorrect replay: raw WER / corrected WER / correct words changed | | | M5.5 |
 | Swipe synthetic top-1 / p99 decode | | | M6 |
 

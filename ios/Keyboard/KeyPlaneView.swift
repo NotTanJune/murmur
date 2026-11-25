@@ -72,7 +72,9 @@ final class KeyPlaneView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isMultipleTouchEnabled = true
-        backgroundColor = .clear
+        // Never clear: see `touchBackingUIColor`. The gaps between keycaps must take touches.
+        backgroundColor = DS.Keyboard.touchBackingUIColor
+        isOpaque = false
         isAccessibilityElement = false
         globeButton.accessibilityLabel = "Next keyboard"
         globeButton.addTarget(self, action: #selector(globeEvent(_:event:)), for: .allTouchEvents)
@@ -297,6 +299,12 @@ final class KeyPlaneView: UIView {
     }
 
     // MARK: - Touches
+
+    /// Draws nothing, on purpose. Overriding it gives the layer a bitmap the size of the plane,
+    /// so the gaps between keycaps are drawn content (clear pixels) and not an empty layer. It
+    /// is the second guard beside `touchBackingUIColor`, in case a nearly clear fill alone does
+    /// not count as drawn for the system's touch routing.
+    override func draw(_ rect: CGRect) {}
 
     /// A touch's position in the engine's coordinates, which start at the top of the strip.
     private func enginePoint(_ touch: UITouch) -> CGPoint {

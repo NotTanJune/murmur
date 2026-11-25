@@ -505,6 +505,12 @@ public enum DS {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.267, alpha: 1) : .white
         }
         public static let key = SwiftUI.Color(uiColor: keyUIColor)
+        /// What the keyboard's root view and key plane are filled with, in place of clear. iOS
+        /// routes a touch to a keyboard extension only where the keyboard has drawn something:
+        /// a touch on a fully clear point goes to the host app instead and is never typed
+        /// (measured 2026-11-25, eight lost taps of eight in the gaps between keycaps). The alpha
+        /// is too low to see over the system's backdrop.
+        public static let touchBackingUIColor = UIColor(white: 0.5, alpha: 0.001)
         /// The hairline between two filled suggestion cells.
         public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
         /// The key plane's glyphs.

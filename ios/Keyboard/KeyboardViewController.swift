@@ -52,6 +52,9 @@ final class KeyboardViewController: UIInputViewController {
     override func loadView() {
         let clicking = ClickingInputView(frame: .zero, inputViewStyle: .keyboard)
         clicking.allowsSelfSizing = true
+        // Never clear: a touch on a clear point of the keyboard goes to the host app and is
+        // lost (see `touchBackingUIColor`). This covers the strip and the emoji and history panels.
+        clicking.backgroundColor = DS.Keyboard.touchBackingUIColor
         inputView = clicking
     }
 

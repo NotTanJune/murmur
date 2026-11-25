@@ -625,6 +625,24 @@ N cancelled · N off-key · slowest N ms · delivery N ms" (touch-downs, touches
 lifts that fell back to the last key, the longest `handle`, and the largest wait between a
 touch's timestamp and its handling), and the log has the same at disappear.
 
+**The keyboard is never clear anywhere.** iOS routes a touch to a keyboard extension only where
+the keyboard has drawn something. On a fully clear point the touch goes to the host app's
+`_UIRemoteView` and never enters the keyboard's process: no hit test, no touch, nothing in any
+log of ours. The key plane was clear between its keycap layers, so a fast tap that landed in a
+6 pt gap, on a keycap's edge or in the strip gap above the first row was lost. Measured on
+2026-11-25 with the typing lab's touch spy (the app logging touches in its own windows while a
+lab field is typed in): two Murmur lines lost eight letters, the app saw exactly eight touches
+in `_UIRemoteView`, each at the lost key's place and each in a gap or within a point of a
+keycap's edge. Apple's keyboard and Gboard typed the same sentence 41 for 41, and Murmur with
+the warm microphone and haptics off still lost four, so neither of those is involved. Ruled out
+on the way: SwiftUI cancelling touches, a busy main thread (0 stalls over 34 ms), two fingers at
+once (`alllll` typed while `a` was held), the system's double-tap recognizer and the strip's
+redraws. The root `UIInputView` and `KeyPlaneView` are therefore filled with
+`DS.Keyboard.touchBackingUIColor` (alpha 0.001), and the plane overrides `draw(_:)` with an empty
+body so its layer has a bitmap. **Do not set either back to `.clear`, and do not remove the empty
+`draw`.** Whether a fill that faint counts as drawn is unverified until a lab run shows no
+`_UIRemoteView` touches; if it does not, raise the alpha or draw the keyboard's own backdrop.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly
