@@ -9,6 +9,10 @@
 #                  count of "cannot". A contraction whose pair is absent would get 10000000; none
 #                  was absent.
 #   chat word    = 5000000.
+#   US spelling  = the count the same list gives its British spelling (favourite, favourites,
+#                  neighbour, neighbours, neighbourhood): the list is British-leaning and lacks
+#                  the American forms, so the keyboard would have changed a correctly typed
+#                  "favorite" to "favourite".
 # The builder keeps max(count here, count in the SymSpell unigram list), so a chat word the list
 # already ranks higher (yeah, okay, gonna, wanna) is not demoted, and the 300000 placeholders the
 # list gives some contractions are replaced.
@@ -43,3 +47,8 @@ btw	5000000
 gonna	5000000
 wanna	5000000
 yeah	5000000
+favorite	24206461
+favorites	19713139
+neighbor	1858872
+neighbors	3378230
+neighborhood	3616133

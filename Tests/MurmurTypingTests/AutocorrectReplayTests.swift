@@ -142,6 +142,112 @@ import Testing
         #expect(changed < Self.allowedChanged, "correct words changed \(percent(changed))")
     }
 
+    /// The synthetic sentences again, typed the way the owner's real taps behave: a tight hand
+    /// (the taps of `real-taps.json` spread 8 and 9 pt around a key's centre, not the 12.8 and
+    /// 22 pt of the noise above) whose errors are discrete. Rates are the ones counted in that file
+    /// (483 intended letters): a letter left out 8.7%, a tap on a neighbouring key 2%, two
+    /// neighbours swapped 1% of pairs, a stray extra tap 0.3%. This is the guard against fixing the
+    /// real log by loosening what the decoder accepts: the correct words must still come out alone.
+    @Test(.enabled(if: AutocorrectReplayTests.enabled))
+    func replayWithTypingErrors() throws {
+        var configuration = TapDecoder.Configuration.tuned
+        var thresholds = AutocorrectPolicy.Thresholds.tuned
+        if let tune = ProcessInfo.processInfo.environment["MURMUR_TYPING_TUNE"] {
+            Self.apply(tune, to: &configuration, thresholds: &thresholds)
+        }
+        let repeats = Int(ProcessInfo.processInfo.environment["MURMUR_TYPING_BENCH_REPEATS"] ?? "") ?? 10
+        let fixture = try TypingFixture(configuration: configuration)
+        let sentences = try Self.sentences()
+        var random = SplitMix64(seed: 0x4D75_726D_7572 ^ 0x51)
+        let letterFrames = fixture.frames.filter { $0.kind.characterValue.map { $0.count == 1 && $0.first!.isLetter } ?? false }
+        let pitchX = fixture.frame("w").keycap.midX - fixture.frame("q").keycap.midX
+        let pitchY = fixture.frame("a").keycap.midY - fixture.frame("q").keycap.midY
+        func neighbours(of letter: Character) -> [Character] {
+            let here = fixture.frame(letter).keycap
+            return letterFrames.compactMap { frame -> Character? in
+                guard let other = frame.kind.characterValue?.first, other != letter else { return nil }
+                let dx = abs(frame.keycap.midX - here.midX)
+                let dy = abs(frame.keycap.midY - here.midY)
+                return dx <= 1.15 * pitchX && dy <= 1.15 * pitchY ? other : nil
+            }
+        }
+        func chance(_ probability: Double) -> Bool { Double.random(in: 0..<1, using: &random) < probability }
+
+        var words = 0, rawErrors = 0, finalErrors = 0, correctWords = 0, correctChanged = 0, fixed = 0, broke = 0
+        var milliseconds: [Double] = []
+        var examples: [String] = []
+        for _ in 0..<repeats {
+            for sentence in sentences {
+                var previous: Int?
+                for (position, intended) in sentence.split(separator: " ").map(String.init).enumerated() {
+                    let letters = Array(intended.filter { $0 != "'" })
+                    var aimed: [Character] = []
+                    for letter in letters {
+                        if chance(0.003) { aimed.append(neighbours(of: letter).randomElement(using: &random)!) }
+                        if chance(0.087) { continue }
+                        aimed.append(chance(0.02) ? neighbours(of: letter).randomElement(using: &random)! : letter)
+                    }
+                    var index = 0
+                    while index + 1 < aimed.count {
+                        if chance(0.01), aimed[index] != aimed[index + 1] {
+                            aimed.swapAt(index, index + 1)
+                            index += 1
+                        }
+                        index += 1
+                    }
+                    var taps: [WordTap] = []
+                    for letter in aimed {
+                        let keycap = fixture.frame(letter).keycap
+                        let point = CGPoint(
+                            x: keycap.midX + 8 * Self.gaussian(&random), y: keycap.midY + 9 * Self.gaussian(&random))
+                        taps.append(WordTap(point: point, key: Self.resolve(point, fixture: fixture, letters: letterFrames)))
+                    }
+                    let typed = taps.compactMap(\.key.characterValue).joined()
+                    // One tap is never decoded (the keyboard skips it), and a word with nothing typed has none.
+                    guard taps.count >= 2 else { previous = nil; continue }
+
+                    let clock = ContinuousClock()
+                    var decoding = TapDecoder.Decoding(typed: typed, typedID: nil, candidates: [])
+                    let elapsed = clock.measure { decoding = fixture.decoder.decode(taps: taps, previous: previous) }
+                    milliseconds.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+                    let decision = AutocorrectPolicy.decide(
+                        typed: typed, decoding: decoding, field: .standard,
+                        knowledge: UserLexicon.empty.knowledge(of: typed, model: fixture.model),
+                        position: position == 0 ? .start : .middle, rejections: RejectionSet(),
+                        model: fixture.model, thresholds: thresholds)
+                    var final = typed
+                    if case .replace(let replacement) = decision { final = replacement.text }
+                    words += 1
+                    let rawWrong = typed != intended
+                    let target = intended
+                    let finalWrong = final != target
+                    if rawWrong { rawErrors += 1 }
+                    if finalWrong { finalErrors += 1 }
+                    if rawWrong && !finalWrong { fixed += 1 }
+                    if !rawWrong && finalWrong { broke += 1 }
+                    if !rawWrong {
+                        correctWords += 1
+                        if final != typed { correctChanged += 1 }
+                    }
+                    if examples.count < 30, !rawWrong, final != typed { examples.append("\(intended): typed \(typed) -> \(final)") }
+                    previous = final.split(separator: " ").last.flatMap { fixture.model.id(of: String($0)) }
+                }
+            }
+        }
+        let reduction = rawErrors == 0 ? 0 : 1 - Double(finalErrors) / Double(rawErrors)
+        let changed = correctWords == 0 ? 0 : Double(correctChanged) / Double(correctWords)
+        let sorted = milliseconds.sorted()
+        func percentile(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))] }
+        func percent(_ value: Double) -> String { String(format: "%.2f%%", value * 100) }
+        print("TYPOS words \(words), raw wrong \(percent(Double(rawErrors) / Double(words))), corrected wrong \(percent(Double(finalErrors) / Double(words)))")
+        print("TYPOS errors reduced: \(percent(reduction)) (fixed \(fixed), broke \(broke))")
+        print("TYPOS correct words changed: \(percent(changed)) (\(correctChanged) of \(correctWords))")
+        print(String(format: "TYPOS decode ms per word: p50 %.3f  p99 %.3f  max %.3f", percentile(0.5), percentile(0.99), sorted.last ?? 0))
+        for example in examples { print("TYPOS correct word changed: \(example)") }
+        #expect(reduction >= 0.4, "errors reduced \(percent(reduction))")
+        #expect(changed < Self.allowedChanged, "correct words changed \(percent(changed))")
+    }
+
     // MARK: - Generator
 
     /// A deterministic generator, so a run's taps never change (`SplitMix64`).
@@ -204,11 +310,21 @@ import Testing
             case "backoff": configuration.backoffWeight = value
             case "beam": configuration.beamWidth = Int(value)
             case "editBeam": configuration.editBeamWidth = Int(value)
+            case "beam2": configuration.secondStageBeamWidth = Int(value)
             case "prune": configuration.pruneSigmas = value
             case "transposition": configuration.transpositionPenalty = value
             case "omission": configuration.omissionPenalty = value
             case "insertion": configuration.insertionPenalty = value
             case "split": configuration.splitPenalty = value
+            case "substitution": configuration.substitutionPenalty = value
+            case "substitutionSpread": configuration.substitutionSpread = value
+            case "secondEdit": configuration.secondEditPenalty = value
+            case "twoEditMinTaps": configuration.twoEditMinTaps = Int(value)
+            case "literalShortLetters": configuration.literalShortLetters = Int(value)
+            case "splitEditBeam": configuration.splitEditBeamWidth = Int(value)
+            case "splitEditMinTaps": configuration.splitEditMinTaps = Int(value)
+            case "splitEditCuts": configuration.splitEditCuts = Int(value)
+            case "settled": configuration.settledPosterior = value
             case "apostrophe": configuration.apostrophePenalty = value
             case "literalBase": configuration.literalLogPriorBase = value
             case "literalPerLetter": configuration.literalLogPriorPerLetter = value

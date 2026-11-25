@@ -24,6 +24,9 @@ public enum CandidateKind: Hashable, Sendable {
     case insertion
     /// Two neighbouring letters were tapped in the wrong order.
     case transposition
+    /// One tap landed on a key next to the one meant, far enough off that the spatial model alone
+    /// would not have considered the letter.
+    case substitution
     /// The taps are two words typed without the space between them.
     case split
     /// A word from the user's lexicon that the word model lacks.
@@ -48,9 +51,11 @@ public enum CandidateKind: Hashable, Sendable {
 ///
 /// The search walks the sorted word list as an implicit trie through `TypingModel.narrow`: a
 /// state is a prefix and its id range, extended by the few letters near the next tap. A beam keeps
-/// the best prefixes per tap. One edit may be spent anywhere in the word: a letter the user left
-/// out, a stray tap, or two letters swapped. A missed space is tried separately by splitting the
-/// taps in two and decoding each half.
+/// the best prefixes per tap. One edit may be spent anywhere in the word, two in a word of five or
+/// more taps (the second costs extra): a letter the user left out, a stray tap, two letters
+/// swapped, or a tap read as a key next to the one it landed on. A missed space is tried
+/// separately by splitting the taps in two and decoding each half, which may spend one edit
+/// between them.
 public struct TapDecoder: Sendable {
     /// Every tunable of the decoder. `tuned` is what the keyboard runs; the replay benchmark found
     /// these values (see `AutocorrectReplayTests`). From the spec's starting values (σ 0.3 and
@@ -60,29 +65,63 @@ public struct TapDecoder: Sendable {
     /// correct words changed throughout. The replay only generates substitution errors, so it
     /// always prefers larger edit penalties; the values stop where the unit tests' typos
     /// ("helo", "teh") are still corrected.
+    ///
+    /// A second pass on 2026-11-25 used the owner's recorded taps (`RealTapReplayTests`). Counted
+    /// there, 483 intended letters held 42 letters left out (8.7%), 10 taps on a neighbouring key,
+    /// 1 swap and 1 stray tap, and every tap sat inside its key (spread about 8 and 9 pt, nearly
+    /// uniform). So letters left out cost 2.5 nats (the old 3.0 was tuned on noise that has none),
+    /// a stray tap 6.0, a swap 3.5 and a neighbour hit 5.0, a second edit costs 1.5 more, and σy
+    /// is 0.4 as in the spec. The unknown string's prior fell, because a string that is no word is
+    /// seldom what was meant. Together: the synthetic replay 65.6% to 75%, the real log 20 to 31
+    /// of 47 wrong words fixed, no correct word changed in either.
     public struct Configuration: Sendable, Equatable {
         /// σx as a fraction of a letter key's width. The spec starts at 0.3; the replay's taps are 1.3
         /// times noisier than that, and 0.39 is the decoder matched to them.
         public var sigmaXFactor = 0.39
-        /// σy as a fraction of a key's height (spec 0.4, matched as above).
-        public var sigmaYFactor = 0.52
+        /// σy as a fraction of a key's height (spec 0.4). The first pass matched it to the replay's
+        /// noise, 0.52; the owner's real taps spread far less than that, and 0.4 keeps the
+        /// synthetic gate comfortably above its bar.
+        public var sigmaYFactor = 0.4
         /// Weight of the language term, λ.
         public var languageWeight = 1.3
         /// The weight of the unigram when a pair is not stored (stupid backoff).
         public var backoffWeight = 0.4
         /// Prefixes kept per tap.
         public var beamWidth = 64
-        /// Prefixes per tap that may spend the one edit. Edits fan out by up to 26 letters, so a
+        /// Prefixes kept per tap by the two-edit search, which runs only for a word the cheap
+        /// readings leave open and fills its beam with states of every edit count.
+        public var secondStageBeamWidth = 32
+        /// Prefixes per tap that may spend an edit. Edits fan out by up to 26 letters, so a
         /// narrower beam keeps a decode cheap.
-        public var editBeamWidth = 16
+        public var editBeamWidth = 8
+        /// The same for the halves of a missed space.
+        public var splitEditBeamWidth = 8
+        /// A half of a missed space may spend the one edit only when it has at least this many taps.
+        public var splitEditMinTaps = 3
+        /// How many cuts get that search, the ones whose other half is the strongest word.
+        public var splitEditCuts = 3
+        /// A single fix whose posterior reaches this settles the word: the two-edit search is skipped.
+        /// It sits at the policy's own bar (`AutocorrectPolicy.Thresholds.unknownPosterior`), because a
+        /// second look at a word that already passes it can only dilute the answer.
+        public var settledPosterior = 0.6
         /// A letter is a candidate for a tap only inside this many σ (Mahalanobis distance).
         public var pruneSigmas = 2.5
         /// Nats subtracted for two swapped neighbours.
-        public var transpositionPenalty = 3.0
+        public var transpositionPenalty = 3.5
         /// Nats subtracted for a letter the user left out.
-        public var omissionPenalty = 3.0
+        public var omissionPenalty = 2.5
         /// Nats subtracted for a stray tap.
-        public var insertionPenalty = 4.5
+        public var insertionPenalty = 6.0
+        /// Nats subtracted for a tap read as a key next to the one it landed on. The letter is
+        /// reached whatever the Gaussian says, so a tap on the centre of `n` can still be a `b`.
+        public var substitutionPenalty = 5.0
+        /// The share of the Gaussian's own score that a neighbour substitution keeps, so that of
+        /// two neighbours the nearer one is likelier.
+        public var substitutionSpread = 0.5
+        /// A second edit in one word costs this much more than the first.
+        public var secondEditPenalty = 1.5
+        /// A word with at least this many taps may spend two edits.
+        public var twoEditMinTaps = 4
         /// Nats subtracted for a missed space.
         public var splitPenalty = 4.0
         /// Nats subtracted for matching a contraction's apostrophe, which has no key on the
@@ -90,9 +129,14 @@ public struct TapDecoder: Sendable {
         public var apostrophePenalty = 0.3
         /// ln P of a lexicon word that is not in the model.
         public var lexiconLogPrior = -12.0
-        /// ln P of the typed string when the model does not know it: `base + perLetter · length`.
+        /// ln P of the typed string when the model does not know it:
+        /// `base + perLetter · max(length, shortLetters)`. A string that is no word is seldom what
+        /// was meant, least of all a short one (a real two or three letter word is in the model, so
+        /// "dg" is a slip), where a long one may be a name or a term. Counting every short string
+        /// as `shortLetters` long keeps it from being likelier than a real word one edit away.
         public var literalLogPriorBase = -4.0
         public var literalLogPriorPerLetter = -2.5
+        public var literalShortLetters = 6
         /// Candidates returned, best first. Posteriors are normalised over all found.
         public var maxCandidates = 8
         /// Words with more taps than this are not decoded.
@@ -140,6 +184,9 @@ public struct TapDecoder: Sendable {
     public let model: TypingModel
     public let configuration: Configuration
     private let centres: [CGPoint]
+    /// For each letter, the letters on the keys around it (the row's two neighbours and the
+    /// keys above and below that touch it): where a stray finger is likeliest to have landed.
+    private let neighbours: [[Int]]
     private let sigmaX: Double
     private let sigmaY: Double
 
@@ -168,8 +215,26 @@ public struct TapDecoder: Sendable {
         } else {
             centres = []
         }
+        neighbours = Self.neighbours(of: centres)
         sigmaX = configuration.sigmaXFactor * width
         sigmaY = configuration.sigmaYFactor * height
+    }
+
+    /// The keys within about one key pitch of each key, across and down. The pitch is read off the
+    /// layout (q to w across, q to a down), so a layout with other gaps follows.
+    private static func neighbours(of centres: [CGPoint]) -> [[Int]] {
+        guard centres.count == 26 else { return [] }
+        let q = centres[16], w = centres[22], a = centres[0]
+        let pitchX = abs(Double(w.x - q.x))
+        let pitchY = abs(Double(a.y - q.y))
+        guard pitchX > 0, pitchY > 0 else { return [] }
+        return (0..<26).map { letter in
+            (0..<26).filter { other in
+                other != letter
+                    && abs(Double(centres[other].x - centres[letter].x)) <= 1.15 * pitchX
+                    && abs(Double(centres[other].y - centres[letter].y)) <= 1.15 * pitchY
+            }
+        }
     }
 
     // MARK: - Decoding
@@ -206,16 +271,23 @@ public struct TapDecoder: Sendable {
                 text: text, ids: ids, score: score, posterior: 0, kind: kind, preservesCase: preservesCase)
         }
 
-        // 1. Words of the model, with up to one edit.
-        for terminal in search(tables, from: 0, to: taps.count, allowEdits: true, beam: configuration.beamWidth) {
-            var score = terminal.score + configuration.languageWeight * logPrior(terminal.id, previous: previous)
-            if let entry = lexicon.entry(for: terminal.word) {
-                score += entry.bonus
-                offer(entry.display, ids: [terminal.id], score: score, kind: terminal.kind, preservesCase: true)
-            } else {
-                offer(terminal.word, ids: [terminal.id], score: score, kind: terminal.kind)
+        func offerWords(_ terminals: [Terminal]) {
+            for terminal in terminals {
+                var score = terminal.score + configuration.languageWeight * logPrior(terminal.id, previous: previous)
+                if let entry = lexicon.entry(for: terminal.word) {
+                    score += entry.bonus
+                    offer(entry.display, ids: [terminal.id], score: score, kind: terminal.kind, preservesCase: true)
+                } else {
+                    offer(terminal.word, ids: [terminal.id], score: score, kind: terminal.kind)
+                }
             }
         }
+
+        // 1. Words of the model, with up to one edit.
+        offerWords(
+            search(
+                tables, from: 0, to: taps.count, maxEdits: 1, beam: configuration.beamWidth,
+                editBeam: configuration.editBeamWidth))
 
         // 2. Words of the lexicon the model does not know.
         for (folded, entry) in lexicon.entries.sorted(by: { $0.key < $1.key }) {
@@ -228,17 +300,36 @@ public struct TapDecoder: Sendable {
         }
 
         // 3. A missed space.
+        var anchors: [SplitAnchor] = []
         if taps.count >= configuration.minSplitTaps {
-            for split in splits(tables, count: taps.count, previous: previous) {
-                offer(split.text, ids: split.ids, score: split.score, kind: .split)
-            }
+            let exact = splits(tables, count: taps.count, previous: previous)
+            anchors = exact.anchors
+            for split in exact.found { offer(split.text, ids: split.ids, score: split.score, kind: .split) }
         }
 
         // 4. The typed string itself, when the model has no such word.
         if typedID == nil {
             let spatial = zip(resolved.indices, resolved).reduce(0.0) { $0 + tables.g[$1.0][$1.1] }
-            let prior = configuration.literalLogPriorBase + configuration.literalLogPriorPerLetter * Double(taps.count)
-            offer(typed, ids: [], score: spatial + configuration.languageWeight * prior, kind: .literal)
+            offer(typed, ids: [], score: spatial + configuration.languageWeight * literalLogPrior(taps.count), kind: .literal)
+        }
+
+        // 5. Two edits, or one edit beside a missed space. The policy changes a word that is already
+        // in the model by one edit at most, so this is only for a string the model does not know, and
+        // only when the cheap readings above leave it open: a clear single fix needs no second look.
+        if typedID == nil {
+            let first = rank(Array(found.values))
+            let settled = first.first.map { $0.kind != .literal && $0.posterior >= configuration.settledPosterior } ?? false
+            if !settled {
+                if taps.count >= configuration.twoEditMinTaps {
+                    offerWords(
+                        search(
+                            tables, from: 0, to: taps.count, maxEdits: 2, beam: configuration.secondStageBeamWidth,
+                            editBeam: configuration.editBeamWidth))
+                }
+                for split in editedSplits(anchors, tables: tables, count: taps.count, previous: previous) {
+                    offer(split.text, ids: split.ids, score: split.score, kind: .split)
+                }
+            }
         }
 
         return Decoding(typed: typed, typedID: typedID, candidates: rank(Array(found.values)))
@@ -269,6 +360,12 @@ public struct TapDecoder: Sendable {
         return Double(model.unigram(id)) * Self.ln10
     }
 
+    /// ln P of a typed string the model does not know (see `Configuration.literalLogPriorBase`).
+    func literalLogPrior(_ length: Int) -> Double {
+        configuration.literalLogPriorBase
+            + configuration.literalLogPriorPerLetter * Double(max(length, configuration.literalShortLetters))
+    }
+
     /// Single letters other than "a" and "i" are in the list as the halves of split contractions
     /// ("don t") and are never a word the user meant.
     private func isWord(_ word: String) -> Bool {
@@ -281,31 +378,45 @@ public struct TapDecoder: Sendable {
     /// tap `i`, or -infinity when the letter lies beyond the pruning distance. The key the touch
     /// engine resolved the tap to is always admissible: a tap near a corner of its hit rect can be
     /// farther than 2.5σ from the key's centre, and the typed word must stay a candidate.
+    /// `substitutes[i]` lists the neighbours of the resolved key that the Gaussian pruned, each with
+    /// the score of reading the tap as that letter (a flat penalty plus a share of its -z²/2).
     private struct Tables {
         var g: [[Double]]
         var admissible: [[(letter: Int, g: Double)]]
+        var substitutes: [[(letter: Int, g: Double)]]
     }
 
     private func makeTables(taps: [WordTap], resolved: [Int]) -> Tables {
         var g: [[Double]] = []
         var admissible: [[(letter: Int, g: Double)]] = []
+        var substitutes: [[(letter: Int, g: Double)]] = []
         let limit = configuration.pruneSigmas * configuration.pruneSigmas
         for (index, tap) in taps.enumerated() {
             var row = [Double](repeating: -.infinity, count: 26)
             var list: [(letter: Int, g: Double)] = []
+            var raw = [Double](repeating: -.infinity, count: 26)
             for letter in 0..<26 {
                 let dx = (Double(tap.point.x) - Double(centres[letter].x)) / sigmaX
                 let dy = (Double(tap.point.y) - Double(centres[letter].y)) / sigmaY
                 let z2 = dx * dx + dy * dy
+                raw[letter] = -0.5 * z2
                 if z2 <= limit || letter == resolved[index] {
                     row[letter] = -0.5 * z2
                     list.append((letter, -0.5 * z2))
                 }
             }
+            var swaps: [(letter: Int, g: Double)] = []
+            if !neighbours.isEmpty {
+                for letter in neighbours[resolved[index]] where row[letter] == -.infinity {
+                    swaps.append(
+                        (letter, -configuration.substitutionPenalty + configuration.substitutionSpread * raw[letter]))
+                }
+            }
             g.append(row)
             admissible.append(list)
+            substitutes.append(swaps)
         }
-        return Tables(g: g, admissible: admissible)
+        return Tables(g: g, admissible: admissible, substitutes: substitutes)
     }
 
     // MARK: - Beam search
@@ -314,33 +425,39 @@ public struct TapDecoder: Sendable {
         var bytes: [UInt8]
         var range: Range<Int>
         var score: Double
-        /// Whether the one edit is spent.
-        var edited: Bool
+        /// How many of the word's edits are spent.
+        var edits: Int
         var kind: CandidateKind
     }
 
     private struct StateKey: Hashable {
         let bytes: [UInt8]
-        let edited: Bool
+        let edits: Int
     }
 
     private struct Terminal {
         let id: Int
         let word: String
         let score: Double
+        let edits: Int
         let kind: CandidateKind
+    }
+
+    /// An edit costs its own penalty, and the second one in a word costs more.
+    private func cost(_ penalty: Double, spent: Int) -> Double {
+        penalty + (spent >= 1 ? configuration.secondEditPenalty : 0)
     }
 
     /// The best words for taps `lo..<hi`, with their spatial scores and edit penalties but no
     /// language score. States are grouped by how many taps they have consumed (an omission
     /// consumes none), and each group is cut to the beam before it is expanded.
     private func search(
-        _ tables: Tables, from lo: Int, to hi: Int, allowEdits: Bool, beam: Int
+        _ tables: Tables, from lo: Int, to hi: Int, maxEdits: Int, beam: Int, editBeam: Int
     ) -> [Terminal] {
         let count = hi - lo
         var layers = [[State]](repeating: [], count: count + 2)
         layers[0] = [
-            State(bytes: [], range: 0..<model.wordCount, score: 0, edited: false, kind: .exact)
+            State(bytes: [], range: 0..<model.wordCount, score: 0, edits: 0, kind: .exact)
         ]
         var terminals: [Terminal] = []
 
@@ -348,19 +465,34 @@ public struct TapDecoder: Sendable {
             var current = prune(layers[index], beam: beam)
             layers[index] = []
 
-            if allowEdits {
-                // A letter the user left out: any letter, before tap `index`.
+            // A letter the user left out: any letter, before tap `index`. A state that has spent
+            // one edit may spend another, so the rounds chain. The letter must be followed by one
+            // this tap could be (or, with an edit left, a neighbour of its key), or the state is
+            // dead; checking that here keeps 26 children per state from filling the beam. Two
+            // omissions in a row therefore only happen with a tap between them.
+            for round in 0..<maxEdits {
                 var omitted: [State] = []
-                for state in current.prefix(configuration.editBeamWidth) where !state.edited {
-                    for letter in 0..<26 {
-                        let byte = Self.letterA + UInt8(letter)
-                        let child = model.narrow(state.range, depth: state.bytes.count, byte: byte)
-                        guard !child.isEmpty else { continue }
+                for state in current.filter({ $0.edits == round }).prefix(editBeam) {
+                    for (byte, child) in model.children(of: state.range, depth: state.bytes.count)
+                    where byte >= Self.letterA && byte < Self.letterA + 26 {
+                        if index < count {
+                            let next = tables.admissible[lo + index].contains {
+                                !model.narrow(child, depth: state.bytes.count + 1, byte: Self.letterA + UInt8($0.letter))
+                                    .isEmpty
+                            }
+                            let beside =
+                                round + 1 < maxEdits
+                                && tables.substitutes[lo + index].contains {
+                                    !model.narrow(child, depth: state.bytes.count + 1, byte: Self.letterA + UInt8($0.letter))
+                                        .isEmpty
+                                }
+                            if !next && !beside { continue }
+                        }
                         emit(
                             State(
                                 bytes: state.bytes + [byte], range: child,
-                                score: state.score - configuration.omissionPenalty, edited: true,
-                                kind: .omission),
+                                score: state.score - cost(configuration.omissionPenalty, spent: round),
+                                edits: round + 1, kind: .omission),
                             into: &omitted)
                     }
                 }
@@ -371,13 +503,17 @@ public struct TapDecoder: Sendable {
                 for state in current {
                     let word = String(decoding: state.bytes, as: UTF8.self)
                     guard isWord(word), let id = model.id(of: word) else { continue }
-                    terminals.append(Terminal(id: id, word: word, score: state.score, kind: state.kind))
+                    terminals.append(
+                        Terminal(id: id, word: word, score: state.score, edits: state.edits, kind: state.kind))
                 }
                 continue
             }
 
             let tap = lo + index
-            for (position, state) in current.enumerated() {
+            // How many states of each edit count have been expanded. A state with one edit already
+            // spent got there by an omission among dozens of ties, so its budget is wider.
+            var expanded = [Int](repeating: 0, count: maxEdits + 1)
+            for state in current {
                 // The tap is a letter of the word.
                 for option in tables.admissible[tap] {
                     let byte = Self.letterA + UInt8(option.letter)
@@ -386,18 +522,32 @@ public struct TapDecoder: Sendable {
                     emit(
                         State(
                             bytes: state.bytes + [byte], range: child, score: state.score + option.g,
-                            edited: state.edited, kind: state.kind),
+                            edits: state.edits, kind: state.kind),
                         into: &layers[index + 1])
                 }
-                guard allowEdits, !state.edited else { continue }
+                guard state.edits < maxEdits else { continue }
                 // The tap is a stray touch and is skipped.
                 layers[index + 1].append(
                     State(
                         bytes: state.bytes, range: state.range,
-                        score: state.score - configuration.insertionPenalty, edited: true,
-                        kind: .insertion))
+                        score: state.score - cost(configuration.insertionPenalty, spent: state.edits),
+                        edits: state.edits + 1, kind: .insertion))
+                expanded[state.edits] += 1
+                guard expanded[state.edits] <= (state.edits == 0 ? editBeam : 2 * editBeam) else { continue }
+                // The tap landed beside the key that was meant.
+                let extra = state.edits >= 1 ? configuration.secondEditPenalty : 0
+                for option in tables.substitutes[tap] {
+                    let byte = Self.letterA + UInt8(option.letter)
+                    let child = model.narrow(state.range, depth: state.bytes.count, byte: byte)
+                    guard !child.isEmpty else { continue }
+                    emit(
+                        State(
+                            bytes: state.bytes + [byte], range: child, score: state.score + option.g - extra,
+                            edits: state.edits + 1, kind: .substitution),
+                        into: &layers[index + 1])
+                }
                 // The tap and the next one are in the wrong order.
-                guard position < configuration.editBeamWidth, index + 1 < count else { continue }
+                guard index + 1 < count else { continue }
                 for later in tables.admissible[tap + 1] {
                     let first = Self.letterA + UInt8(later.letter)
                     let firstChild = model.narrow(state.range, depth: state.bytes.count, byte: first)
@@ -409,8 +559,9 @@ public struct TapDecoder: Sendable {
                         emit(
                             State(
                                 bytes: state.bytes + [first, second], range: child,
-                                score: state.score + later.g + earlier.g - configuration.transpositionPenalty,
-                                edited: true, kind: .transposition),
+                                score: state.score + later.g + earlier.g
+                                    - cost(configuration.transpositionPenalty, spent: state.edits),
+                                edits: state.edits + 1, kind: .transposition),
                             into: &layers[index + 2])
                     }
                 }
@@ -434,7 +585,7 @@ public struct TapDecoder: Sendable {
         list.append(next)
     }
 
-    /// The best `beam` states, one per distinct (prefix, edit spent) pair, best first.
+    /// The best `beam` states, one per distinct (prefix, edits spent) pair, best first.
     private func prune(_ states: [State], beam: Int) -> [State] {
         guard states.count > 1 else { return states }
         let sorted = states.sorted {
@@ -443,7 +594,7 @@ public struct TapDecoder: Sendable {
         var seen = Set<StateKey>()
         var kept: [State] = []
         kept.reserveCapacity(min(beam, sorted.count))
-        for state in sorted where seen.insert(StateKey(bytes: state.bytes, edited: state.edited)).inserted {
+        for state in sorted where seen.insert(StateKey(bytes: state.bytes, edits: state.edits)).inserted {
             kept.append(state)
             if kept.count == beam { break }
         }
@@ -495,34 +646,82 @@ public struct TapDecoder: Sendable {
 
     // MARK: - Missed space
 
+    /// A cut of the taps whose one half read as a word, and how well: where an edit in the other
+    /// half is worth searching for.
+    private struct SplitAnchor {
+        let strength: Double
+        let cut: Int
+        let anchorIsLeft: Bool
+    }
+
+    private func strength(_ terminal: Terminal) -> Double {
+        terminal.score + Double(model.unigram(terminal.id)) * Self.ln10
+    }
+
+    /// The likeliest few words for taps `lo..<hi`, by spatial score plus frequency.
+    private func halves(_ tables: Tables, _ lo: Int, _ hi: Int, edits: Int) -> [Terminal] {
+        let found = search(
+            tables, from: lo, to: hi, maxEdits: edits, beam: configuration.splitBeamWidth,
+            editBeam: configuration.splitEditBeamWidth)
+        return Array(found.sorted { strength($0) > strength($1) }.prefix(configuration.splitKeep))
+    }
+
+    private func combine(
+        _ left: [Terminal], _ right: [Terminal], edits: Int, previous: Int?
+    ) -> [(text: String, ids: [Int], score: Double)] {
+        var result: [(text: String, ids: [Int], score: Double)] = []
+        for first in left {
+            let head = configuration.languageWeight * logPrior(first.id, previous: previous)
+            for second in right where first.edits + second.edits == edits {
+                let tail = configuration.languageWeight * logPrior(second.id, previous: first.id)
+                result.append((
+                    first.word + " " + second.word, [first.id, second.id],
+                    first.score + second.score + head + tail - configuration.splitPenalty
+                ))
+            }
+        }
+        return result
+    }
+
     /// Candidates that read the taps as two words with the space missing. Each half is decoded
-    /// exactly (no edits) and cut to its likeliest few by spatial score plus frequency; the
-    /// halves are then combined, the second scored after the first.
+    /// exactly and cut to its likeliest few; the halves are then combined, the second scored after
+    /// the first. The anchors say which cuts have a half worth building an edited reading on.
     private func splits(
         _ tables: Tables, count: Int, previous: Int?
-    ) -> [(text: String, ids: [Int], score: Double)] {
-        func halves(_ lo: Int, _ hi: Int) -> [Terminal] {
-            let found = search(tables, from: lo, to: hi, allowEdits: false, beam: configuration.splitBeamWidth)
-            let ranked = found.sorted {
-                ($0.score + Double(model.unigram($0.id)) * Self.ln10)
-                    > ($1.score + Double(model.unigram($1.id)) * Self.ln10)
-            }
-            return Array(ranked.prefix(configuration.splitKeep))
-        }
+    ) -> (found: [(text: String, ids: [Int], score: Double)], anchors: [SplitAnchor]) {
         var result: [(text: String, ids: [Int], score: Double)] = []
+        var anchors: [SplitAnchor] = []
         for cut in 1..<count {
-            let left = halves(0, cut)
-            guard !left.isEmpty else { continue }
-            let right = halves(cut, count)
-            for first in left {
-                let head = configuration.languageWeight * logPrior(first.id, previous: previous)
-                for second in right {
-                    let tail = configuration.languageWeight * logPrior(second.id, previous: first.id)
-                    result.append((
-                        first.word + " " + second.word, [first.id, second.id],
-                        first.score + second.score + head + tail - configuration.splitPenalty
-                    ))
-                }
+            let left = halves(tables, 0, cut, edits: 0)
+            let right = halves(tables, cut, count, edits: 0)
+            result += combine(left, right, edits: 0, previous: previous)
+            if let best = left.first, count - cut >= configuration.splitEditMinTaps {
+                anchors.append(SplitAnchor(strength: strength(best), cut: cut, anchorIsLeft: true))
+            }
+            if let best = right.first, cut >= configuration.splitEditMinTaps {
+                anchors.append(SplitAnchor(strength: strength(best), cut: cut, anchorIsLeft: false))
+            }
+        }
+        return (result, anchors)
+    }
+
+    /// One edit in a half of a missed space (`thelay` is `the` and a `lazy` with its letter left
+    /// out). That search is dear, so it runs only for the few cuts whose other half is the
+    /// strongest word (`the`, `of`): a split worth believing has one half the user plainly meant.
+    private func editedSplits(
+        _ anchors: [SplitAnchor], tables: Tables, count: Int, previous: Int?
+    ) -> [(text: String, ids: [Int], score: Double)] {
+        let picks = anchors.sorted { $0.strength != $1.strength ? $0.strength > $1.strength : $0.cut < $1.cut }
+        var result: [(text: String, ids: [Int], score: Double)] = []
+        for pick in picks.prefix(configuration.splitEditCuts) {
+            if pick.anchorIsLeft {
+                result += combine(
+                    halves(tables, 0, pick.cut, edits: 0), halves(tables, pick.cut, count, edits: 1), edits: 1,
+                    previous: previous)
+            } else {
+                result += combine(
+                    halves(tables, 0, pick.cut, edits: 1), halves(tables, pick.cut, count, edits: 0), edits: 1,
+                    previous: previous)
             }
         }
         return result

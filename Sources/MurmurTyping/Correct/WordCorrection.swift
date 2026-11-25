@@ -157,12 +157,12 @@ public struct Autocorrector: Sendable {
     ///   same space the taps are in, whatever page the keyboard shows.
     public init(
         model: TypingModel, lettersFrames: [KeyFrame], lexicon: UserLexicon = .empty,
-        rejections: RejectionSet = RejectionSet()
+        rejections: RejectionSet = RejectionSet(), configuration: TapDecoder.Configuration = .tuned
     ) {
         self.model = model
         self.lexicon = lexicon
         self.rejections = rejections
-        decoder = TapDecoder(model: model, frames: lettersFrames)
+        decoder = TapDecoder(model: model, frames: lettersFrames, configuration: configuration)
     }
 
     /// New geometry: the decoder's key centres and spreads follow the width.

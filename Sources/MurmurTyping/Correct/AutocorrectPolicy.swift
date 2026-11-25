@@ -127,10 +127,12 @@ public enum AutocorrectPolicy {
     /// The confidence a correction needs.
     public struct Thresholds: Sendable, Equatable {
         /// For a typed word the model does not know: the top candidate's posterior at least this
-        /// (the spec starts at 0.85 and 5 times; the replay settled lower)...
-        public var unknownPosterior = 0.7
+        /// (the spec starts at 0.85 and 5 times; the replays settled lower, and the owner's real
+        /// taps, whose errors are letters left out and neighbours hit, settled lower again: 0.6
+        /// fixed one more word of 47 than 0.7 and changed no correct word in any replay)...
+        public var unknownPosterior = 0.6
         /// ...and at least this many times the runner-up's.
-        public var unknownRatio = 3.0
+        public var unknownRatio = 2.5
         /// For a typed word that is a word: the posterior must reach this much...
         public var knownPosterior = 0.97
         /// ...with at most this many edits between what was typed and the replacement.

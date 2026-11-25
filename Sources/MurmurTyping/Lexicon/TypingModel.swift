@@ -196,6 +196,38 @@ public final class TypingModel: Sendable {
         }
     }
 
+    /// Every child of the trie node `range` (a prefix of `depth` bytes), in byte order: the bytes
+    /// that follow some word of the range, each with its own id range. The same answer as
+    /// `narrow` for every byte, but it visits only the bytes that exist, so a search that tries
+    /// "any letter here" pays for the handful of real continuations of a deep prefix and not for 26
+    /// binary searches. The word equal to the prefix has no child and is skipped.
+    public func children(of range: Range<Int>, depth: Int) -> [(byte: UInt8, range: Range<Int>)] {
+        guard !range.isEmpty, depth >= 0 else { return [] }
+        return data.withUnsafeBytes { raw in
+            func byteAt(_ id: Int) -> Int {
+                let (start, end) = wordBounds(raw, id)
+                return start + depth < end ? Int(raw[start + depth]) : -1
+            }
+            var result: [(byte: UInt8, range: Range<Int>)] = []
+            var low = range.lowerBound
+            // The prefix word itself sorts first and reads as -1.
+            if low < range.upperBound, byteAt(low) == -1 { low += 1 }
+            while low < range.upperBound {
+                let byte = byteAt(low)
+                // The first id after `low` whose byte is larger.
+                var left = low + 1
+                var right = range.upperBound
+                while left < right {
+                    let mid = (left + right) / 2
+                    if byteAt(mid) > byte { right = mid } else { left = mid + 1 }
+                }
+                result.append((UInt8(byte), low..<left))
+                low = left
+            }
+            return result
+        }
+    }
+
     /// The `limit` likeliest words starting with `prefix` (the prefix itself included when it is
     /// a word), most frequent first, ties broken by id.
     public func completions(prefix: String, limit: Int) -> [Int] {
