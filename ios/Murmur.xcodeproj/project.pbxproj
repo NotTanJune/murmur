@@ -38,6 +38,7 @@
 		701C36D86E676F1CAA6C73FD /* HistoryList.swift in Sources */ = {isa = PBXBuildFile; fileRef = B025199519AE6DBE7A20BA76 /* HistoryList.swift */; };
 		730D59C305D3AD642DBE8E38 /* TypingStageTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1991C25AEBA72134CFE824C8 /* TypingStageTest.swift */; };
 		7526A16E7E4823ED1EC3BBE7 /* RunAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEA5BEC862877AFBA93A47F /* RunAudioPlayer.swift */; };
+		7FFC12D14BC76C920984D183 /* TypingLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224D3CAF8E574DDE0DA6D9B0 /* TypingLab.swift */; };
 		825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		85D49F3E1052BF98F55A0BDF /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */; };
 		A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
@@ -98,6 +99,7 @@
 		1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPanel.swift; sourceTree = "<group>"; };
 		1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiRecents.swift; sourceTree = "<group>"; };
+		224D3CAF8E574DDE0DA6D9B0 /* TypingLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingLab.swift; sourceTree = "<group>"; };
 		25BF4AF99485D9D693C7C960 /* KeyFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyFeedback.swift; sourceTree = "<group>"; };
 		28781C7AD37BB629020F20B3 /* MurmurPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MurmurPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "EBGaramond-Italic[wght].ttf"; sourceTree = "<group>"; };
@@ -251,6 +253,7 @@
 				31985D17A48C0DE2D931F5F7 /* SettingsView.swift */,
 				1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */,
 				121DC8A1B9D710897A9B4651 /* TrainingView.swift */,
+				224D3CAF8E574DDE0DA6D9B0 /* TypingLab.swift */,
 				7263DCD577D8A25548867AEA /* Components */,
 			);
 			path = App;
@@ -483,6 +486,7 @@
 				45D3ED531B23908012FCEC65 /* SetupView.swift in Sources */,
 				034B211916DFF631B3E6F66C /* TrainingView.swift in Sources */,
 				17B9E3D1B2CEB3E8E0E24FB5 /* TypingDiagnostics.swift in Sources */,
+				7FFC12D14BC76C920984D183 /* TypingLab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

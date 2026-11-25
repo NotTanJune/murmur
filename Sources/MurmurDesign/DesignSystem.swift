@@ -329,11 +329,10 @@ public enum DS {
         /// 25 ms, and the range lets a 60 Hz screen answer at 30 or 60.
         public static let tickRate: Float = 40
         /// How long the keys must be quiet before the suggestion strip is worked out and drawn
-        /// again. A fast typist's taps come 80 to 200 ms apart, so the strip changes only at a
-        /// pause, never between the taps of a burst. It was 60 ms until 2026-11-25: sentences then
-        /// lost about one tap in ten while two keys tapped in turn (a strip that never changes)
-        /// lost almost none, which points at the strip's redraw.
-        public static let suggestionQuietSeconds: Double = 0.3
+        /// again, so a burst of taps is not followed by a redraw per key. Raising it to 300 ms on
+        /// 2026-11-25 did not change how many taps a fast sentence lost, so the redraw is not what
+        /// loses them; 120 ms keeps the strip feeling live.
+        public static let suggestionQuietSeconds: Double = 0.12
         /// Typing diagnostics: a main-thread frame gap longer than this is logged as a stall.
         public static let stallThresholdSeconds: Double = 0.034
         public static let tickRateMinimum: Float = 30

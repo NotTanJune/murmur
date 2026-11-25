@@ -216,6 +216,10 @@ struct SetupView: View {
                 )
             }
 
+            Card(title: "Typing lab") {
+                TypingLab()
+            }
+
             Card(title: "Model") {
                 BarkModelRow()
                 if let line = keyboardEngineLine {
