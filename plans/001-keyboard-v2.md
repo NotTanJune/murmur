@@ -1009,6 +1009,52 @@ Only start after Milestones 4 to 7 pass their gates and the owner says go.
    model file under 20 MB. Otherwise record the numbers in AGENTS.md under "Tried and not
    kept" and stop.
 
+### Change of course, 2026-11-25: a pretrained model first
+
+The owner called the bigram predictions "comically bad" and asked for a better model, soon.
+Training our own (step 1 above) takes days, and the memory ceiling measured in Milestone 0 is
+177 MB with about 50 MB used, not the 50 to 70 MB this milestone assumed. So the first attempt
+is a pretrained model under a licence that GPL-3.0 distribution allows, converted to Core ML,
+predicting the next word once per word boundary with the bigram model as the fallback. Three
+candidates are measured on the Mac against the bigram engine: `distilbert/distilgpt2` (Apache-2.0,
+88 M parameters), `EleutherAI/pythia-70m` (Apache-2.0, 96 M with untied embeddings) and
+`HuggingFaceTB/SmolLM2-135M` (Apache-2.0, 135 M). Its gate: next-word top-three hit rate at
+least 1.3 times the bigram engine's, model file at most 60 MB, added footprint at most 80 MB and
+95th percentile latency at most 40 ms on the Mac's CPU. Memory and latency inside the keyboard on
+the phone decide whether it stays.
+
+### Fallbacks, researched and not built (2026-11-25)
+
+Kept ready in case the pretrained model does not perform. Licences and parameter counts are
+from the Hugging Face model index on 2026-11-25; nothing below has been run.
+
+| | A. DialoGPT-small | B. Our own small model | C. A 4-gram model |
+|---|---|---|---|
+| What it is | GPT-2 small fine-tuned by Microsoft on Reddit conversations | The decoder-only model of step 1: 10 to 15 M parameters, an 8k to 16k vocabulary, trained on the Mac | Modified Kneser-Ney counts of up to four words, read from a memory-mapped file like `en.mtm` |
+| Licence | MIT | Ours; corpora Tatoeba (CC BY 2.0 FR), Leipzig English (CC BY 4.0), Wikipedia (CC BY-SA 4.0), as listed in step 1 | Same corpora as B |
+| Size on disk | 124 M parameters; about 60 MB at 4 bits, 120 MB at 8 | About 10 to 15 MB at 8 bits | About 20 to 40 MB after pruning rare counts (estimate) |
+| Speed | 12 layers: about twice distilgpt2's time per pass | A few milliseconds per pass (estimate) | Well under a millisecond; no Core ML at all |
+| Why it could be better | Conversational text, which is what gets typed. Same tokenizer and conversion as distilgpt2, so it drops into the same code | Small enough to leave Bark its memory; its vocabulary can be built from our own word list so most words are one token; can later be tuned on the owner's own writing (Milestone 7) | Cannot fail to load, cannot be killed for memory, and already far better than pairs: it sees three words back |
+| Why it could be worse | Likely over the size and latency gates; Reddit's tone | Quality unknown until trained; likely below a pretrained model on general text | Still drifts after three or four words; no sense of the sentence as a whole |
+| Cost to build | Hours: swap the model in the fetch script and re-measure | One to two days: corpus preparation, tokenizer, training, export | About a day: counting, pruning, a new section in the model file and its reader |
+
+**Which one, by what goes wrong:**
+
+- **The words are still poor** (the model runs fine but predicts badly for chat): try A, since it
+  is the same pipeline; if A is too heavy, B trained on conversational text.
+- **Too much memory or too slow on the phone**: B. A larger pretrained model can label or
+  generate text for B to learn from (distillation), which is the usual way to get a small
+  model's quality up.
+- **Core ML will not run acceptably inside the keyboard at all**: C, which needs no neural
+  runtime.
+
+**Looked at and ruled out:** `google/gemma-3-270m` (Gemma terms and gated access; use
+restrictions that do not fit GPL-3.0 distribution), `facebook/MobileLLM-125M` (non-standard
+licence, gated), `LiquidAI/LFM2-350M` (its own licence), `HuggingFaceTB/SmolLM2-360M` and
+`Qwen/Qwen2.5-0.5B` (Apache-2.0 but 360 M and 494 M parameters: too large beside Bark under a
+177 MB ceiling), `roneneldan/TinyStories-33M` (no licence stated; children's stories only), and
+FUTO's keyboard model (licence, already rejected above).
+
 ---
 
 ## Milestone 10: Documentation
