@@ -25,8 +25,9 @@ public struct BPETokenizer: Sendable {
     }
 
     /// Every token's text as the vocabulary writes it, by id: bytes as printable characters, a
-    /// leading space as `Ġ`. Ids the vocabulary skips are empty.
-    public let tokens: [String]
+    /// leading space as `Ġ`. Ids the vocabulary skips are empty. Empty after
+    /// `discardTokenText()`.
+    public private(set) var tokens: [String]
     /// The id of `<|endoftext|>`, which the model saw between documents. Nil when the
     /// vocabulary has none.
     public let endOfText: Int32?
@@ -86,6 +87,12 @@ public struct BPETokenizer: Sendable {
         merges = table
     }
 
+    /// Frees the tokens' text, about 50,000 strings. Encoding works on ids and never reads it;
+    /// the predictor reads it once, to build its word tables, and then calls this.
+    public mutating func discardTokenText() {
+        tokens = []
+    }
+
     /// The token ids of `text`. No start or end token is added.
     public func encode(_ text: String) -> [Int32] {
         let scalars = Array(text.unicodeScalars)
@@ -116,19 +123,20 @@ public struct BPETokenizer: Sendable {
                 }
             }
             guard let best else { return }
-            var joined: [Int32] = []
-            joined.reserveCapacity(piece.count - 1)
-            var index = 0
-            while index < piece.count {
-                if index + 1 < piece.count, piece[index] == best.left, piece[index + 1] == best.right {
-                    joined.append(best.token)
-                    index += 2
+            // Joined in place: the write position never passes the read position.
+            var read = 0
+            var write = 0
+            while read < piece.count {
+                if read + 1 < piece.count, piece[read] == best.left, piece[read + 1] == best.right {
+                    piece[write] = best.token
+                    read += 2
                 } else {
-                    joined.append(piece[index])
-                    index += 1
+                    piece[write] = piece[read]
+                    read += 1
                 }
+                write += 1
             }
-            piece = joined
+            piece.removeLast(piece.count - write)
         }
     }
 

@@ -46,6 +46,9 @@ public final class NextWordPredictor: @unchecked Sendable {
         case unexpectedModel(String)
         /// The vocabulary has no start token.
         case noStartToken
+        /// A pass gave no word a probability: its numbers were not numbers, or all zero. A
+        /// distribution always has a likeliest word, so the model is not working on this device.
+        case unusableAnswer
     }
 
     /// First halves of contractions that are no words by themselves. The model writes "didn't" as
@@ -91,7 +94,7 @@ public final class NextWordPredictor: @unchecked Sendable {
         contextLength = shape[1].intValue
         guard contextLength >= 2 else { throw LoadError.unexpectedModel("a window of \(contextLength) tokens") }
 
-        tokenizer = try BPETokenizer(vocabulary: files.vocabulary, merges: files.merges)
+        var tokenizer = try BPETokenizer(vocabulary: files.vocabulary, merges: files.merges)
         guard let start = tokenizer.endOfText else { throw LoadError.noStartToken }
         self.start = start
 
@@ -112,6 +115,9 @@ public final class NextWordPredictor: @unchecked Sendable {
         }
         afterSpace = Self.table(spaced)
         bare = Self.table(unspaced)
+        // The tables are built; the tokens' text is not read again.
+        tokenizer.discardTokenText()
+        self.tokenizer = tokenizer
     }
 
     private static func table(_ entries: [(word: Int, token: Int32)]) -> Table {
@@ -134,7 +140,7 @@ public final class NextWordPredictor: @unchecked Sendable {
     public func predict(before boundary: String) throws -> WordPrediction {
         var head = Substring(boundary)
         while head.last == " " { head.removeLast() }
-        let table = head.count < boundary.count && !head.isEmpty ? afterSpace : bare
+        let table = head.endIndex < boundary.endIndex && !head.isEmpty ? afterSpace : bare
         let tokens = [start] + tokenizer.encode(String(head)).suffix(contextLength - 1)
 
         let ids = try MLMultiArray(shape: [1, NSNumber(value: contextLength)], dataType: .int32)
@@ -160,6 +166,10 @@ public final class NextWordPredictor: @unchecked Sendable {
                 probabilities[Int(table.slots[index])] += exp(values[token])
             }
         }
-        return WordPrediction(boundary: boundary, ids: table.words, probabilities: probabilities)
+        let prediction = WordPrediction(boundary: boundary, ids: table.words, probabilities: probabilities)
+        // An answer of NaNs would otherwise pass as "no opinion" and the strip would quietly
+        // show the pair model's words with the model reported as ready.
+        guard !prediction.best.isEmpty else { throw LoadError.unusableAnswer }
+        return prediction
     }
 }

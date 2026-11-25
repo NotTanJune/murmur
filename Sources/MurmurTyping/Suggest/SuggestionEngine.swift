@@ -156,13 +156,6 @@ public enum SuggestionEngine {
         let range = model.range(ofPrefix: folded)
         guard !range.isEmpty else { return [typed] }
 
-        let previousID = context.previous.flatMap { model.id(of: $0) }
-        var candidates = Set(model.completions(prefix: folded, limit: candidatePool))
-        if let previousID {
-            for successor in model.successors(of: previousID) where range.contains(successor.id) {
-                candidates.insert(successor.id)
-            }
-        }
         let exact = model.id(of: folded)
         var ranked: [Int] = []
         // The language model's words with this prefix come first, likeliest first, under the
@@ -183,7 +176,17 @@ public enum SuggestionEngine {
                 if entry.id != exact, isSuggestible(model.word(entry.id)) { ranked.append(entry.id) }
             }
         }
+        // The pair model's candidates are gathered only for the slots the language model left:
+        // with a prediction in hand that is usually none, and the search over the prefix's words
+        // and the previous word's successors is then skipped.
         if ranked.count < limit {
+            let previousID = context.previous.flatMap { model.id(of: $0) }
+            var candidates = Set(model.completions(prefix: folded, limit: candidatePool))
+            if let previousID {
+                for successor in model.successors(of: previousID) where range.contains(successor.id) {
+                    candidates.insert(successor.id)
+                }
+            }
             let rest = rank(
                 candidates.filter { $0 != exact && !ranked.contains($0) }, previous: previousID,
                 typedLength: folded.count, model: model)
@@ -294,8 +297,9 @@ public enum SuggestionEngine {
         return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.id < $1.id }.map(\.id)
     }
 
-    /// Single letters other than "a" and "i" are in the word list (the halves of split
-    /// contractions: "don t") but are never worth a suggestion slot.
+    /// A single letter other than "a" and "i" is never worth a suggestion slot. The current word
+    /// list holds none (checked 2026-11-25); an earlier one held the halves of split contractions
+    /// ("don t"), and a rebuilt list may again.
     private static func isSuggestible(_ word: String) -> Bool {
         word.count >= 2 || word == "a" || word == "i"
     }

@@ -85,12 +85,10 @@ final class SmartPredictions {
     private var isPredicting = false
 
     /// Asks for the next-word prediction at `boundary` (`SuggestionEngine.boundary(before:)`).
-    /// Returns at once; the answer, if one comes, arrives through `onPrediction`.
+    /// Returns at once; the answer, if one comes, arrives through `onPrediction`. The caller
+    /// reads the Smart predictions setting: it calls this with the setting on and `turnOff()`
+    /// with it off.
     func request(_ boundary: String, words: TypingModel) {
-        guard Settings.shared.smartPredictions else {
-            turnOff()
-            return
-        }
         if state == .off { state = .waiting }
         // The app cleared the marker since this process first saw it.
         if state == .stoppedLastTime, !marker.isArmed { state = .waiting }

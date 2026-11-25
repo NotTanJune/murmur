@@ -98,7 +98,7 @@ def fetch(data_dir):
         if os.path.isfile(path) and os.path.getsize(path) == size and sha256(path) == sha:
             continue
         print(f"fetching {BASE}{name}")
-        request = urllib.request.Request(BASE + name, headers={"User-Agent": "murmur-typing-lm-builder"})
+        request = urllib.request.Request(BASE + name, headers={"User-Agent": "model-fetch/1.0"})
         tmp = path + ".part"
         with urllib.request.urlopen(request, timeout=120) as response, open(tmp, "wb") as handle:
             shutil.copyfileobj(response, handle, 1 << 20)
