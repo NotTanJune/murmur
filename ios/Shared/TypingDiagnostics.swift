@@ -31,11 +31,38 @@ enum TypingDiagnostics {
         return Date() < until
     }
 
-    /// Re-reads the switch from the shared defaults. The keyboard calls this at each appearance.
+    /// Re-reads the switch from the shared defaults. The keyboard calls this at each appearance
+    /// and, through `refreshOnTouch`, while it is up. `synchronize` is asked for because the app
+    /// writes these keys from another process: on 2026-11-25 a keyboard that was already running
+    /// read the old expiry at its next appearance, logged nothing and never started the test.
     static func refresh() {
-        let raw = MurmurEnvironment.defaults.double(forKey: defaultsKey)
+        let defaults = MurmurEnvironment.defaults
+        defaults.synchronize()
+        lastRefresh = ProcessInfo.processInfo.systemUptime
+        armed = defaults.bool(forKey: stageTestKey)
+        let raw = defaults.double(forKey: defaultsKey)
         enabledUntil = raw > 0 ? Date(timeIntervalSince1970: raw) : nil
+        // An armed test means the owner wants the log, whatever the expiry says.
+        if armed, !isOn {
+            let until = Date().addingTimeInterval(duration)
+            defaults.set(until.timeIntervalSince1970, forKey: defaultsKey)
+            enabledUntil = until
+        }
     }
+
+    nonisolated(unsafe) private static var lastRefresh: TimeInterval = 0
+    nonisolated(unsafe) private static var armed = false
+
+    /// Called at a touch-down: looks at the switch again at most every `recheckSeconds`, so a
+    /// switch thrown while the keyboard is up takes effect at the next key press.
+    static func refreshOnTouch() {
+        guard ProcessInfo.processInfo.systemUptime - lastRefresh > recheckSeconds else { return }
+        let wasOn = isOn
+        refresh()
+        if !wasOn, isOn { writeSessionHeader() }
+    }
+
+    static let recheckSeconds: TimeInterval = 2
 
     // MARK: - The app's switch
 
@@ -75,7 +102,9 @@ enum TypingDiagnostics {
 
     /// The keyboard asks at a touch-down: true once, when the test was armed.
     static func takeStageTest() -> Bool {
-        guard isOn, stageTestArmed else { return false }
+        refreshOnTouch()
+        guard armed, isOn else { return false }
+        armed = false
         disarmStageTest()
         return true
     }
@@ -86,6 +115,10 @@ enum TypingDiagnostics {
     static func startSession() {
         refresh()
         guard isOn else { return }
+        writeSessionHeader()
+    }
+
+    private static func writeSessionHeader() {
         let line = encode(["e": "session", "t": ProcessInfo.processInfo.systemUptime,
                            "start": ISO8601DateFormatter().string(from: Date())])
         queue.async {
