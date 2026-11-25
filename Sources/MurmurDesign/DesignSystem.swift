@@ -328,6 +328,12 @@ public enum DS {
         /// The clock the key plane runs while a finger is down: 40 per second is one tick every
         /// 25 ms, and the range lets a 60 Hz screen answer at 30 or 60.
         public static let tickRate: Float = 40
+        /// How long the keys must be quiet before the suggestion strip is worked out again. A
+        /// fast typist's taps come 80 to 150 ms apart; the strip waits out a burst rather than
+        /// re-rendering between taps.
+        public static let suggestionQuietSeconds: Double = 0.06
+        /// Typing diagnostics: a main-thread frame gap longer than this is logged as a stall.
+        public static let stallThresholdSeconds: Double = 0.034
         public static let tickRateMinimum: Float = 30
         public static let tickRateMaximum: Float = 60
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as

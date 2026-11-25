@@ -25,6 +25,8 @@ final class KeyboardViewController: UIInputViewController {
         microphone: microphone,
         proxy: { [weak self] in self?.textDocumentProxy }
     )
+    /// Diagnostics only: logs main-thread stalls while typing diagnostics are on.
+    private let stallMonitor = StallMonitor()
     private lazy var typing = TypingController(proxy: { [weak self] in self?.textDocumentProxy })
     private static let log = Logger(subsystem: "ai.pivotstudio.murmur", category: "keyboard")
     private static let typingLog = Logger(subsystem: "ai.pivotstudio.murmur", category: "typing")
@@ -169,6 +171,7 @@ final class KeyboardViewController: UIInputViewController {
         if let window = view.window, !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchProbe }) {
             window.addGestureRecognizer(TouchProbe())
         }
+        if TypingDiagnostics.isOn { stallMonitor.start() }
     }
 
     /// Keys went missing on a device (62 taps counted, many more typed) with 0 cancelled and a
@@ -227,6 +230,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     override func viewWillDisappear(_ animated: Bool) {
+        stallMonitor.stop()
         plane.cancelAllTouches()
         // Writes the status file, which carries the typing counters.
         dictation.keyboardDisappeared()
@@ -323,4 +327,35 @@ final class TouchProbe: UIGestureRecognizer {
 
     override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
     override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+
+/// Diagnostics only: a display link that logs every main-thread frame gap longer than
+/// `DS.Keyboard.stallThresholdSeconds`, so the live log shows whether lost taps line up with a
+/// busy main thread.
+@MainActor
+final class StallMonitor: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+
+    func start() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        last = 0
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        defer { last = link.timestamp }
+        guard last > 0, TypingDiagnostics.isOn else { return }
+        let gap = link.timestamp - last
+        if gap > DS.Keyboard.stallThresholdSeconds {
+            TypingDiagnostics.log("stall", ["t": last, "ms": gap * 1000])
+        }
+    }
 }

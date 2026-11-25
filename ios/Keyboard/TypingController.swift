@@ -128,6 +128,11 @@ final class TypingController {
     @ObservationIgnored private var lettersLayout: LettersLayout?
     /// The next-letter bias, built off the typing path and cached per prefix.
     @ObservationIgnored private var biasCache = NextLetterBiasCache()
+    /// The strip is computed here, off the main thread; see `refreshSuggestions`.
+    @ObservationIgnored private let suggestionQueue = DispatchQueue(
+        label: "ai.pivotstudio.murmur.suggestions", qos: .userInitiated)
+    /// Counts strip refreshes, read on both queues, so a superseded result is dropped.
+    @ObservationIgnored private let suggestionGeneration = OSAllocatedUnfairLock(initialState: 0)
     @ObservationIgnored private var biasTask: Task<Void, Never>?
     /// The Murmur dictionary revision the lexicon was built from, and the words the system's
     /// supplementary lexicon (contacts, text replacements) brought.
@@ -897,22 +902,46 @@ final class TypingController {
     /// The strip's cells for the text before the cursor. Assigned only when they differ, so
     /// SwiftUI does not render the strip for a keystroke that changed nothing in it.
     private func refreshSuggestions(before: String, after: String?) {
-        var next: [Suggestion] = []
-        if suggestionsAllowed, let model, after?.first?.isLetter != true {
-            let tail = String(before.suffix(Self.contextLimit))
-            next = SuggestionEngine.suggestions(before: tail, model: model)
+        // Every refresh supersedes the ones before it; a result computed for older text is
+        // dropped when it arrives.
+        let generation = suggestionGeneration.withLock { value -> Int in
+            value += 1
+            return value
+        }
+        guard suggestionsAllowed, let model, after?.first?.isLetter != true else {
+            if !suggestions.isEmpty { suggestions = [] }
+            return
+        }
+        refreshLexicon()
+        let tail = String(before.suffix(Self.contextLimit))
+        let tracker = self.tracker
+        let field = traits
+        let autocorrector = self.autocorrector
+        let latest = suggestionGeneration
+        // The strip is worked out on a background queue, and only once the keys have been quiet
+        // for `DS.Keyboard.suggestionQuietSeconds`. A fast typist's next tap arrives 80 to 150 ms
+        // after the last, and on 2026-11-25 taps that landed while the main thread was busy
+        // with the previous key's suggestions and the strip's re-render never reached the
+        // keyboard (the live log saw no hit test for them). Typing now never waits on the strip.
+        suggestionQueue.asyncAfter(deadline: .now() + DS.Keyboard.suggestionQuietSeconds) { [weak self] in
+            guard latest.withLock({ $0 }) == generation else { return }
+            let started = ContinuousClock.now
+            var next = SuggestionEngine.suggestions(before: tail, model: model)
             // Mid-word, a confident correction takes the centre cell, the typed word stays on
             // the left in quotes, and one completion stays on the right. The evaluation is the
-            // one the word's end will make, run once per coalesced refresh.
-            if next.first?.kind == .typed {
-                refreshLexicon()
-                let started = ContinuousClock.now
-                let fix = autocorrector?.evaluate(textBefore: tail, tracker: tracker, field: traits)?.stripCorrection
-                noteAutocorrectTime(since: started)
-                if let fix { next = SuggestionEngine.merging(correction: fix, into: next) }
+            // one the word's end will make.
+            if next.first?.kind == .typed,
+                let fix = autocorrector?.evaluate(textBefore: tail, tracker: tracker, field: field)?.stripCorrection
+            {
+                next = SuggestionEngine.merging(correction: fix, into: next)
+            }
+            let result = next
+            Task { @MainActor [weak self] in
+                guard let self, self.suggestionGeneration.withLock({ $0 }) == generation else { return }
+                self.noteAutocorrectTime(since: started)
+                if result != self.suggestions { self.suggestions = result }
             }
         }
-        if next != suggestions { suggestions = next }
     }
 
     /// A tap on a strip cell: the typed word is replaced by the suggestion and a space is typed

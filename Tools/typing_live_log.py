@@ -83,7 +83,7 @@ class Tracker:
         self.start: float | None = None
         self.pending_hits: list[dict] = []   # hits not yet matched by a began
         self.open_touches: dict[int, dict] = {}
-        self.counts = {"window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
+        self.counts = {"stall": 0, "window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
                        "lost": 0, "silent": 0, "gesture": 0}
         self.typed: list[str] = []
 
@@ -112,6 +112,8 @@ class Tracker:
         if kind == "session":
             print(f"{GREEN}--- new diagnostics session {event.get('start', '')} ---{RESET}")
             self.start = t
+            # The comparison covers the latest session only.
+            self.typed = []
         elif kind == "hit":
             self.pending_hits.append(event)
             print(f"{DIM}{self.stamp(t)}  hit   ({event['x']:.0f},{event['y']:.0f}){RESET}")
@@ -140,6 +142,8 @@ class Tracker:
             print(f"{self.stamp(t)}  delete")
         elif kind == "gesture":
             print(f"{YELLOW}{self.stamp(t)}  gesture {event.get('cls')} → {event.get('state')}{RESET}")
+        elif kind == "stall":
+            print(f"{RED}{self.stamp(t)}  main thread stalled {event.get('ms', 0):.0f} ms{RESET}")
         elif kind == "window":
             view = event.get("view", "?")
             colour = DIM if view == "KeyPlaneView" else YELLOW
@@ -154,6 +158,7 @@ class Tracker:
         c = self.counts
         print()
         print("Summary")
+        print(f"  main-thread stalls       {c['stall']}")
         print(f"  touches the window saw   {c['window']}")
         print(f"  hit-tested touch-downs   {c['hit']}")
         print(f"  reached the plane        {c['began']}")
