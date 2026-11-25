@@ -41,6 +41,11 @@ struct KeyPlaneState: Equatable {
 /// view, so it lives on `popupHost`'s layer (the controller's root view) as one shape.
 @MainActor
 final class KeyPlaneView: UIView {
+    /// The swipe trail's thickness, from Settings. The controller sets it at each touch-down.
+    var swipeTrailWidth: CGFloat = DS.Keyboard.swipeTrailWidth {
+        didSet { if swipeTrailWidth != oldValue { trail.lineWidth = swipeTrailWidth } }
+    }
+
     /// Where finger events go. Set by `TypingController.attach`.
     var onTouch: ((TouchEvent) -> Void)?
     /// The globe key's touches, with the event the keyboard list needs.
@@ -92,7 +97,7 @@ final class KeyPlaneView: UIView {
         trail.fillColor = nil
         trail.lineCap = .round
         trail.lineJoin = .round
-        trail.lineWidth = DS.Keyboard.swipeTrailWidth
+        trail.lineWidth = swipeTrailWidth
         // Above every key layer, which sit at zero and are rebuilt on each reload.
         trail.zPosition = 1
         layer.addSublayer(trail)
@@ -180,7 +185,10 @@ final class KeyPlaneView: UIView {
         let label = resolved(DS.Keyboard.keyLabelUIColor)
         switch kind {
         case .character(let text):
-            return textLayer(display(text), font: DS.Keyboard.letterUIFont, color: label, size: size)
+            let shown = display(text)
+            let isCapital = shown.count == 1 && shown.first?.isUppercase == true
+            let font = isCapital ? DS.Keyboard.capitalLetterUIFont : DS.Keyboard.letterUIFont
+            return textLayer(shown, font: font, color: label, size: size)
         case .shift:
             let symbol = switch state.shift {
             case .off: "shift"

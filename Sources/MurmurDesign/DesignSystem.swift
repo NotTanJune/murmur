@@ -354,6 +354,11 @@ public enum DS {
         public static let swipeTrailSeconds: Double = 0.45
         /// The trail's line width. Unmeasured against the stock keyboard's trail.
         public static let swipeTrailWidth: CGFloat = 8
+        /// The trail's other thicknesses (Settings, Swipe trail): thin, thick and bold beside
+        /// the regular `swipeTrailWidth`.
+        public static let swipeTrailWidthThin: CGFloat = 4
+        public static let swipeTrailWidthThick: CGFloat = 12
+        public static let swipeTrailWidthBold: CGFloat = 16
         /// The trail's strength as a share of the label colour.
         public static let swipeTrailOpacity: CGFloat = 0.35
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
@@ -486,6 +491,15 @@ public enum DS {
         /// The key plane's faces: letters at 24.5 pt (the stock x-height is 12.3 pt, 1.1 times
         /// the old 22.5 pt face's), labels (`123`, `return`) at 16 pt.
         public static let letterUIFont = UIFont.systemFont(ofSize: 24.5)
+        /// Capital letters on the keys. The stock keyboard sets its keys in SF Compact, which
+        /// apps cannot ask for: capitals at about 23 pt, lowercase at about 24.5 pt (fitted on
+        /// 2026-11-25 to letter widths measured from screenshots; SF Compact's widths matched to
+        /// 0.2 pt). In SF Pro at `letterUIFont`'s size the capitals came out 10% taller and about
+        /// 18% wider than stock. SF Pro's semi-condensed width (`wdth` 80, raw width -0.1) at
+        /// 23 pt is within 0.4 pt of the stock widths. Lowercase stays standard width, where SF
+        /// Pro already sits within 0.5 pt.
+        public static let capitalLetterUIFont = UIFont.systemFont(
+            ofSize: 23, weight: .regular, width: UIFont.Width(rawValue: -0.1))
         public static let labelUIFont = UIFont.systemFont(ofSize: 16)
         public static let iconPointSize: CGFloat = 19
         #endif

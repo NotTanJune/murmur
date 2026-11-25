@@ -99,6 +99,23 @@ public enum AppearanceChoice: String, CaseIterable, Sendable {
     }
 }
 
+/// How thick the line is that follows a finger swiping across the iPhone keyboard.
+public enum SwipeTrailChoice: String, CaseIterable, Sendable {
+    case thin
+    case regular
+    case thick
+    case bold
+
+    public var displayName: String {
+        switch self {
+        case .thin: "Thin"
+        case .regular: "Regular"
+        case .thick: "Thick"
+        case .bold: "Bold"
+        }
+    }
+}
+
 /// How long the models stay in memory after the last dictation.
 public enum IdleUnload: String, CaseIterable, Sendable {
     case oneMinute
@@ -237,6 +254,11 @@ public final class Settings {
         didSet { persist(swipeTyping, Keys.swipeTyping) }
     }
 
+    /// The thickness of the swipe trail on the iPhone keyboard. The Mac ignores it.
+    public var swipeTrail: SwipeTrailChoice {
+        didSet { persist(swipeTrail.rawValue, Keys.swipeTrail) }
+    }
+
     /// When Parakeet and Bark transcribe: as windows fill during the hold, or on release.
     public var transcribeTiming: TranscribeTiming {
         didSet { persist(transcribeTiming.rawValue, Keys.transcribeTiming) }
@@ -262,6 +284,7 @@ public final class Settings {
         static let soundEnabled = "soundEnabled"
         static let hapticsEnabled = "hapticsEnabled"
         static let swipeTyping = "swipeTyping"
+        static let swipeTrail = "swipeTrail"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -289,6 +312,7 @@ public final class Settings {
         let soundEnabled: Bool
         let hapticsEnabled: Bool
         let swipeTyping: Bool
+        let swipeTrail: SwipeTrailChoice
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -311,6 +335,7 @@ public final class Settings {
             soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
             hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
             swipeTyping = defaults.object(forKey: Keys.swipeTyping) as? Bool ?? true
+            swipeTrail = SwipeTrailChoice(rawValue: defaults.string(forKey: Keys.swipeTrail) ?? "") ?? .regular
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -343,6 +368,7 @@ public final class Settings {
         soundEnabled = values.soundEnabled
         hapticsEnabled = values.hapticsEnabled
         swipeTyping = values.swipeTyping
+        swipeTrail = values.swipeTrail
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -370,6 +396,7 @@ public final class Settings {
         soundEnabled = values.soundEnabled
         hapticsEnabled = values.hapticsEnabled
         swipeTyping = values.swipeTyping
+        swipeTrail = values.swipeTrail
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

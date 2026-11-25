@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.
@@ -90,6 +90,29 @@ struct SettingsReloadTests {
         settings.reloadFromDefaults()
         #expect(settings.hapticsEnabled, "a removed key falls back to on")
         #expect(defaults.object(forKey: "hapticsEnabled") == nil, "the reload does not write back")
+    }
+
+    @MainActor
+    @Test("The swipe trail's thickness persists and reloads without writing back")
+    func swipeTrailPersistsAndReloads() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = Settings(defaults: defaults)
+        #expect(settings.swipeTrail == .regular)
+        #expect(defaults.object(forKey: "swipeTrail") == nil, "the default is not written")
+
+        settings.swipeTrail = .thick
+        #expect(defaults.string(forKey: "swipeTrail") == "thick")
+        #expect(Settings(defaults: defaults).swipeTrail == .thick, "a new instance reads the stored value")
+
+        defaults.set("thin", forKey: "swipeTrail")
+        settings.reloadFromDefaults()
+        #expect(settings.swipeTrail == .thin)
+        defaults.removeObject(forKey: "swipeTrail")
+        settings.reloadFromDefaults()
+        #expect(settings.swipeTrail == .regular, "a removed key falls back to regular")
+        #expect(defaults.object(forKey: "swipeTrail") == nil, "the reload does not write back")
     }
 
     @MainActor

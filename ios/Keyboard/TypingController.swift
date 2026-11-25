@@ -477,7 +477,11 @@ final class TypingController {
         }
         // Whether a touch may swipe is decided as the finger lands, from the setting as it stands
         // now, never in the staged test (its cut-down paths know nothing of swipes).
-        if case .began = event { engine.swipeEnabled = stage == nil && swipeAllowed }
+        if case .began = event {
+            recheckAutoShift()
+            engine.swipeEnabled = stage == nil && swipeAllowed
+            plane?.swipeTrailWidth = swipeTrailWidth
+        }
         let effects = engine.handle(event, bias: stage == nil ? biasForTouch() : [:])
         if !effects.isEmpty {
             if let stage, stage != .full { applyReduced(effects, stage: stage) } else { apply(effects) }
@@ -984,6 +988,35 @@ final class TypingController {
 
     /// Turns shift on when the text asks for a capital next, and takes back only a shift that
     /// the text itself turned on. A tapped shift stays; caps lock is never touched.
+    /// The trail's thickness for the Settings choice.
+    private var swipeTrailWidth: CGFloat {
+        switch Settings.shared.swipeTrail {
+        case .thin: DS.Keyboard.swipeTrailWidthThin
+        case .regular: DS.Keyboard.swipeTrailWidth
+        case .thick: DS.Keyboard.swipeTrailWidthThick
+        case .bold: DS.Keyboard.swipeTrailWidthBold
+        }
+    }
+
+    /// At a touch-down: a shift that this keyboard turned on by itself is checked against the
+    /// text as it stands now, and taken back if the text no longer starts a sentence. Auto-shift
+    /// is otherwise only worked out after a change to the text or a call from the host, and a
+    /// host can call with an empty or partial context (Notes after a pause is the suspect), which
+    /// reads as a sentence start and leaves shift on until the next key. On 2026-11-25 words
+    /// swiped or typed after a pause came out capitalised mid-sentence. The read costs one call
+    /// to the proxy and only happens while an automatic shift is on. A shift the owner tapped is
+    /// never touched.
+    private func recheckAutoShift() {
+        guard autoShifted, engine.shift == .on, let proxy = proxy() else { return }
+        let before = proxy.documentContextBeforeInput ?? ""
+        guard !TextRules.autoShift(before: before, autocapitalization: traits.autocapitalization) else { return }
+        TypingDiagnostics.log("autoshift", ["to": "off", "why": "stale at touch-down", "before": before.count])
+        engine.setShift(.off)
+        autoShifted = false
+        stateIsDirty = true
+        flushState()
+    }
+
     private func recomputeAutoShift(before: String) {
         let wants = TextRules.autoShift(before: before, autocapitalization: traits.autocapitalization)
         switch engine.shift {
@@ -991,6 +1024,9 @@ final class TypingController {
             break
         case .off:
             if wants {
+                TypingDiagnostics.log("autoshift", [
+                    "to": "on", "before": before.count, "endsInNewline": before.last?.isNewline ?? false,
+                ])
                 engine.setShift(.on)
                 autoShifted = true
                 stateIsDirty = true
@@ -1220,6 +1256,15 @@ final class TypingController {
                 smartApostrophes(candidate.text), shift: shift, sentenceCapital: capital)
             if !readings.contains(reading) { readings.append(reading) }
         }
+        // A contact's name that is also a plain word types as the plain word; its capital form is
+        // the first alternative in the strip.
+        if let entry = autocorrector?.lexicon.entry(for: candidates[0].text), !entry.respellsKnownWords {
+            let name = SwipeInsertion.cased(smartApostrophes(entry.display), shift: shift, sentenceCapital: capital)
+            if !readings.contains(name) { readings.insert(name, at: 1) }
+        }
+        TypingDiagnostics.log("swipe-case", [
+            "shift": String(describing: shift), "sentenceStart": capital, "before": before.count,
+        ])
         proxy.insertText((needsSpace ? " " : "") + readings[0])
         swipeOffer = SwipeOffer(readings: readings, leadingSpace: needsSpace)
         undo = nil

@@ -52,6 +52,16 @@ struct SettingsView: View {
                     ToggleRow(title: "Swipe typing", isOn: $settings.swipeTyping)
                 }
 
+                if settings.swipeTyping {
+                    Card(title: "Swipe trail") {
+                        ChoiceKeys(
+                            options: SwipeTrailChoice.allCases,
+                            selection: $settings.swipeTrail,
+                            title: \.displayName
+                        )
+                    }
+                }
+
                 Card(title: "Appearance") {
                     ChoiceKeys(
                         options: AppearanceChoice.allCases,

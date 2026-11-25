@@ -332,7 +332,7 @@ public struct SwipeDecoder: Sendable {
                     var display: String?
                     if hasLexicon, let entry = lexicon.entry(for: word) {
                         language += entry.bonus
-                        display = entry.display
+                        if entry.respellsKnownWords { display = entry.display }
                     }
                     // The spatial terms are at most zero, so a word whose language score alone
                     // cannot reach the current cut-off is out.

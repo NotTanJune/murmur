@@ -700,6 +700,33 @@ trail's width and look, whether the lift-time decode is quick enough on a phone,
 live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
 whether the owed-space rules feel right in Notes and Messages.
 
+**Capitals on the keys are semi-condensed.** The stock keyboard sets its keys in SF Compact,
+which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
+from the owner's screenshots, SF Compact matches the stock capitals at about 23 pt and the stock
+lowercase at about 24.5 pt, both to 0.2 pt. In SF Pro at 24.5 pt the capitals were 10% taller and
+about 18% wider than stock (2.4 pt off on average), which the owner noticed. Capitals are now
+`DS.Keyboard.capitalLetterUIFont`: SF Pro at 23 pt with the semi-condensed width
+(`UIFont.Width(rawValue: -0.1)`, the variable font's `wdth` 80), 0.4 pt off on average on the
+Mac. Lowercase stays `letterUIFont` at standard width, already within 0.5 pt. Whether iOS
+honours a raw width between its named ones is unverified on a device; if it does not, the
+capitals are still smaller than before but not narrower.
+
+**A contact's name does not respell a plain word.** `UILexicon` supplies contacts' names, and many
+are also words (Will, Mark, May, Rose). Both decoders used the lexicon's spelling for any word it
+held, so swiped and corrected words came out capitalised at random (owner, 2026-11-25).
+`UserLexicon.Entry.respellsKnownWords` is false for the system's entries: a word the model knows
+types in lowercase, and for a swipe the name is the first alternative in the strip. The owner's
+dictionary terms still set their own spelling, and a name the model lacks types as written.
+Separately, `TypingController.recheckAutoShift` checks an automatic shift against the text at
+each touch-down and takes it back if the text no longer starts a sentence: auto-shift is
+otherwise worked out only after a text change or a host call, and a host call with an empty
+context reads as a sentence start. That second cause is suspected, not observed; the
+diagnostics log now records `autoshift` and `swipe-case` to settle it.
+
+**The swipe trail's thickness is a setting.** `Settings.swipeTrail` (thin, regular, thick, bold;
+4, 8, 12 and 16 pt), a `ChoiceKeys` card in the phone's Settings tab shown while swipe typing is
+on. The controller hands the width to the plane at each touch-down.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

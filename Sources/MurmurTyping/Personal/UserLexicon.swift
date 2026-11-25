@@ -67,6 +67,12 @@ public struct UserLexicon: Sendable, Equatable {
         public let source: Source
 
         public var bonus: Double { source.bonus }
+
+        /// Whether a word the model already knows is typed in this entry's spelling. The owner's
+        /// own terms are ("iPhone"). The system's are not: contacts are full of names that are
+        /// also plain words (Will, Mark, May, Rose), and on 2026-11-25 swiped words came out
+        /// capitalised at random. A system name the model does not know still types as written.
+        public var respellsKnownWords: Bool { source != .system }
     }
 
     /// Words by folded form (lowercase, straight apostrophes). When a word has several sources

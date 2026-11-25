@@ -276,7 +276,11 @@ public struct TapDecoder: Sendable {
                 var score = terminal.score + configuration.languageWeight * logPrior(terminal.id, previous: previous)
                 if let entry = lexicon.entry(for: terminal.word) {
                     score += entry.bonus
-                    offer(entry.display, ids: [terminal.id], score: score, kind: terminal.kind, preservesCase: true)
+                    if entry.respellsKnownWords {
+                        offer(entry.display, ids: [terminal.id], score: score, kind: terminal.kind, preservesCase: true)
+                    } else {
+                        offer(terminal.word, ids: [terminal.id], score: score, kind: terminal.kind)
+                    }
                 } else {
                     offer(terminal.word, ids: [terminal.id], score: score, kind: terminal.kind)
                 }

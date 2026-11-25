@@ -159,6 +159,22 @@ struct SwipeFixture {
         #expect(candidates.first?.text == "iPhone")
     }
 
+    @Test("A contact's name that is also a plain word swipes as the plain word")
+    func systemNameDoesNotRespell() throws {
+        let fixture = try SwipeFixture()
+        try #require(fixture.model.id(of: "will") != nil)
+        let contacts = UserLexicon(systemWords: ["Will", "Mark"])
+        #expect(fixture.decode(fixture.decoder.idealPath(for: "will"), lexicon: contacts).first?.text == "will")
+        #expect(fixture.decode(fixture.decoder.idealPath(for: "mark"), lexicon: contacts).first?.text == "mark")
+        // The owner's own dictionary term still decides its spelling.
+        let own = UserLexicon(dictionaryTerms: ["Will"])
+        #expect(fixture.decode(fixture.decoder.idealPath(for: "will"), lexicon: own).first?.text == "Will")
+        // A contact the model does not know types as written.
+        try #require(fixture.model.id(of: "qpzm") == nil)
+        let unknown = UserLexicon(systemWords: ["Qpzm"])
+        #expect(fixture.decode(fixture.decoder.idealPath(for: "qpzm"), lexicon: unknown).first?.text == "Qpzm")
+    }
+
     // MARK: - Touch rules
 
     @Test("A slide shorter than a pitch is a tap, one longer is a swipe")
