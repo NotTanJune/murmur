@@ -40,6 +40,7 @@
 		825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		85D49F3E1052BF98F55A0BDF /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */; };
 		A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
+		AC813F63CA96A3E65B2EE5D2 /* WindowProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D297DCE8E9A8A5502E95D5E0 /* WindowProbe.swift */; };
 		B63C26E115747D6D62112D3B /* TypingDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3872ACF4D111EFD385FB0D /* TypingDiagnostics.swift */; };
 		C50636D3C218B0882040FE74 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31985D17A48C0DE2D931F5F7 /* SettingsView.swift */; };
 		CFC6312F6BF4B81C29226FCE /* MurmurPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80051BCE7D8D7FDB936C586D /* MurmurPhoneApp.swift */; };
@@ -130,6 +131,7 @@
 		C01E3D62CD322B0FC73D899F /* MurmurKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MurmurKeyboard.entitlements; sourceTree = "<group>"; };
 		C97162CCF31B94BBAE1B50B5 /* HistoryPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPanel.swift; sourceTree = "<group>"; };
 		C9CB6ECCBC707799552D6FF6 /* ModelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelView.swift; sourceTree = "<group>"; };
+		D297DCE8E9A8A5502E95D5E0 /* WindowProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowProbe.swift; sourceTree = "<group>"; };
 		D99A5BDFF779DA3D7A2BB3A4 /* KeyboardDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDictation.swift; sourceTree = "<group>"; };
 		E78BB9569506B5634F8195ED /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHaptics.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 				6FCE543F0B78AAC0F91E61D8 /* SuggestionStrip.swift */,
 				9F203DF04CD60E76AC213145 /* TypingController.swift */,
 				697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */,
+				D297DCE8E9A8A5502E95D5E0 /* WindowProbe.swift */,
 			);
 			path = Keyboard;
 			sourceTree = "<group>";
@@ -453,6 +456,7 @@
 				F433394AB0A169CD1FC40258 /* TypingController.swift in Sources */,
 				B63C26E115747D6D62112D3B /* TypingDiagnostics.swift in Sources */,
 				F2BD34DA200CB5289D0D7461 /* WebMicrophone.swift in Sources */,
+				AC813F63CA96A3E65B2EE5D2 /* WindowProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

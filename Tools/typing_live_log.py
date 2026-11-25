@@ -83,7 +83,7 @@ class Tracker:
         self.start: float | None = None
         self.pending_hits: list[dict] = []   # hits not yet matched by a began
         self.open_touches: dict[int, dict] = {}
-        self.counts = {"stall": 0, "window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
+        self.counts = {"whit": 0, "event": 0, "layout": 0, "host": 0, "refused": 0, "overlap": 0, "stall": 0, "window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
                        "lost": 0, "silent": 0, "gesture": 0}
         self.typed: list[str] = []
 
@@ -142,6 +142,23 @@ class Tracker:
             print(f"{self.stamp(t)}  delete")
         elif kind == "gesture":
             print(f"{YELLOW}{self.stamp(t)}  gesture {event.get('cls')} → {event.get('state')}{RESET}")
+        elif kind == "whit":
+            view = event.get("view", "?")
+            if view != "KeyPlaneView":
+                self.counts["refused"] = self.counts.get("refused", 0) + 1
+                print(f"{RED}{self.stamp(t)}  window hit test at ({event['x']:.0f},{event['y']:.0f}) found {view}"
+                      f" in {event.get('window')}: {event.get('why', 'outside the plane')}{RESET}")
+        elif kind == "event":
+            if event.get("others"):
+                self.counts["overlap"] = self.counts.get("overlap", 0) + 1
+                print(f"{DIM}{self.stamp(t)}  dispatched with other touches down ({event['others']}){RESET}")
+        elif kind == "layout":
+            size = (event.get("w"), event.get("h"), event.get("window"))
+            if size != getattr(self, "last_layout", None):
+                self.last_layout = size
+                print(f"{YELLOW}{self.stamp(t)}  layout {event.get('w'):.0f} x {event.get('h'):.0f} (window {event.get('window'):.0f}){RESET}")
+        elif kind == "host":
+            pass
         elif kind == "stall":
             print(f"{RED}{self.stamp(t)}  main thread stalled {event.get('ms', 0):.0f} ms{RESET}")
         elif kind == "window":
@@ -158,6 +175,9 @@ class Tracker:
         c = self.counts
         print()
         print("Summary")
+        print(f"  window hit tests         {c['whit']}  (not on the plane: {c['refused']})")
+        print(f"  touches dispatched       {c['event']}  (with another finger down: {c['overlap']})")
+        print(f"  layout passes            {c['layout']}")
         print(f"  main-thread stalls       {c['stall']}")
         print(f"  touches the window saw   {c['window']}")
         print(f"  hit-tested touch-downs   {c['hit']}")

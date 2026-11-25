@@ -134,6 +134,12 @@ final class KeyboardViewController: UIInputViewController {
         if planeHeightConstraint?.constant != typing.planeHeight {
             planeHeightConstraint?.constant = typing.planeHeight
         }
+        if TypingDiagnostics.isOn {
+            TypingDiagnostics.log("layout", [
+                "w": Double(view.bounds.width), "h": Double(view.bounds.height),
+                "window": Double(view.window?.bounds.height ?? 0),
+            ])
+        }
         let viewHeight = view.bounds.height
         let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
         dictation.noteEmojiPanelHeight(requested: height, shown: shown)
@@ -171,7 +177,11 @@ final class KeyboardViewController: UIInputViewController {
         if let window = view.window, !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchProbe }) {
             window.addGestureRecognizer(TouchProbe())
         }
-        if TypingDiagnostics.isOn { stallMonitor.start() }
+        if TypingDiagnostics.isOn {
+            stallMonitor.start()
+            WindowProbe.plane = plane
+            WindowProbe.install()
+        }
     }
 
     /// Keys went missing on a device (62 taps counted, many more typed) with 0 cancelled and a
@@ -221,11 +231,13 @@ final class KeyboardViewController: UIInputViewController {
     /// The host changed the text, the selection or the field: shift and the strip follow it.
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
+        TypingDiagnostics.log("host", ["what": "textDidChange"])
         typing.textDidChange()
     }
 
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
+        TypingDiagnostics.log("host", ["what": "selectionDidChange"])
         typing.textDidChange()
     }
 
