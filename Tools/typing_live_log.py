@@ -45,16 +45,20 @@ DIM, RED, YELLOW, GREEN, RESET = "\033[2m", "\033[31m", "\033[33m", "\033[32m", 
 
 
 def physical_device() -> str:
-    """The first paired physical iPhone that devicectl lists as available."""
-    out = subprocess.run(
-        ["xcrun", "devicectl", "list", "devices"], capture_output=True, text=True, check=True
-    ).stdout
-    for line in out.splitlines():
-        if "iPhone" in line and "available" in line and "physical" in line:
-            for word in line.split():
-                if word.count("-") == 1 and len(word) >= 20:
-                    return word
-    sys.exit("No available physical iPhone. Cable and unlock the phone, then try again.")
+    """The first physical iPhone devicectl knows. It need not be connected yet: each copy
+    connects to it, and the loop waits while it is away."""
+    with tempfile.TemporaryDirectory() as folder:
+        listing = Path(folder) / "devices.json"
+        subprocess.run(
+            ["xcrun", "devicectl", "list", "devices", "--json-output", str(listing)],
+            capture_output=True, check=True,
+        )
+        devices = json.loads(listing.read_text())["result"]["devices"]
+    for device in devices:
+        hardware = device.get("hardwareProperties", {})
+        if hardware.get("deviceType") == "iPhone" and hardware.get("reality") == "physical":
+            return hardware["udid"]
+    sys.exit("No physical iPhone is paired with this Mac.")
 
 
 def pull(device: str, destination: Path) -> bool:
@@ -176,13 +180,21 @@ def main() -> None:
     folder = Path(tempfile.mkdtemp(prefix="murmur-typing-"))
     tracker = Tracker()
     seen = 0
+    waiting_since: float | None = None
     print(f"Watching the keyboard on {device}. Switch on Setup → Typing diagnostics, then type.")
     print("Ctrl-C to stop.\n")
     try:
         while True:
             target = folder / "typing-diagnostics.jsonl"
             target.unlink(missing_ok=True)
-            if pull(device, target):
+            if not pull(device, target):
+                now = time.monotonic()
+                if waiting_since is None or now - waiting_since > 15:
+                    waiting_since = now
+                    print(f"{DIM}waiting for the phone (cable it and unlock it), or for the log file "
+                          f"(switch on Setup → Typing diagnostics, then open the keyboard){RESET}")
+            else:
+                waiting_since = None
                 lines = target.read_text(errors="replace").splitlines()
                 if len(lines) < seen:   # the keyboard started a new session and truncated it
                     seen = 0
