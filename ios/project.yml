@@ -111,6 +111,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: Murmur records your voice while you hold the dictation key, then types what you said.
         NSSpeechRecognitionUsageDescription: Murmur turns your voice into text on this iPhone.
+        # Lets the keyboard run its display link, and so its touch handling, at a ProMotion
+        # screen's 120 Hz. Without it an iPhone caps a process at 60. Whether iOS honours it in
+        # a keyboard extension is unverified; the diagnostics log's `timing` lines will say.
+        CADisableMinimumFrameDurationOnPhone: true
         UIAppFonts:
           - EBGaramond-Italic[wght].ttf
         NSExtension:

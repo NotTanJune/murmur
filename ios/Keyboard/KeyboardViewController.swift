@@ -123,13 +123,39 @@ final class KeyboardViewController: UIInputViewController {
     ///
     /// Landscape is read from the vertical size class and not from the view's own shape: the
     /// view is wider than it is tall in portrait too.
+    /// What the keyboard's geometry depends on, to skip layout passes that change none of it.
+    private struct LayoutKey: Equatable {
+        var width: CGFloat
+        var isLandscape: Bool
+        var showsGlobe: Bool
+        var topTrim: Double
+    }
+
+    private var lastLayout: LayoutKey?
+
+    private struct LayoutReport: Equatable {
+        var requested: CGFloat
+        var shown: CGFloat
+    }
+
+    private var lastReport: LayoutReport?
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let landscape = traitCollection.verticalSizeClass == .compact
-        typing.setLayout(
-            width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey)
-        // The window's recognizers can appear after the first appearance; each new one is relaxed.
-        relaxTouchDelays()
+        // A key's pop-up is a layer added to this view, which lays the view out again: about
+        // 1.6 passes per key press (measured 2026-11-25). The geometry is only worked out again
+        // when something it depends on changed.
+        let geometry = LayoutKey(
+            width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey,
+            topTrim: Settings.shared.keyboardTopTrim)
+        if geometry != lastLayout {
+            lastLayout = geometry
+            typing.setLayout(
+                width: geometry.width, isLandscape: landscape, showsGlobe: geometry.showsGlobe)
+            // The window's recognizers can appear after the first appearance; each new one is relaxed.
+            relaxTouchDelays()
+        }
         let height = typing.keyboardHeight
         if heightConstraint?.constant != height {
             heightConstraint?.constant = height
@@ -137,14 +163,16 @@ final class KeyboardViewController: UIInputViewController {
         if planeHeightConstraint?.constant != typing.planeHeight {
             planeHeightConstraint?.constant = typing.planeHeight
         }
+        let viewHeight = view.bounds.height
+        let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
+        guard LayoutReport(requested: height, shown: shown) != lastReport else { return }
+        lastReport = LayoutReport(requested: height, shown: shown)
         if TypingDiagnostics.isOn {
             TypingDiagnostics.log("layout", [
-                "w": Double(view.bounds.width), "h": Double(view.bounds.height),
+                "w": Double(view.bounds.width), "h": Double(viewHeight),
                 "window": Double(view.window?.bounds.height ?? 0),
             ])
         }
-        let viewHeight = view.bounds.height
-        let shown = view.window.map { min(viewHeight, $0.bounds.height) } ?? viewHeight
         dictation.noteEmojiPanelHeight(requested: height, shown: shown)
     }
 

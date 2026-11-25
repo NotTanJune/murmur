@@ -73,6 +73,20 @@ struct SettingsView: View {
                             .font(DS.Font.bodyEmphasis)
                             .foregroundStyle(DS.Color.ink)
                     }
+                    ChoiceKeys(
+                        options: KeyTapStyle.allCases,
+                        selection: $settings.keyTapStyle,
+                        title: \.displayName
+                    )
+                    Stepper(
+                        value: $settings.keyTapStrength,
+                        in: DS.Keyboard.keyTapStrengthMinimum...1,
+                        step: DS.Keyboard.keyTapStrengthStep
+                    ) {
+                        Text("Key tap: \(settings.keyTapStrength.formatted(.number.precision(.fractionLength(1))))")
+                            .font(DS.Font.bodyEmphasis)
+                            .foregroundStyle(DS.Color.ink)
+                    }
                 }
 
                 Card(title: "Appearance") {

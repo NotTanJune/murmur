@@ -765,6 +765,26 @@ there. **When the owner names the value: set `DS.Keyboard.stripHeight` and
 `MetricsConstants.portrait` to it, then delete the setting, its key, its Settings card, the
 `stripTopTrim*` tokens and this paragraph's tuning half.**
 
+**Typing felt heavy, and what was cut.** With the lost taps fixed the owner called typing
+accurate but heavier than the stock keyboard (2026-11-25). Read off three diagnostics sessions:
+a touch-down reached the keyboard a median 16 to 18 ms after it happened, and a lift's letter was
+handed to `insertText` 20 to 24 ms after the lift, both about one 60 Hz frame; fingers stay down
+a median 63 to 71 ms; the view was laid out 1.6 times per key. The stock keyboard runs inside
+the host app, so some of the gap is the price of an extension. Changed, each unverified on a
+device: (1) an ordinary letter or digit is sent straight to `insertText`; `typeInsert` used to
+read `documentContextBeforeInput`, a round trip to the host on the main thread, before every
+key, and now does so only for marks, the space, and when a suggestion's or a swipe's space is
+waiting. (2) The plane's display link asks for 80 to 120 Hz (it asked for at most 60), and the
+keyboard's `Info.plist` sets `CADisableMinimumFrameDurationOnPhone`. (3)
+`viewDidLayoutSubviews` works the geometry out again only when the width, the orientation, the
+globe key or the top trim changed, and reports the height only when it changed. The diagnostics
+log has a `timing` line per touch-down and lift (`late`: milliseconds from the touch to its
+handling; `ms`: the handling itself) to compare against the numbers above. **The key tap is
+being tuned too:** `Settings.keyTapStyle` (light, soft, rigid) and `keyTapStrength` (0.1 to 1),
+in Settings, Keyboard tuning, because "heavy" may be the `.light` impact at full strength and
+not time. Both are temporary: once the owner picks, they become constants in `KeyFeedback` and
+the settings, their rows and the `keyTapStrength*` tokens go.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

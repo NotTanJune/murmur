@@ -311,6 +311,9 @@ public enum DS {
         /// view, which shows whether iOS clips there.
         public static let stripTopTrimLimit: Double = 12
         public static let stripTopTrimStep: Double = 0.5
+        /// Tuning, temporary: the range and step of the key tap's strength.
+        public static let keyTapStrengthMinimum: Double = 0.1
+        public static let keyTapStrengthStep: Double = 0.1
         /// Between the strip and the first row: 8 pt upright, 6 pt turned.
         public static let stripGap: CGFloat = 8
         /// While a burst of typing is under way, a touch this far up into the suggestion strip
@@ -340,9 +343,13 @@ public enum DS {
         /// How far the keycaps fade toward the backdrop while the space bar is a trackpad, as a
         /// fraction: the keys are hidden at 1.
         public static let trackpadKeyBlank: Double = 0.6
-        /// The clock the key plane runs while a finger is down: 40 per second is one tick every
-        /// 25 ms, and the range lets a 60 Hz screen answer at 30 or 60.
-        public static let tickRate: Float = 40
+        /// The clock the key plane runs while a finger is down. It asks for the screen's full
+        /// 120 per second on purpose: on 2026-11-25 a touch-down reached the keyboard a median
+        /// 17 ms after it happened and a lift's letter was sent 20 to 24 ms after the lift, both
+        /// about one 60 Hz frame, and the owner felt typing as heavier than the stock keyboard.
+        /// A display link that asks for at most 60 votes for the slower rate. The engine's tick
+        /// itself is a few comparisons.
+        public static let tickRate: Float = 120
         /// How long the keys must be quiet before the suggestion strip is worked out and drawn
         /// again, so a burst of taps is not followed by a redraw per key. Raising it to 300 ms on
         /// 2026-11-25 did not change how many taps a fast sentence lost, so the redraw is not what
@@ -350,8 +357,8 @@ public enum DS {
         public static let suggestionQuietSeconds: Double = 0.12
         /// Typing diagnostics: a main-thread frame gap longer than this is logged as a stall.
         public static let stallThresholdSeconds: Double = 0.034
-        public static let tickRateMinimum: Float = 30
-        public static let tickRateMaximum: Float = 60
+        public static let tickRateMinimum: Float = 80
+        public static let tickRateMaximum: Float = 120
         /// Swipe typing: while a finger swipes, the strip's centre cell shows the best reading at
         /// most this often. A decode costs well under a millisecond on a Mac, but the finger
         /// moves 60 to 120 times a second and a reading that changes every frame only flickers.

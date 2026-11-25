@@ -493,6 +493,20 @@ final class TypingController {
         let elapsed = (ContinuousClock.now - entered).components
         let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
         counters.slowestHandleMs = max(counters.slowestHandleMs, milliseconds)
+        // Diagnostics: how late each touch-down and lift reached the keyboard and how long the
+        // keyboard then took, so "typing feels heavy" can be read off the log as numbers.
+        if TypingDiagnostics.isOn {
+            switch event {
+            case .began(_, _, let time):
+                TypingDiagnostics.log("timing", [
+                    "phase": "down", "late": (uptime - time) * 1000, "ms": milliseconds])
+            case .ended(_, _, let time):
+                TypingDiagnostics.log("timing", [
+                    "phase": "up", "late": (uptime - time) * 1000, "ms": milliseconds])
+            default:
+                break
+            }
+        }
     }
 
     /// The stage test's cut-down paths: only the parts of a key press the stage allows, with no
@@ -634,6 +648,21 @@ final class TypingController {
             lastSpaceTime = nil
             tracker.reset()
             proxy.insertText(text)
+            return
+        }
+        // An ordinary letter or digit goes straight in. Nothing below applies to it unless a
+        // suggestion's space or a swipe's owed space is waiting, and reading the text before the
+        // cursor first is a round trip to the host app on the main thread for every key: the
+        // owner felt typing as "heavy" beside the stock keyboard on 2026-11-25, which reads
+        // nothing and runs inside the app.
+        if owed == nil, !pending.isArmed, mark.isLetter || mark.isNumber {
+            lastSpaceTime = nil
+            proxy.insertText(text)
+            if mark.isLetter, let tap {
+                tracker.append(letter: text, at: tap)
+            } else {
+                tracker.reset()
+            }
             return
         }
         var before = proxy.documentContextBeforeInput ?? ""

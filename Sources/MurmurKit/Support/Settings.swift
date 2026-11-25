@@ -99,6 +99,21 @@ public enum AppearanceChoice: String, CaseIterable, Sendable {
     }
 }
 
+/// Tuning, temporary: which haptic a key press on the iPhone keyboard plays.
+public enum KeyTapStyle: String, CaseIterable, Sendable {
+    case light
+    case soft
+    case rigid
+
+    public var displayName: String {
+        switch self {
+        case .light: "Light"
+        case .soft: "Soft"
+        case .rigid: "Rigid"
+        }
+    }
+}
+
 /// How thick the line is that follows a finger swiping across the iPhone keyboard.
 public enum SwipeTrailChoice: String, CaseIterable, Sendable {
     case thin
@@ -268,6 +283,17 @@ public final class Settings {
         didSet { persist(keyboardTopTrim, Keys.keyboardTopTrim) }
     }
 
+    /// Tuning, temporary: the haptic a key press plays on the iPhone keyboard and how strong
+    /// it is (0.1 to 1). The owner is choosing them by feel (2026-11-25); once chosen they become
+    /// constants in `KeyFeedback` and these two settings and their Settings rows are removed.
+    public var keyTapStyle: KeyTapStyle {
+        didSet { persist(keyTapStyle.rawValue, Keys.keyTapStyle) }
+    }
+
+    public var keyTapStrength: Double {
+        didSet { persist(keyTapStrength, Keys.keyTapStrength) }
+    }
+
     /// The thickness of the swipe trail on the iPhone keyboard. The Mac ignores it.
     public var swipeTrail: SwipeTrailChoice {
         didSet { persist(swipeTrail.rawValue, Keys.swipeTrail) }
@@ -301,6 +327,8 @@ public final class Settings {
         static let swipeTrail = "swipeTrail"
         static let autoCapitalise = "autoCapitalise"
         static let keyboardTopTrim = "keyboardTopTrim"
+        static let keyTapStyle = "keyTapStyle"
+        static let keyTapStrength = "keyTapStrength"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -331,6 +359,8 @@ public final class Settings {
         let swipeTrail: SwipeTrailChoice
         let autoCapitalise: Bool
         let keyboardTopTrim: Double
+        let keyTapStyle: KeyTapStyle
+        let keyTapStrength: Double
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -356,6 +386,8 @@ public final class Settings {
             swipeTrail = SwipeTrailChoice(rawValue: defaults.string(forKey: Keys.swipeTrail) ?? "") ?? .regular
             autoCapitalise = defaults.object(forKey: Keys.autoCapitalise) as? Bool ?? false
             keyboardTopTrim = defaults.object(forKey: Keys.keyboardTopTrim) as? Double ?? 0
+            keyTapStyle = KeyTapStyle(rawValue: defaults.string(forKey: Keys.keyTapStyle) ?? "") ?? .light
+            keyTapStrength = defaults.object(forKey: Keys.keyTapStrength) as? Double ?? 1
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -391,6 +423,8 @@ public final class Settings {
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
         keyboardTopTrim = values.keyboardTopTrim
+        keyTapStyle = values.keyTapStyle
+        keyTapStrength = values.keyTapStrength
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -421,6 +455,8 @@ public final class Settings {
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
         keyboardTopTrim = values.keyboardTopTrim
+        keyTapStyle = values.keyTapStyle
+        keyTapStrength = values.keyTapStrength
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
