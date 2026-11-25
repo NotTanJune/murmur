@@ -53,6 +53,16 @@ struct KeyboardStatus: Codable, Equatable {
     var typingMaxDeliveryMs: Double?
     /// The slowest autocorrect evaluation on the main actor; nil in files written before it existed.
     var typingSlowestAutocorrectMs: Double?
+    /// The strip's language model in the keyboard process (`SmartPredictions.State`): `off`,
+    /// `missing` (not in this build), `waiting` (not loaded yet), `loading`, `ready`, `failed`,
+    /// `stoppedLastTime` or `lowMemory`. With it, this process's load in seconds, the last
+    /// prediction's forward pass in milliseconds, and what the process's footprint gained from
+    /// just before the load to just after the first prediction, in megabytes. Optional so a file
+    /// written before these fields existed still decodes.
+    var predictionState: String?
+    var predictionLoadSeconds: Double?
+    var predictionLastMs: Double?
+    var predictionFootprintMB: Double?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off
@@ -72,5 +82,16 @@ struct KeyboardStatus: Codable, Equatable {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(self) else { return }
         try? data.write(to: Self.url, options: .atomic)
+    }
+}
+
+extension CrashMarker {
+    /// The language model's marker (`typing-lm-loading`), armed by the keyboard before it loads
+    /// the model and disarmed after the model's first prediction. Still armed at the next launch,
+    /// it means the keyboard died in between, and the keyboard leaves the model alone until the
+    /// app's Smart predictions switch is turned on again, which clears it. Bark's own marker is
+    /// a different file and is not touched.
+    static var typingModel: CrashMarker {
+        CrashMarker(directory: AppStorage.directory, name: "typing-lm-loading")
     }
 }

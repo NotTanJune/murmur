@@ -45,6 +45,11 @@ final class SetupStatus {
     private(set) var typingSlowestHandleMs: Double?
     private(set) var typingMaxDeliveryMs: Double?
     private(set) var typingSlowestAutocorrectMs: Double?
+    /// The strip's language model as the keyboard last reported it; nil until it has.
+    private(set) var predictionState: String?
+    private(set) var predictionLoadSeconds: Double?
+    private(set) var predictionLastMs: Double?
+    private(set) var predictionFootprintMB: Double?
     /// Bark stopped the keyboard last time, and nothing live is using the marker.
     private(set) var markerArmed = false
     private(set) var isShared = PhoneEnvironment.isShared
@@ -76,6 +81,10 @@ final class SetupStatus {
         typingSlowestHandleMs = reported?.typingSlowestHandleMs
         typingMaxDeliveryMs = reported?.typingMaxDeliveryMs
         typingSlowestAutocorrectMs = reported?.typingSlowestAutocorrectMs
+        predictionState = reported?.predictionState
+        predictionLoadSeconds = reported?.predictionLoadSeconds
+        predictionLastMs = reported?.predictionLastMs
+        predictionFootprintMB = reported?.predictionFootprintMB
         hasFullAccess = reported?.hasFullAccess
         keyboardBark = reported.flatMap { KeyboardStatus.BarkState(rawValue: $0.barkState) }
         keyboardAdded = Self.activeInputModesContainKeyboard() || reported != nil
@@ -188,6 +197,9 @@ struct SetupView: View {
                     Note(text: line)
                 }
                 if let line = typingLine {
+                    Note(text: line)
+                }
+                if let line = predictionLine {
                     Note(text: line)
                 }
                 ToggleRow(
@@ -319,6 +331,30 @@ struct SetupView: View {
         if let autocorrect = status.typingSlowestAutocorrectMs, autocorrect > 0 {
             line += " · autocorrect \(String(format: "%.1f", autocorrect)) ms"
         }
+        return line
+    }
+
+    /// "Predictions: ready · loaded in 0.41 s · last 6 ms · +12 MB", the strip's language model
+    /// in the keyboard process: its state, this process's load, the last prediction's forward
+    /// pass and what the model added to the footprint. The other states say why it is not
+    /// running.
+    private var predictionLine: String? {
+        guard let state = status.predictionState else { return nil }
+        var line: String
+        switch state {
+        case "ready": line = "Predictions: ready"
+        case "loading": line = "Predictions: loading"
+        case "waiting": line = "Predictions: starts at the first key"
+        case "off": line = "Predictions: off"
+        case "missing": line = "Predictions: model not in this build"
+        case "lowMemory": line = "Predictions: not enough memory, using the word-pair model"
+        case "stoppedLastTime":
+            line = "Predictions: stopped the keyboard last time. Turn Smart predictions off and on in Settings to try again."
+        default: line = "Predictions: failed, using the word-pair model"
+        }
+        if let load = status.predictionLoadSeconds { line += " · loaded in \(String(format: "%.2f", load)) s" }
+        if let last = status.predictionLastMs { line += " · last \(Int(last.rounded())) ms" }
+        if let added = status.predictionFootprintMB { line += " · +\(Int(added.rounded())) MB" }
         return line
     }
 

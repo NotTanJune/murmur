@@ -51,6 +51,12 @@ struct SettingsView: View {
                     )
                     ToggleRow(title: "Swipe typing", isOn: $settings.swipeTyping)
                     ToggleRow(title: "Auto-capitalisation", isOn: $settings.autoCapitalise)
+                    ToggleRow(title: "Smart predictions", isOn: $settings.smartPredictions)
+                }
+                // Turning it on is also how to try again after the model stopped the keyboard:
+                // the keyboard never clears its own marker.
+                .onChange(of: settings.smartPredictions) { _, isOn in
+                    if isOn { CrashMarker.typingModel.disarm() }
                 }
 
                 if settings.swipeTyping {

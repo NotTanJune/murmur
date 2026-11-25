@@ -25,6 +25,7 @@
 		2FEFEA7D43053CAA0F2DB358 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25F40E2A1DF0B99651CB330 /* HistoryView.swift */; };
 		30B6E5C442A23591EBAE77E0 /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF331963D1F614BA7BA95B4B /* KeyboardViewController.swift */; };
 		3128CC2718B1C26352078B7F /* SuggestionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCE543F0B78AAC0F91E61D8 /* SuggestionStrip.swift */; };
+		337E851509D40F5F69290C63 /* SmartPredictions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8AF08F9AD5A257066DEFAD /* SmartPredictions.swift */; };
 		33AEC39CA8F91AD5F0E46421 /* MurmurDictionary in Frameworks */ = {isa = PBXBuildFile; productRef = 176678EA5F54B6EF771BEFCE /* MurmurDictionary */; };
 		37DAE145E9CFB54CE70E6DE7 /* HapticPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */; };
 		394DC21E4ADEAFA03ED8628E /* LicencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5228D240776177D7572CA1C1 /* LicencesView.swift */; };
@@ -39,6 +40,7 @@
 		730D59C305D3AD642DBE8E38 /* TypingStageTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1991C25AEBA72134CFE824C8 /* TypingStageTest.swift */; };
 		7526A16E7E4823ED1EC3BBE7 /* RunAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEA5BEC862877AFBA93A47F /* RunAudioPlayer.swift */; };
 		7FFC12D14BC76C920984D183 /* TypingLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224D3CAF8E574DDE0DA6D9B0 /* TypingLab.swift */; };
+		81474BB2EB1913E25CE34348 /* TypingLM in Resources */ = {isa = PBXBuildFile; fileRef = 0E40D5940BB43BDC696CEC24 /* TypingLM */; };
 		825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		85D49F3E1052BF98F55A0BDF /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */; };
 		A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
@@ -92,6 +94,7 @@
 /* Begin PBXFileReference section */
 		05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MurmurKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A9BEF73481F2C13EAA83A63 /* MurmurPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MurmurPhone.entitlements; sourceTree = "<group>"; };
+		0E40D5940BB43BDC696CEC24 /* TypingLM */ = {isa = PBXFileReference; lastKnownFileType = folder; path = TypingLM; sourceTree = SOURCE_ROOT; };
 		0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPlayer.swift; sourceTree = "<group>"; };
 		10D33BE1F7945F473CD65509 /* MemoryProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryProbe.swift; sourceTree = "<group>"; };
 		121DC8A1B9D710897A9B4651 /* TrainingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingView.swift; sourceTree = "<group>"; };
@@ -104,6 +107,7 @@
 		28781C7AD37BB629020F20B3 /* MurmurPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MurmurPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "EBGaramond-Italic[wght].ttf"; sourceTree = "<group>"; };
 		2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardStatus.swift; sourceTree = "<group>"; };
+		2B8AF08F9AD5A257066DEFAD /* SmartPredictions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPredictions.swift; sourceTree = "<group>"; };
 		2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fraunces-Italic[SOFT,WONK,opsz,wght].ttf"; sourceTree = "<group>"; };
 		31985D17A48C0DE2D931F5F7 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		38A18EA29BB2B0F49BD4945B /* OFL-Figtree.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "OFL-Figtree.txt"; sourceTree = "<group>"; };
@@ -221,6 +225,7 @@
 			isa = PBXGroup;
 			children = (
 				E78BB9569506B5634F8195ED /* Base.xcconfig */,
+				0E40D5940BB43BDC696CEC24 /* TypingLM */,
 				5A8CB2F05BD890BB368E3281 /* App */,
 				747701AD677337128B74491D /* Keyboard */,
 				26B91EE9052F9AD2A52FEE9E /* murmur */,
@@ -295,6 +300,7 @@
 				85BE6C7833C9ADAECEA8A755 /* KeyPlaneView.swift */,
 				10D33BE1F7945F473CD65509 /* MemoryProbe.swift */,
 				C01E3D62CD322B0FC73D899F /* MurmurKeyboard.entitlements */,
+				2B8AF08F9AD5A257066DEFAD /* SmartPredictions.swift */,
 				6FCE543F0B78AAC0F91E61D8 /* SuggestionStrip.swift */,
 				9F203DF04CD60E76AC213145 /* TypingController.swift */,
 				1991C25AEBA72134CFE824C8 /* TypingStageTest.swift */,
@@ -432,6 +438,7 @@
 			files = (
 				68AB6F53955A1D3944120F95 /* EBGaramond-Italic[wght].ttf in Resources */,
 				825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */,
+				81474BB2EB1913E25CE34348 /* TypingLM in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -458,6 +465,7 @@
 				30B6E5C442A23591EBAE77E0 /* KeyboardViewController.swift in Sources */,
 				EEBC525562FA9E400BE2E5E5 /* MemoryProbe.swift in Sources */,
 				48BC99FB2C5937FA6F985D24 /* PhoneEnvironment.swift in Sources */,
+				337E851509D40F5F69290C63 /* SmartPredictions.swift in Sources */,
 				3128CC2718B1C26352078B7F /* SuggestionStrip.swift in Sources */,
 				F433394AB0A169CD1FC40258 /* TypingController.swift in Sources */,
 				B63C26E115747D6D62112D3B /* TypingDiagnostics.swift in Sources */,

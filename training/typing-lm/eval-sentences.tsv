@@ -1,0 +1,524 @@
+# Evaluation sentences for the keyboard's next-word model. Built by make_eval.py.
+# Lines marked replay are Murmur's own (Tests/MurmurTypingTests/replay-sentences.txt).
+# Numbered lines are sentences from Tatoeba (https://tatoeba.org), licensed
+# CC BY 2.0 FR (https://creativecommons.org/licenses/by/2.0/fr/); the number is the
+# sentence's id, so https://tatoeba.org/sentences/show/<id> names its author.
+replay	i will call you when i get home tonight
+replay	can you send me the report before lunch
+replay	we are meeting at the coffee shop on friday
+replay	the weather is nice today so we should walk
+replay	please let me know if you need anything else
+replay	i think we should start the meeting a little earlier
+replay	she told me that the train was late again
+replay	what time does the store close on sunday
+replay	my brother is coming to visit us next week
+replay	we need to buy some milk and bread on the way home
+replay	thank you for your help with the project
+replay	i have been working on this problem all morning
+replay	he said he would be here by noon
+replay	do you want to go out for dinner tomorrow
+replay	the kids are playing in the garden right now
+replay	i forgot to bring my phone charger with me
+replay	let me check the schedule and get back to you
+replay	it was a long day but we finished everything
+replay	they moved to a new house last year
+replay	please send the file again because i cannot open it
+replay	i don't know what to do about this
+replay	i'm going to the gym after work today
+replay	we can't find the keys anywhere in the house
+replay	she didn't answer the phone when i called
+replay	i think it's going to rain this afternoon
+replay	you're welcome to stay with us for the weekend
+replay	that's a great idea and i like it
+replay	i won't be able to join you for lunch
+replay	they haven't finished the work yet
+replay	he isn't coming to the party tonight
+replay	the doctor said i should rest for a few days
+replay	we are going to the beach this summer
+replay	i would like to order a large pizza with cheese
+replay	how many people are coming to the party
+replay	the movie starts at eight so we should leave soon
+replay	she works at a small company near the station
+replay	could you please turn down the music a little
+replay	i have a meeting with my manager on monday
+replay	we had a really good time at the restaurant
+replay	the new phone has a much better camera
+replay	i need to finish this email before i leave
+replay	there is a lot of traffic on the main road
+replay	my sister called me this morning about the trip
+replay	he forgot his umbrella at the office yesterday
+replay	we should take a break and have some coffee
+replay	the bus was full so i had to stand
+replay	i will be late because of the weather
+replay	please remember to lock the door when you leave
+replay	do you know where the nearest bank is
+replay	the book was very interesting and easy to read
+replay	we are looking for a place to live in the city
+replay	i like to listen to music while i work
+replay	can i ask you a question about the homework
+replay	the teacher gave us a lot of homework today
+replay	it takes about twenty minutes to get there by car
+replay	she bought a new dress for the wedding
+replay	i will pick you up at the airport on saturday
+replay	this soup is too hot to eat right now
+replay	please wait here and i will be back in a minute
+replay	he plays football with his friends every weekend
+replay	the library is open until nine in the evening
+replay	we need more time to think about it
+replay	i am not sure if this is the right way
+replay	my phone is almost out of battery again
+replay	the food at this place is always great
+replay	have you seen my glasses anywhere in the room
+replay	we watched a funny show last night
+replay	she is learning to play the piano this year
+replay	the price of everything has gone up lately
+replay	i will send you the details later today
+replay	the store near my house sells fresh fruit
+replay	he asked me to help him move the table
+replay	they are building a new school in our town
+replay	i usually wake up early and go for a run
+replay	we had to cancel the trip because of the storm
+replay	please tell me when you are ready to go
+replay	the kids have a lot of energy this morning
+replay	my computer is running very slowly today
+replay	i am so tired that i could sleep all day
+replay	we decided to stay home and watch a movie
+replay	the flight was delayed by almost two hours
+replay	can you give me a ride to the station
+replay	she made a delicious cake for his birthday
+replay	i need to talk to you about something important
+replay	the meeting went well and everyone agreed
+replay	he has been living here for about ten years
+replay	we should call the doctor if it gets worse
+replay	the garden looks beautiful in the spring
+replay	there are many things i want to do this year
+replay	please bring your own water and some snacks
+replay	i read the news every morning before work
+replay	my friend invited me to a concert next month
+replay	the restaurant was crowded but the service was fast
+replay	we are out of eggs so i will go to the store
+replay	it is very cold outside so wear a warm jacket
+replay	i will see you at the office tomorrow morning
+replay	the project is almost done and looks good
+replay	could you help me find a good hotel
+replay	they said the package would arrive on thursday
+replay	i have never been to that part of the country
+replay	he is always on time for every meeting
+replay	we walked along the river for a long time
+replay	the room was quiet and the light was soft
+replay	i am sorry i could not make it yesterday
+replay	the water in the lake is very clear
+replay	she asked if we wanted anything from the shop
+replay	i think we should leave before it gets dark
+replay	the baby slept through the whole night
+replay	our neighbors are very kind and friendly
+replay	my car needs a new set of tires
+replay	i will make dinner tonight if you want
+replay	he works from home most days of the week
+replay	the keys are on the table next to the door
+replay	we are planning a surprise party for her
+replay	please open the window because it is hot
+replay	the class starts at nine and ends at noon
+replay	i found a great little cafe near my work
+replay	there is a package waiting for you downstairs
+replay	we need to fix the problem as soon as possible
+replay	the road was closed so we took another way
+replay	she wants to study art at the university
+replay	i have a lot of work to do before friday
+replay	the sun is shining and the birds are singing
+replay	he always tells the best stories at dinner
+replay	my phone number has not changed since last year
+replay	we ate lunch outside because it was so warm
+replay	the train to the city leaves every half hour
+replay	i would love to visit that place someday
+replay	she has two cats and a small dog
+replay	the party was fun but it ended too early
+replay	can we talk about this after the meeting
+replay	he walked to school with his little brother
+replay	please keep the noise down after ten at night
+replay	i am going to take a nap this afternoon
+replay	the soup needs a bit more salt and pepper
+replay	we have to be at the airport by six
+replay	my friends and i are going to a game
+replay	there was a long line at the bank today
+replay	she put the flowers in a vase on the table
+replay	the movie was so good that i watched it twice
+replay	i hope you have a wonderful birthday
+replay	we need to replace the old light in the kitchen
+replay	he sent me a message about the plan
+replay	the weekend is almost here and i am happy
+replay	you can leave your coat in the hall
+replay	the city is very busy during the holidays
+replay	i should have brought a book to read
+replay	they offered us a ride but we said no
+replay	the news about the company was very good
+replay	my grandmother makes the best bread in town
+replay	please do not forget to call your mother
+replay	we spent the whole day cleaning the house
+replay	the show begins in five minutes so hurry
+replay	i have an idea that might help us
+replay	the shop on the corner opens at seven
+replay	he has a small boat that he keeps by the lake
+replay	we can meet halfway if that is easier
+replay	the phone rang twice and then it stopped
+replay	i could not sleep last night because of the noise
+replay	she is the kindest person i have ever met
+replay	the teacher said the test will be easy
+replay	we are almost at the end of the road
+replay	i want to learn how to cook better
+replay	the machine is broken and we need a new one
+replay	please give me a call when you arrive
+replay	my favorite part of the day is the evening
+replay	he took a picture of the mountains
+replay	the store was closed when we got there
+replay	i have been thinking about changing my job
+replay	we should try that new place for lunch
+replay	the weather forecast says it will snow tomorrow
+replay	the team did a great job on the presentation
+replay	i will bring some fruit and a few drinks
+replay	she walked into the room and sat down
+replay	there is nothing on the news that interests me
+replay	we are going to be late if we don't hurry
+replay	i believe the answer is on the second page
+replay	the garden needs water every day in summer
+replay	he gave me some good advice about money
+replay	we have a small problem with the order
+replay	the road to the village is long and narrow
+replay	i am happy with the way things turned out
+replay	please read the instructions before you start
+replay	the little girl smiled and waved at us
+replay	my father taught me how to ride a bike
+replay	they have lived in the same town all their lives
+replay	we should make a list of what we need
+replay	the lights went out during the storm last night
+replay	she has a lot of friends at her new school
+replay	i am looking forward to the holidays this year
+replay	the train station is only a few minutes away
+replay	he cooked a big breakfast for the whole family
+replay	could you tell me how to get to the park
+replay	the bag is too heavy for me to carry
+replay	we need to be careful with the budget this month
+replay	i just heard the good news from my sister
+replay	the clock on the wall is about ten minutes fast
+replay	she wore a blue coat and a red scarf
+replay	please take a seat and make yourself comfortable
+replay	i left my wallet at home this morning
+replay	the farmer sells eggs and vegetables at the market
+replay	we drove through the night to get there on time
+replay	he is trying to save money for a new bike
+replay	the kitchen smells wonderful after dinner
+replay	my team won the game by two points
+replay	i will write down the address for you
+replay	there are a few tickets left for the show
+replay	the old man walked slowly down the street
+replay	we have a lot to talk about tonight
+replay	she is waiting for the bus in the rain
+replay	i can't believe how fast the year has gone
+replay	the first thing i do is make some tea
+replay	please let me know what you decide
+replay	he is the best player on our team
+replay	the soup is ready so come and eat
+replay	we took a long walk after dinner
+replay	the picture on the wall is quite old
+replay	i will try to be there by seven
+replay	my neighbor lost his keys again today
+replay	the window was open and the room was cold
+replay	she gave me a small gift for my birthday
+replay	we are happy to see you again
+replay	the end of the week is always busy for us
+replay	i need a new pair of shoes for work
+replay	he spoke softly so the baby would not wake
+replay	the road is wet and slippery after the rain
+replay	we found a nice spot by the water
+replay	they are going to paint the house in june
+replay	i am glad that everything went so well
+41687	It is time you get down to work.
+7215139	Sami was vacuuming the master bedroom.
+10113472	Mary never drinks alcohol at parties.
+12117331	Always have a fresh stack of napkins available for the next meal.
+6237615	Can you remember the first time you did that?
+282981	There is no persuading him to join the club.
+11610067	We will finally prevail.
+8585250	It's good that you came.
+3983867	It's getting harder and harder to make a living.
+10736269	You need to get yourself out of harm's way.
+2705421	She fell in love with her teacher.
+6890278	Mexico is winning the match.
+13890868	Is it okay for me to call you sometime?
+10111835	We need to make a copy.
+328772	If you enjoyed this, please give a click on the vote link!
+13347680	I heard a siren.
+7180188	Tom said that he's been trying to be careful.
+299604	He gave me what little money he had about him.
+249340	We will keep the room warm.
+13629149	Let me know when you have done it.
+6662707	Tom is wearing his wedding ring on the wrong hand.
+12205530	Did you see what was in the box?
+3912998	That looks like them.
+13748577	Mary claims that intelligence is sexy.
+1563152	Can one better bear the sins of an atheist?
+6222212	It would be hard to do that.
+6531338	You really need to do that.
+9751048	He had a cadaverous appearance.
+7378565	Mary couldn't hide her excitement.
+6222970	Do you have any idea what'll happen?
+8198071	Me and my father are lawyers.
+8213528	I think my computer is not ready yet.
+6420980	Mary promised she'd do that right away.
+12778529	Do we ever fully know ourselves?
+7380010	Mary told me she's pessimistic.
+68960	Are you subject to colds?
+7367839	Mary won the costume contest.
+13609213	Can I say no?
+9848885	Tom can't read anything without his glasses.
+8528920	She's used to doing that, isn't she?
+10275038	Is it absolutely necessary for me to do that?
+2646353	Tom looks really good.
+9974133	Who is the girl who's crying?
+3391125	Mary bit her bottom lip.
+5883193	Fadil was filing for divorce.
+9078647	I don't have time in the afternoon.
+9809888	Training is very important.
+4905034	I've just finished watching episode three.
+12851366	Learn to take a hint.
+9803153	We've run out of supplies.
+315083	She will have it that the conditions are unfair.
+13261111	I know no boredom.
+4946537	Did you take part in the excursion yesterday?
+7112816	I felt myself getting sleepy.
+10897370	Ziri's parents are emotionally unavailable.
+1094849	Tom did it for no particular reason.
+2724534	Fathers are indeed good to their children!
+2644073	Thank you for the donation.
+11802229	Dmitri's words were laced with gratitude.
+8826740	You haven't got to have read everything.
+11809577	Fyodor went to various countries to do his show.
+4211751	She wore suggestive clothing.
+12523841	Tom's final texts indicate he didn't even know why he was being pursued.
+7215410	Sami saw a mass of people.
+12177146	I'd like to go on a magic carpet ride.
+9931126	Yanni's driving test was very tough.
+4908413	Tom is used to talking to foreigners.
+10390131	Tom went to the music store to buy a set of guitar strings.
+12771310	He has to run.
+6661825	Tom and I aren't allowed to do that.
+262367	I wish I could swim as far as he can.
+68255	How sad that girl looks!
+3917235	I packed his suitcase for him.
+1140063	She promised not to tell anyone.
+7198152	Sami doesn't know what it means.
+2544794	I'm glad you're all right.
+6261138	Tom is willing to do that for us.
+11498534	Daniel needed someone who believed in him.
+8057682	Mennad has the right to speak about this whenever he feels the need to.
+6429923	Mary lost her money.
+9038289	Tom isn't the one.
+9228703	You are good at it.
+1021578	He substituted the injured player.
+6123375	Tom is a dog breeder.
+6241653	Tom doesn't remember asking you to do that.
+7851561	Tom acted like he was not interested.
+8981782	You've broken the glasses.
+10088130	Algeria doesn't want to lose its economic independence.
+10772100	Ziri gave us his phone number.
+13270787	When do you feel most energetic?
+577203	We don't study for life, but for school.
+314744	She repeated her name slowly.
+11891954	Why are you always pushing me away?
+2543205	I told you this would happen.
+12722063	You can never generalize.
+13910711	Do you think they will accept my invitation?
+3818052	When have I ever lied to you?
+5776362	Acupuncture can help relieve migraines.
+10737678	It is getting colder every day.
+6531754	Tom is just finishing up.
+12677063	Her husband made her angry.
+7379406	Mary slowly rose from her chair.
+2337264	She showered him with confetti.
+28037	With the help of doctors, she got over her illness.
+9423219	Who came with them?
+12999192	There's a bus every fifteen minutes.
+6139687	Whatever you learn, you learn for yourself.
+6249212	Tom is in his room listening to music.
+4501164	We need to stop.
+316006	She's always on the go.
+7237775	Sami was feeling so much better than he did before.
+12180743	The boy wandered the street aimlessly.
+311785	Everyone liked her because she was very kind.
+13233161	Have you had breadfruit?
+287940	His story will banish your fears.
+246966	When I arrived, it was raining.
+33055	It's only a short way, so you can walk there in a few minutes.
+12472068	My new album is available on all the streaming platforms.
+10745453	I know you want to see me.
+11038653	I saw several intoxicated people in the park.
+11891938	How do you practice languages that have few or no native speakers available?
+2293496	I barely have enough money for groceries.
+285523	It would not be amiss to ask his views.
+266655	My aunt made me a new skirt.
+6899025	You're much smarter than me, aren't you?
+4664459	Tom avoided answering my question.
+6527759	Tom doesn't plan on going there by himself.
+12892195	Yes, I was there yesterday.
+7799812	Take it out of my pocket quickly!
+12417365	It's not really hidden, but no one seems to talk about it.
+8172505	I still have the sweater you gave me when I was thirteen years old.
+7384758	He couldn't find his son.
+2011512	I wanted to wash up.
+283193	He came out of the room at last.
+4662710	Tom could hear everything the people in the next room were saying.
+10372342	Boil the syrup down to a jelly and pour it over the apples.
+8398416	Tom wants to become a pediatrician.
+3615915	There is a smile on her face now.
+5155141	Tom's plan was rejected.
+11696647	Flavio is a radio operator.
+12902909	He gave the kids a ride.
+7294699	Layla was in a minidress.
+9129002	That isn't what I do.
+12118640	Your cooking is amazing!
+8522317	She just didn't want to tell him.
+9271397	He decided to pursue his career.
+10532796	Ziri bought alfalfa for his sheep.
+10953881	We offer both full and half board.
+9141551	Tom was still grinning.
+10224939	What will happen next time?
+7263838	Sami developed an eating disorder.
+12393725	I am not embarrassing you, but embellishing you.
+36792	Nothing would tempt me to deceive him.
+13176980	Tom can buy it for you.
+2669455	It's basically the same thing.
+8273479	He found the house door closed.
+2733031	Bad wheat always makes poor bread.
+252936	I know the president of that company by name.
+7516191	I can guarantee we won't do that again.
+12280473	What air defense doing?
+320801	My mother looks after the plants well.
+8546821	Giraffes are magnificent animals.
+12304461	Tom always scrimps on groceries to save money.
+9808462	I've been doing that for several years.
+11961558	Apparently, she's a bit whimsical.
+3738018	Don't you like swimming?
+9307201	I go to an all boys school.
+3521983	Norwegian prisons are the most luxurious in the world.
+11963628	Boldi screamed in surprised.
+8481958	In spite of everything, I believe we can still fix the situation.
+11506159	James couldn't live without sweets.
+6395708	Mary was wet and cold.
+7543075	Tom is waiting for me in the lobby.
+12261020	Where does this money come from?
+3903659	I'll meet with her.
+6242196	Tom started plowing right after breakfast.
+11511406	James gasped, clutching his chest.
+11504108	Please don't get into a fight.
+2958868	When were you released from the prison camp?
+11014122	Ziri said he wasn't about to give up.
+6334833	We both knew you could do that.
+7246726	Sami got really pissed off about that.
+478564	Nothing can't exist because if it did it would be something.
+14069742	The pupils liked the book.
+8727376	I was tired of waiting.
+12613556	Don't you like her?
+6228106	I knew I needed to say something, but I didn't know what to say.
+10985031	I don't think your alarm went off.
+9836781	Tom often studies in the afternoon.
+8376890	His dreams got crushed.
+7206176	Layla's eyelashes were sticking together.
+9807092	Is this the notebook you were looking for?
+12723980	You should both leave.
+5214629	I love your sense of humor.
+7360740	Tom chopped the carrots.
+72073	Ah, you're leaving tomorrow!
+7271496	Sami felt so ugly.
+10267483	He's not very demanding of himself.
+59113	This work must be finished by tomorrow.
+2653246	She talked my ears off.
+11888832	Your laptop's fan is making a strange noise.
+3467348	He can't wait to see you.
+13478278	Go out of the country, you will mature.
+6353547	We wanted to sing together.
+10677680	This machine is very useful.
+6794837	My stomach is already gurgling.
+1673218	Why did you buy a car?
+8532305	He thought she was wasting her time.
+11190340	Ziri pitied the turtle.
+624974	If anybody is still absent, please send their names to me.
+3428618	Tom insisted on going.
+44690	A monster was believed to live in the cave.
+13627160	Are you sure that there's no way?
+7146541	Sami didn't seem to have the time to talk to me.
+10662335	If he wanted to marry you so badly, why did he never show up?
+8303679	He found this laptop on the nightstand.
+7442676	They didn't think that they should do that.
+531194	Her hopes were dashed when she heard the verdict.
+12774736	He will attend the talks.
+13077454	Books give one knowledge.
+1877126	What's the minimum wage?
+7985697	Sami has been continuously stalking that girl.
+13013181	Everyone stumbles from time to time.
+7401565	He told us he could do that.
+4493976	Is basketball season over yet?
+6410330	Mary was shocked when I told her what I planned to do.
+11113424	Hidden wisdom and invisible treasure, what use can both be?
+2997158	Has anyone else seen this?
+4972786	Tom looks quite happy.
+9089224	If it rains tomorrow, I'll stay at home all day.
+472445	I feel out of sorts today. That well water is why.
+11543598	Mark is an abusive person. It's not a hard pill to swallow.
+9021820	Tom wasn't shot in the leg. He was shot in the arm.
+13709915	If you meet an asshole in the morning, then you ran into an asshole. If you meet assholes all day long, you're the asshole.
+1780547	When should the three of us meet again? In thunder, lightning, or in rain?
+1359294	I don't feel good. Where is the nearest medical center?
+10575078	I can't reach an orgasm anymore. Should I be worried?
+14111024	Dad, I'm not a child anymore. I am an adult now.
+12814911	I'm going to make tea. Do you want it?
+10520476	Get out of here. I don't want to see you again.
+3605504	It's very cold in this room. The fire went out.
+9251117	It's good that you came. What would we have done without you?
+693506	Guess what they got! A bowler hat for him and leather boots for her!
+13266225	You don't have to push yourself so hard, you know? If you don't rest properly, you'll end up harming your health.
+2361643	I need more time. I also need some cash.
+3932212	The flower needs watering. The leaves are already wilted.
+4128255	Tom receives a certain amount of pocket money from his wife every week. He puts whatever remains at the end of the week into his piggy bank.
+7219377	Sami doesn't want to go to jail for robbing purses. He wants to rob a bank.
+3154977	She is my father's mother. She is my paternal grandmother.
+1165800	If you'd told me about it earlier, I could've been free. However, tomorrow I have plans to go back home.
+1026208	Tom doesn't care how much it costs. He still plans to buy it.
+3537576	This kind of medicine can temporarily alleviate pain. If you need it, just take it.
+7483259	An extraordinary change had come over his face. It was writhing with inward merriment.
+10504309	It's good to disagree. The difference is how you go about dealing with the conflict.
+6077892	What do we want? To study several languages.
+10726385	My family is very big. Over eighty people came to my father's birthday.
+14032938	He's the director in name only. He doesn't actually decide anything.
+12367988	Tom swallowed a button! He needs to see a doctor!
+1536388	You have studied enough. Now you can go and play.
+6430175	Tom won't be able to do that alone. Somebody will have to help him.
+9611397	I usually don't peel apples before eating them. I just wash them.
+10300356	Stupid will never leave our world. All we can do is try to live our best lives despite it.
+8525704	She used to love him. Now she can't stand him.
+10675908	I've given birth once before. I know how to recognize birth contractions and these are definitely not birth contractions.
+3076537	My tree looks sick. What's wrong with it?
+941361	If you want to go, then go. If you don't want to, then that's fine as well.
+5966746	He had never experienced real pain. The same could not, however, be said for his wife.
+11808629	When I was six years old, I drank alcohol. I thought it was fruit juice.
+7831793	This is his car. The other one is mine.
+10908216	You have nothing to worry about, baby. I'm not attracted to him.
+8414906	He has fallen for her. He has ruined everything.
+9951529	How long will it last? About one or two weeks.
+2372720	He is known for his decency. He has never been involved in a corrupt act.
+13208080	The subjunctive is the mood of doubt and hope. The subjunctive is the mood of love.
+11167765	Ziri calmly threatened the cops that he was capable of very bad things. They all started laughing.
+1335705	These mushrooms have a revulsive effect. If you drink alcohol after having eaten them, you will feel very sick.
+11735744	I've got to think about that myself first. I'll let you know when I've come to a conclusion.
+987498	The radio is too loud. Please turn the volume down.
+326548	You're speaking a little too fast for me. Would you speak a little more slowly?
+7580337	Fear is human, courage is forged. Cowardice are those not tested, or those not willing!
+10680367	A language with many consonants is like a potato field. But a language with many vowels is like a flower bed.
+11090546	The rain has just stopped. We can make a start.
+3814770	I got a bit lost. Sorry to have worried you.
+33502	I don't believe you. You're always telling lies.
+4597071	I need eyes here! Somebody get over here and spot him now!
+8540649	It doesn't matter how much money you offer me. I'm not going to sell you this.
+329309	Fighting with monsters all over the world ... I just can't wait.
+13570151	I've never worn boots either. In fact, I never served in the army.
+5332115	I can't accompany you. I am still needed here.
+41488	Don't walk so fast! I can't keep up with you.

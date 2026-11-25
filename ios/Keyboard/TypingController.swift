@@ -49,6 +49,13 @@ struct TypingStats: Equatable {
     /// The slowest autocorrect evaluation (parse, decode and policy, at a word end or for the
     /// strip's correction), run on the main actor. Zero until one ran.
     var slowestAutocorrectMs = 0.0
+    /// The strip's language model (`SmartPredictions`): its state, this process's load in seconds,
+    /// the last prediction in milliseconds and the footprint the model added, in megabytes. Nil
+    /// until there is something to report. Not counters: they are not reset at an appearance.
+    var predictionState: String?
+    var predictionLoadSeconds: Double?
+    var predictionLastMs: Double?
+    var predictionFootprintMB: Double?
 }
 
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
@@ -146,6 +153,23 @@ final class TypingController {
     @ObservationIgnored private let suggestionGeneration = OSAllocatedUnfairLock(initialState: 0)
     @ObservationIgnored private var biasTask: Task<Void, Never>?
 
+    // Smart predictions: the language model behind the strip (`SmartPredictions`,
+    // `NextWordPredictor`). The pair model answers first and always; the model's answer for the
+    // same word boundary replaces it when it is there.
+    @ObservationIgnored private let smart = SmartPredictions()
+    /// The model's answer for the newest word boundary. Written on the main actor, read by the
+    /// strip's pass on `suggestionQueue`.
+    @ObservationIgnored private let prediction = OSAllocatedUnfairLock<WordPrediction?>(initialState: nil)
+    /// The boundary last sent to the model, so one word asks once however many letters follow.
+    @ObservationIgnored private var requestedBoundary: String?
+    /// A key has been touched in this process. The model is not asked before that, so a
+    /// keyboard that is only dictated into never loads it.
+    @ObservationIgnored private var keysTouched = false
+    /// The text the newest strip pass was scheduled for, and the generation of the last pass
+    /// that reached the strip: a prediction that arrives after its pass redoes that pass.
+    @ObservationIgnored private var stripText: String?
+    @ObservationIgnored private var stripShownGeneration = 0
+
     // Swipe typing (Milestone 6). The logic is in `MurmurTyping` (`SwipeDecoder`, `SwipeInsertion`);
     // this is the state it needs.
     /// The decoder for the letters page's frames. Nil until the word model has loaded.
@@ -197,6 +221,7 @@ final class TypingController {
         engine = TypingEngine(metrics: initial)
         planeSpace = initial.height - initial.constants.stripHeight
         lettersFrames = initial.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false))
+        smart.onPrediction = { [weak self] in self?.predictionArrived($0) }
     }
 
     // MARK: - Geometry
@@ -324,6 +349,10 @@ final class TypingController {
     var stats: TypingStats {
         var snapshot = counters
         snapshot.offKey = engine.offKeyLifts - offKeyAtReset
+        snapshot.predictionState = smart.state.rawValue
+        snapshot.predictionLoadSeconds = smart.loadSeconds
+        snapshot.predictionLastMs = smart.lastPredictionMs
+        snapshot.predictionFootprintMB = smart.footprintMB
         return snapshot
     }
 
@@ -471,6 +500,7 @@ final class TypingController {
         switch event {
         case .began(_, _, let time):
             counters.touchDowns += 1
+            keysTouched = true
             noteDelivery(uptime - time)
         case .moved(_, _, let time), .ended(_, _, let time):
             noteDelivery(uptime - time)
@@ -1119,20 +1149,43 @@ final class TypingController {
             return
         }
         refreshLexicon()
-        let tail = String(before.suffix(Self.contextLimit))
-        let tracker = self.tracker
-        let field = traits
-        let autocorrector = self.autocorrector
-        let latest = suggestionGeneration
+        // The language model predicts from the text up to the start of the word being typed, so
+        // the strip's text is cut there and not at a fixed distance from the cursor: the same
+        // word then names the same boundary at every letter, however long the text is.
+        let tail: String
+        if let typed = SuggestionEngine.typedLength(before: before) {
+            let boundary = String(before.dropLast(typed).suffix(Self.contextLimit))
+            tail = boundary + before.suffix(typed)
+            requestPrediction(at: boundary, model: model)
+        } else {
+            tail = String(before.suffix(Self.contextLimit))
+        }
+        stripText = tail
         // The strip is worked out on a background queue, and only once the keys have been quiet
         // for `DS.Keyboard.suggestionQuietSeconds`. A fast typist's next tap arrives 80 to 150 ms
         // after the last, so typing never waits on the strip. This was first done on the theory
         // that a busy main thread lost taps; it did not (they were lost in the clear gaps
         // between keycaps, see `touchBackingUIColor`), and it stays because it is cheaper.
-        suggestionQueue.asyncAfter(deadline: .now() + DS.Keyboard.suggestionQuietSeconds) { [weak self] in
+        scheduleStrip(generation: generation, text: tail, model: model, delay: DS.Keyboard.suggestionQuietSeconds)
+    }
+
+    /// Works the strip out for `text` on the background queue after `delay` and shows it, unless
+    /// a newer refresh has superseded `generation` by then. The pass reads the language model's
+    /// prediction when it runs, not when it is scheduled, so an answer that arrives during the
+    /// quiet time is in the strip the first time it is drawn.
+    private func scheduleStrip(generation: Int, text tail: String, model: TypingModel, delay: Double) {
+        let tracker = self.tracker
+        let field = traits
+        let autocorrector = self.autocorrector
+        let latest = suggestionGeneration
+        let prediction = self.prediction
+        let capitalisesStarts = autoCapitals
+        suggestionQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard latest.withLock({ $0 }) == generation else { return }
             let started = ContinuousClock.now
-            var next = SuggestionEngine.suggestions(before: tail, model: model)
+            var next = SuggestionEngine.suggestions(
+                before: tail, model: model, prediction: prediction.withLock { $0 },
+                capitalisesStarts: capitalisesStarts)
             // Mid-word, a confident correction takes the centre cell, the typed word stays on
             // the left in quotes, and one completion stays on the right. The evaluation is the
             // one the word's end will make.
@@ -1145,9 +1198,39 @@ final class TypingController {
             Task { @MainActor [weak self] in
                 guard let self, self.suggestionGeneration.withLock({ $0 }) == generation else { return }
                 self.noteAutocorrectTime(since: started)
+                self.stripShownGeneration = generation
                 if result != self.suggestions { self.suggestions = result }
             }
         }
+    }
+
+    /// Sends a word boundary to the language model, once. The pass starts at the keystroke that
+    /// made the boundary (the space) and not after the strip's quiet time, so on a fast phone the
+    /// answer is there before the strip is first drawn and the pair model's words never flash;
+    /// when it is later than that, the strip shows the pair model's words and then swaps.
+    private func requestPrediction(at boundary: String, model: TypingModel) {
+        guard Settings.shared.smartPredictions else {
+            smart.turnOff()
+            if requestedBoundary != nil {
+                requestedBoundary = nil
+                prediction.withLock { $0 = nil }
+            }
+            return
+        }
+        guard keysTouched, boundary != requestedBoundary else { return }
+        requestedBoundary = boundary
+        smart.request(boundary, words: model)
+    }
+
+    /// The model answered. An answer for a boundary the text has left is dropped. Otherwise it is
+    /// kept for the strip's passes, and if the strip already shows this text without it, the pass
+    /// is run again at once: the same generation, so a newer refresh still wins.
+    private func predictionArrived(_ answer: WordPrediction) {
+        guard answer.boundary == requestedBoundary else { return }
+        prediction.withLock { $0 = answer }
+        let generation = suggestionGeneration.withLock { $0 }
+        guard stripShownGeneration == generation, let model, let text = stripText else { return }
+        scheduleStrip(generation: generation, text: text, model: model, delay: 0)
     }
 
     /// A tap on a strip cell: the typed word is replaced by the suggestion and a space is typed
@@ -1160,6 +1243,7 @@ final class TypingController {
             return
         }
         swipeOffer = nil
+        keysTouched = true
         KeyFeedback.press()
         undo = nil
         tracker.reset()

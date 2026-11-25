@@ -89,6 +89,13 @@ targets:
       - path: ../Tools/Fonts
         includes: ["EBGaramond-Italic*.ttf", "OFL-EBGaramond.txt"]
         buildPhase: resources
+      # The strip's language model, copied whole as a folder. Git ignores its contents:
+      # `uv run Tools/fetch_typing_lm.py --fetch` writes the compiled model and the tokenizer's
+      # files here. A checkout without them copies an empty folder, and the keyboard runs on the
+      # word-pair model (`SmartPredictions` reports `missing`).
+      - path: TypingLM
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: Murmur
         product: MurmurKit

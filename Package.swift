@@ -83,7 +83,10 @@ let package = Package(
             name: "MurmurTypingTests",
             dependencies: ["MurmurTyping", "MurmurDictionary"],
             path: "Tests/MurmurTypingTests",
-            resources: [.copy("replay-sentences.txt"), .copy("real-taps.json"), .copy("real-swipes.json")],
+            resources: [
+                .copy("replay-sentences.txt"), .copy("real-taps.json"), .copy("real-swipes.json"),
+                .copy("bpe-vectors.json"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

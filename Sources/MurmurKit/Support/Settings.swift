@@ -261,6 +261,13 @@ public final class Settings {
         didSet { persist(autoCapitalise, Keys.autoCapitalise) }
     }
 
+    /// Whether the iPhone keyboard's suggestion strip asks its language model for the next word
+    /// and for the order of completions. Off, or with no model in the build, the strip uses the
+    /// word-pair model alone. The Mac ignores it.
+    public var smartPredictions: Bool {
+        didSet { persist(smartPredictions, Keys.smartPredictions) }
+    }
+
     /// The thickness of the swipe trail on the iPhone keyboard. The Mac ignores it.
     public var swipeTrail: SwipeTrailChoice {
         didSet { persist(swipeTrail.rawValue, Keys.swipeTrail) }
@@ -293,6 +300,7 @@ public final class Settings {
         static let swipeTyping = "swipeTyping"
         static let swipeTrail = "swipeTrail"
         static let autoCapitalise = "autoCapitalise"
+        static let smartPredictions = "smartPredictions"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -322,6 +330,7 @@ public final class Settings {
         let swipeTyping: Bool
         let swipeTrail: SwipeTrailChoice
         let autoCapitalise: Bool
+        let smartPredictions: Bool
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -346,6 +355,7 @@ public final class Settings {
             swipeTyping = defaults.object(forKey: Keys.swipeTyping) as? Bool ?? true
             swipeTrail = SwipeTrailChoice(rawValue: defaults.string(forKey: Keys.swipeTrail) ?? "") ?? .regular
             autoCapitalise = defaults.object(forKey: Keys.autoCapitalise) as? Bool ?? false
+            smartPredictions = defaults.object(forKey: Keys.smartPredictions) as? Bool ?? true
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -380,6 +390,7 @@ public final class Settings {
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
+        smartPredictions = values.smartPredictions
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -409,6 +420,7 @@ public final class Settings {
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
+        smartPredictions = values.smartPredictions
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

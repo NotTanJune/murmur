@@ -21,6 +21,14 @@ struct LicencesView: View {
                 )
             }
 
+            Card(title: "Typing model") {
+                entry(
+                    "DistilGPT2",
+                    license: "Apache-2.0",
+                    detail: "By Hugging Face, distilled from OpenAI's GPT-2. Converted to Core ML from distilbert/distilgpt2; suggests the next word on the keyboard when Smart predictions is on."
+                )
+            }
+
             Card(title: "Libraries") {
                 entry(
                     "FluidAudio",

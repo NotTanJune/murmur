@@ -756,6 +756,54 @@ is one of thirty function words. Chains of centre taps are still not sentences (
 to the first to be a few"): a pair model knows one word of context. That is what the plan's
 language model (Milestone 9) is for.
 
+**The strip's words come from a small transformer, with the pair model underneath.** The
+owner called the pair model's predictions comically bad (2026-11-25: "my dog breeds of the same
+time to the first to be a new window") and asked for a better model. It is
+`distilbert/distilgpt2` (Apache-2.0, 82 M parameters, revision `2290a626`), converted to Core ML
+with a 4-bit embedding and 6-bit layers (51.5 MB), a fixed window of the last 32 tokens, no
+cache between calls, `.cpuOnly`. Measured on an M2 over 4,337 word positions of chat and note
+style sentences (`training/typing-lm/`, 229 replay sentences and 290 from Tatoeba): the next word
+is among the three offered 39.2% of the time against the pair model's 22.9%, first choice 23.5%
+against 12.8%, keystrokes saved 54% against 39%; one pass takes 3.5 ms, the first load 0.55 s
+and 25 MB of footprint. SmolLM2-135M was 3 points better and too large; pythia-70m was 3.5
+points worse. How it works:
+
+- **One pass per word boundary, nothing per keystroke.** `NextWordPredictor`
+  (`Sources/MurmurTyping/Predict`, with our own byte-level BPE in `BPETokenizer`, checked against
+  379 vectors from the reference tokenizer) returns a `WordPrediction`: a probability for each
+  word of the keyboard's list that is a single token (20,182 words, 96% of the words in the
+  evaluation). After a space its top three are the predictions; mid-word the same answer ranks
+  the completions by typed prefix. A fresh pass mid-word was measured and is far worse (the
+  letters typed so far are not how the tokenizer spells the word), and a second pass for
+  two-token words gained 0.1 points, so neither exists.
+- **`SuggestionEngine` still decides what is shown.** It takes the prediction only when it was
+  made for the text's own word boundary, and applies every rule it had: `neverVolunteered`, no
+  repeated pair, casing, the likeliest in the centre, a correction's place mid-word. The pair
+  model fills any cell the prediction leaves empty and is the whole answer when there is none.
+- **`SmartPredictions` (`ios/Keyboard`) owns the load.** Nothing loads until a key or a strip
+  cell has been touched, so a keyboard used only to dictate never pays. A load needs
+  `Settings.smartPredictions` (Settings tab, default on), the model in the bundle, 60 MB left
+  before the extension's limit (`os_proc_available_memory`), and no armed `typing-lm-loading`
+  marker: the marker is armed before the load and disarmed after the first prediction, as
+  Bark's is, and a marker found armed at launch means the last keyboard died there, so nothing
+  loads until the app's switch is turned off and on. One prediction runs at a time on a
+  background queue and only the newest waiting request is kept.
+- **Why the CPU.** On the Neural Engine a first load of this file put 240 MB into the process,
+  over the keyboard's 177 MB limit, for 2 ms saved per pass.
+- **The model is not in git.** `uv run Tools/fetch_typing_lm.py --fetch` downloads the pinned
+  weights (size and SHA-256 checked), converts them and writes the compiled model and the
+  tokenizer's files into `ios/TypingLM`, a git-ignored folder the keyboard target copies whole.
+  A checkout without it builds and runs on the pair model (`SmartPredictions` reports
+  `missing`). **Xcode Cloud builds therefore have no model** until it is hosted or converted in
+  CI, which is the owner's decision and still open.
+
+Known limits: it never offers a contraction as a next word ("I'm" is two tokens), it has GPT-2's
+web taste ("please enable javascript to view the comments"), and everything on the phone is
+unverified: memory, speed, load time, and whether Core ML keeps its 174 MiB compile cache in the
+extension's container. Setup shows "Predictions: ready · loaded in N s · last N ms · +N MB".
+If the words are still poor, fine-tune it on conversational text on Colab before changing
+anything else; the fallbacks are in `plans/001-keyboard-v2.md`, Milestone 9.
+
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
 from the owner's screenshots, SF Compact matches the stock capitals at about 23 pt and the stock

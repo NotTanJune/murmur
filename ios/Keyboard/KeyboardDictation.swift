@@ -565,7 +565,11 @@ final class KeyboardDictation {
             typingCancelled: typing?.cancelled, typingOffKey: typing?.offKey,
             typingSlowestHandleMs: typing?.slowestHandleMs,
             typingMaxDeliveryMs: typing?.maxDeliveryMs,
-            typingSlowestAutocorrectMs: typing?.slowestAutocorrectMs
+            typingSlowestAutocorrectMs: typing?.slowestAutocorrectMs,
+            predictionState: typing?.predictionState,
+            predictionLoadSeconds: typing?.predictionLoadSeconds,
+            predictionLastMs: typing?.predictionLastMs,
+            predictionFootprintMB: typing?.predictionFootprintMB
         ).write()
     }
 

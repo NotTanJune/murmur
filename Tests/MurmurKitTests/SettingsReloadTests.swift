@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail", "autoCapitalise"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail", "autoCapitalise", "smartPredictions"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.
@@ -162,5 +162,31 @@ struct SettingsReloadTests {
         settings.reloadFromDefaults()
         #expect(settings.swipeTyping, "a removed key falls back to on")
         #expect(defaults.object(forKey: "swipeTyping") == nil, "the reload does not write back")
+    }
+
+    @MainActor
+    @Test("Smart predictions default on, persist, and reload from another process's write")
+    func smartPredictionsPersistsAndReloads() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = Settings(defaults: defaults)
+        #expect(settings.smartPredictions)
+        #expect(defaults.object(forKey: "smartPredictions") == nil, "the default is not written")
+
+        settings.smartPredictions = false
+        #expect(defaults.object(forKey: "smartPredictions") as? Bool == false)
+        #expect(Settings(defaults: defaults).smartPredictions == false, "a new instance reads the stored value")
+
+        // The app turns it back on while the keyboard's instance holds the old value.
+        defaults.set(true, forKey: "smartPredictions")
+        #expect(settings.smartPredictions == false)
+        settings.reloadFromDefaults()
+        #expect(settings.smartPredictions)
+
+        defaults.removeObject(forKey: "smartPredictions")
+        settings.reloadFromDefaults()
+        #expect(settings.smartPredictions, "a removed key falls back to on")
+        #expect(defaults.object(forKey: "smartPredictions") == nil, "the reload does not write back")
     }
 }

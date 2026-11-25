@@ -12,8 +12,10 @@ public struct CrashMarker: Sendable {
     /// Read once, at creation: the state the previous process left behind.
     public let wasArmedAtLaunch: Bool
 
-    public init(directory: URL) {
-        url = directory.appendingPathComponent("bark-loading")
+    /// `name` is the marker's file name. Bark's is the default; the keyboard's language model
+    /// keeps a marker of its own under another name, with the same rules.
+    public init(directory: URL, name: String = "bark-loading") {
+        url = directory.appendingPathComponent(name)
         wasArmedAtLaunch = FileManager.default.fileExists(atPath: url.path)
     }
 

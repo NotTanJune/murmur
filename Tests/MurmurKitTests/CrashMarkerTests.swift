@@ -37,3 +37,13 @@ private func scratch() throws -> URL {
     atLaunch.arm()
     #expect(atLaunch.isArmed)
 }
+
+@Test func markersWithDifferentNamesAreIndependent() throws {
+    let directory = try scratch()
+    CrashMarker(directory: directory, name: "typing-lm-loading").arm()
+    #expect(CrashMarker(directory: directory).isArmed == false, "Bark's marker is another file")
+    #expect(CrashMarker(directory: directory, name: "typing-lm-loading").wasArmedAtLaunch)
+    CrashMarker(directory: directory).arm()
+    CrashMarker(directory: directory, name: "typing-lm-loading").disarm()
+    #expect(CrashMarker(directory: directory).isArmed)
+}

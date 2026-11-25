@@ -21,3 +21,8 @@ models/
 ios/Local.xcconfig
 ios/*.xcodeproj/xcuserdata/
 ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# The keyboard's language model: Tools/fetch_typing_lm.py builds it here and the keyboard target
+# copies the folder. Only the placeholder that keeps the folder in a fresh checkout is committed.
+ios/TypingLM/*
+!ios/TypingLM/.gitkeep

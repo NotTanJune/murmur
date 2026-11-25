@@ -42,6 +42,11 @@ notice files beside the weights where the source provides them.
 | Underdog Bark 3.0 Clean, Core ML build | `FluidInference/bark-3.0-coreml`, from Conway Research, derived from NVIDIA Parakeet TDT 0.6B v3 and Moondream parakeet-ultra | CC-BY-4.0 |
 | S1-mini by Superwhisper | `superwhisper/s1-mini`, converted to 4-bit on your Mac | Apache-2.0, with a term requiring the name "S1-mini" by "Superwhisper" |
 | Parakeet TDT v3, Parakeet EOU and Nemotron | Fetched through FluidAudio | See each model card |
+| DistilGPT2, the iPhone keyboard's next-word model | `distilbert/distilgpt2` at revision `2290a626`, by Hugging Face, distilled from OpenAI's GPT-2; converted to Core ML with 4-bit and 6-bit palettes by `Tools/fetch_typing_lm.py`, with its `vocab.json` and `merges.txt` | Apache-2.0 |
+
+DistilGPT2 is the one model that ships inside a build and is not downloaded by the app: the script
+writes it to `ios/TypingLM`, which git ignores, and the keyboard target copies that folder. A build
+made without running the script has no model in it.
 
 ## Data
 
@@ -56,6 +61,10 @@ the script downloads them and checks their SHA-256.
 | `frequency_dictionary_en_82_765.txt` and `frequency_bigramdictionary_en_243_342.txt` | SymSpell by Wolf Garbe, `github.com/wolfgarbe/SymSpell` | MIT |
 | Word frequencies behind both lists | Google Books Ngram data, http://books.google.com/ngrams | CC BY 3.0 Unported |
 | English vocabulary the unigram list was filtered with | SCOWL (Spell Checker Oriented Word Lists), as the SymSpell README states, http://wordlist.aspell.net/ | Permissive, notice below |
+
+`training/typing-lm/eval-sentences.tsv`, which only the model evaluation reads and no build
+includes, holds 290 sentences from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each line
+carries its Tatoeba sentence id, which names its author at `tatoeba.org/sentences/show/<id>`.
 
 SCOWL's notice, from `scowl/Copyright` in `github.com/en-wl/wordlist` (which also credits further
 contributors' lists under similar terms):

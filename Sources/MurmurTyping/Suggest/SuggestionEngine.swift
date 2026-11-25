@@ -8,6 +8,11 @@ import Foundation
 /// word's probability after the previous word and its probability anywhere, so a rare word that
 /// happens to follow the previous one cannot outrank a common one that fits nearly as well, and a
 /// word with no stored pair after the previous one still ranks by frequency.
+///
+/// That pair model knows one word of context. When the keyboard's language model has answered
+/// for the same word boundary (`WordPrediction`, from `NextWordPredictor`), its words come first
+/// in both places and the pair model fills what it leaves; the rules below (what is never
+/// offered, what is not repeated, how a word is cased) hold for both.
 public enum SuggestionEngine {
     /// The share of a word's score that comes from the previous word (P(word | previous)); the
     /// rest comes from its plain frequency.
@@ -22,8 +27,8 @@ public enum SuggestionEngine {
     /// typed ("don"), the contraction competes at full strength.
     public static let contractionDiscount = 0.1
     /// What the strip offers at the start of a sentence, when there is no previous word to
-    /// predict from. The model has no sentence-start statistics, so these are the stock
-    /// keyboard's usual openers.
+    /// predict from and no language model answer. The pair model has no sentence-start
+    /// statistics, so these are the stock keyboard's usual openers.
     static let sentenceStarters = ["I", "The", "I'm"]
     /// Words the strip never offers as the next word by itself. The pair counts come from web
     /// pages, where adult and spam pages are loud: after "dog" the likeliest next word was
@@ -59,13 +64,53 @@ public enum SuggestionEngine {
     ///   capitalised form.
     /// - Directly after punctuation or a digit with no space (`"wait."`, `"3"`): none, because
     ///   neither a completion nor a prediction applies there.
-    public static func suggestions(before text: String, model: TypingModel) -> [Suggestion] {
+    ///
+    /// `prediction` is the language model's answer for this text's word boundary, when there is
+    /// one (`boundary(before:)` names the text it must have been made for; any other is
+    /// ignored). With it the next words are the model's likeliest, a sentence start is predicted
+    /// from what came before instead of the fixed openers, and completions are ranked by the
+    /// model first, with the pair model's filling the slots it leaves. Without it the answer is
+    /// the pair model's alone. `capitalisesStarts` gives the model's sentence-start predictions
+    /// a capital, which the keyboard turns off with auto-capitalisation.
+    public static func suggestions(
+        before text: String, model: TypingModel, prediction: WordPrediction? = nil, capitalisesStarts: Bool = true
+    ) -> [Suggestion] {
+        suggestions(
+            before: text, model: model, prediction: prediction, capitalisesStarts: capitalisesStarts,
+            completionLimit: 2)
+    }
+
+    /// The same, with room for more completions than the strip shows. The evaluation of the
+    /// language model (`TypingLMEvalTests`) asks for three, to compare like with like.
+    static func suggestions(
+        before text: String, model: TypingModel, prediction: WordPrediction? = nil, capitalisesStarts: Bool = true,
+        completionLimit: Int
+    ) -> [Suggestion] {
         let context = Context(text)
         guard context.isWordBoundary else { return [] }
+        // A prediction counts only for the word boundary it was made at.
+        let prediction = prediction.flatMap { $0.boundary == text.dropLast(context.partial.count) ? $0 : nil }
         if context.partial.isEmpty {
-            return predictNext(context, model, recent: recentWords(before: text))
+            return predictNext(
+                context, model, recent: recentWords(before: text), prediction: prediction,
+                capitalisesStarts: capitalisesStarts)
         }
-        return complete(context, model)
+        return complete(context, model, limit: completionLimit, prediction: prediction)
+    }
+
+    /// How many characters at the end of `text` are the word being typed: 0 after a space. Nil
+    /// where the strip offers nothing (directly after punctuation or a digit). It reads only the
+    /// end of the text, so it is cheap on a long one.
+    public static func typedLength(before text: String) -> Int? {
+        let context = Context(text)
+        return context.isWordBoundary ? context.partial.count : nil
+    }
+
+    /// The text up to the start of the word being typed, which is what the language model
+    /// predicts from: all of `text` after a space, and `text` less the typed letters mid-word.
+    /// Nil where `typedLength` is.
+    public static func boundary(before text: String) -> String? {
+        typedLength(before: text).map { String(text.dropLast($0)) }
     }
 
     /// The edit a tap on `suggestion` makes to `text`: the typed word is replaced by the
@@ -103,7 +148,9 @@ public enum SuggestionEngine {
 
     // MARK: - Ranking
 
-    private static func complete(_ context: Context, _ model: TypingModel) -> [Suggestion] {
+    private static func complete(
+        _ context: Context, _ model: TypingModel, limit: Int, prediction: WordPrediction?
+    ) -> [Suggestion] {
         let typed = Suggestion(text: context.partial, kind: .typed)
         let folded = fold(context.partial)
         let range = model.range(ofPrefix: folded)
@@ -117,19 +164,42 @@ public enum SuggestionEngine {
             }
         }
         let exact = model.id(of: folded)
-        let ranked = rank(
-            candidates.filter { $0 != exact }, previous: previousID, typedLength: folded.count,
-            model: model)
-        let completions = ranked.prefix(2).map {
+        var ranked: [Int] = []
+        // The language model's words with this prefix come first, likeliest first, under the
+        // same rules as the pair model's: never the typed word itself, and a contraction held
+        // back until its stem is typed.
+        if let prediction {
+            let scored = prediction.candidates(in: range).map { entry -> (id: Int, score: Double) in
+                var score = Double(entry.probability)
+                if model.isContraction(entry.id),
+                    folded.count < model.word(entry.id).prefix(while: { $0 != "'" }).count
+                {
+                    score *= contractionDiscount
+                }
+                return (entry.id, score)
+            }
+            for entry in scored.sorted(by: { $0.score != $1.score ? $0.score > $1.score : $0.id < $1.id }) {
+                guard ranked.count < limit else { break }
+                if entry.id != exact, isSuggestible(model.word(entry.id)) { ranked.append(entry.id) }
+            }
+        }
+        if ranked.count < limit {
+            let rest = rank(
+                candidates.filter { $0 != exact && !ranked.contains($0) }, previous: previousID,
+                typedLength: folded.count, model: model)
+            ranked += rest.prefix(limit - ranked.count)
+        }
+        let completions = ranked.map {
             Suggestion(text: matchCase(model.word($0), to: context.partial), kind: .completion)
         }
         return [typed] + completions
     }
 
     private static func predictNext(
-        _ context: Context, _ model: TypingModel, recent: [String]
+        _ context: Context, _ model: TypingModel, recent: [String], prediction: WordPrediction?,
+        capitalisesStarts: Bool
     ) -> [Suggestion] {
-        if context.isSentenceStart {
+        if context.isSentenceStart, prediction == nil {
             return strip(sentenceStarters.map { Suggestion(text: $0, kind: .next) })
         }
         let previousID = context.previous.flatMap { model.id(of: $0) }
@@ -145,16 +215,25 @@ public enum SuggestionEngine {
         }
         let discounted = Set(repeated.compactMap { model.id(of: $0) })
         var ids: [Int] = []
-        if let previousID {
+        // The language model's likeliest words, under the rules every prediction keeps: nothing
+        // from the never-volunteered list, no pair of words written again, and a word already
+        // used held back.
+        if let prediction {
+            let scored = prediction.best.compactMap { entry -> (id: Int, score: Double)? in
+                guard entry.id != previousID, offered(entry.id) else { return nil }
+                return (entry.id, Double(entry.probability) * (discounted.contains(entry.id) ? repeatDiscount : 1))
+            }
+            ids = scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.id < $1.id }.prefix(3).map(\.id)
+        }
+        if ids.count < 3, let previousID {
             let successors = model.successors(of: previousID).map(\.id).filter {
                 // The n-gram data holds "the the" and the like, which are never worth predicting.
-                $0 != previousID && offered($0)
+                $0 != previousID && !ids.contains($0) && offered($0)
             }
-            ids = Array(
-                rank(
-                    Set(successors), previous: previousID, typedLength: 0, model: model,
-                    discounted: discounted
-                ).prefix(3))
+            ids += rank(
+                Set(successors), previous: previousID, typedLength: 0, model: model,
+                discounted: discounted
+            ).prefix(3 - ids.count)
         }
         // A previous word with fewer than three stored successors (or none known) falls back
         // to the most frequent words, so the strip is never short.
@@ -164,7 +243,11 @@ public enum SuggestionEngine {
             ids += rank(common, previous: nil, typedLength: 0, model: model, discounted: discounted)
                 .prefix(3 - ids.count)
         }
-        return strip(ids.map { Suggestion(text: matchCase(model.word($0), to: ""), kind: .next) })
+        return strip(ids.map {
+            let word = matchCase(model.word($0), to: "")
+            return Suggestion(
+                text: context.isSentenceStart && capitalisesStarts ? capitalised(word) : word, kind: .next)
+        })
     }
 
     /// The last `repeatWindow` words of the sentence being written, folded to the model's form,
