@@ -165,6 +165,37 @@ public final class TypingModel: Sendable {
         }
     }
 
+    /// The words of `range` whose byte at position `depth` is `byte`, where `range` is the id range
+    /// of a prefix that is `depth` bytes long (`range(ofPrefix:)` of it, or an earlier `narrow`).
+    /// That is the child of a trie node: `narrow(range(ofPrefix: "th"), depth: 2, byte: 0x65)` is
+    /// `range(ofPrefix: "the")`. It is two binary searches inside `range` over single bytes, with no
+    /// string built and nothing allocated, so a beam search can ask for thousands of children.
+    /// The word equal to the prefix itself (shorter than `depth + 1` bytes) is in no child.
+    public func narrow(_ range: Range<Int>, depth: Int, byte: UInt8) -> Range<Int> {
+        guard !range.isEmpty, depth >= 0 else { return range.lowerBound..<range.lowerBound }
+        let wanted = Int(byte)
+        return data.withUnsafeBytes { raw in
+            // `byteAt` is -1 for the prefix word itself, which sorts first in the range, so both
+            // predicates below are false for it and then flip once, as a binary search needs.
+            func byteAt(_ id: Int) -> Int {
+                let (start, end) = wordBounds(raw, id)
+                return start + depth < end ? Int(raw[start + depth]) : -1
+            }
+            func firstID(where predicate: (Int) -> Bool) -> Int {
+                var low = range.lowerBound
+                var high = range.upperBound
+                while low < high {
+                    let mid = (low + high) / 2
+                    if predicate(byteAt(mid)) { high = mid } else { low = mid + 1 }
+                }
+                return low
+            }
+            let lower = firstID { $0 >= wanted }
+            let upper = firstID { $0 > wanted }
+            return lower..<upper
+        }
+    }
+
     /// The `limit` likeliest words starting with `prefix` (the prefix itself included when it is
     /// a word), most frequent first, ties broken by id.
     public func completions(prefix: String, limit: Int) -> [Int] {
