@@ -153,6 +153,8 @@ final class KeyboardViewController: UIInputViewController {
         // Typing first: it resets the counters that the dictation's status write reports.
         typing.keyboardAppeared()
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
+        // The settings were just re-read; the strip's height is one of them while it is tuned.
+        view.setNeedsLayout()
         // Contact names and the owner's text replacements: words autocorrect must not undo. The
         // answer is asynchronous; the controller rebuilds its lexicon when it arrives.
         // The completion runs on a background queue (`com.apple.TextInput.lexicon-request`), so

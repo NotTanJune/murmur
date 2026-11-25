@@ -63,6 +63,18 @@ struct SettingsView: View {
                     }
                 }
 
+                Card(title: "Keyboard tuning") {
+                    Stepper(
+                        value: $settings.keyboardTopTrim,
+                        in: 0...DS.Keyboard.stripTopTrimLimit,
+                        step: DS.Keyboard.stripTopTrimStep
+                    ) {
+                        Text("Top trim: \(settings.keyboardTopTrim.formatted(.number.precision(.fractionLength(1)))) pt")
+                            .font(DS.Font.bodyEmphasis)
+                            .foregroundStyle(DS.Color.ink)
+                    }
+                }
+
                 Card(title: "Appearance") {
                     ChoiceKeys(
                         options: AppearanceChoice.allCases,

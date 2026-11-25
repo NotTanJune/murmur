@@ -35,7 +35,11 @@ struct SuggestionStrip: View {
                 RecordControl(dictation: dictation, stripWidth: geometry.size.width)
             }
         }
-        .frame(height: typing.stripHeight)
+        // The contents are laid out in the full strip and pinned to its bottom edge, so a top
+        // trim (Settings, Keyboard tuning) takes space off above them and leaves their distance
+        // to the keys alone.
+        .frame(height: DS.Keyboard.stripHeight)
+        .frame(height: typing.stripHeight, alignment: .bottom)
     }
 
     private var isFailed: Bool {

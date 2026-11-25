@@ -752,6 +752,19 @@ no automatic shift is set for typing, swiping or dictation; a lone "i" stays as 
 becomes "i'm", and the double-space period types no shift after it. Shift and caps lock work as
 before. Do not flip the default without the owner.
 
+**The strip's top trim is being tuned, and its setting is temporary.** The system draws about
+16 pt of its own backdrop above a third-party keyboard's view (measured again on 2026-11-25 from
+the owner's screenshot: the strip's centre is 38 pt under the panel's edge, 22 pt of it ours),
+and with the 44 pt strip's own 4 pt above the 36 pt m that reads as too much space. The owner
+asked for a control to find the right amount by eye: `Settings.keyboardTopTrim` (0 to 12 pt in
+0.5 pt steps; Settings tab, Keyboard tuning) shortens the strip from the top.
+`MetricsConstants.keyboard(isLandscape:)` subtracts it, and `SuggestionStrip` lays its contents
+out in the full 44 pt pinned to the bottom edge, so their distance to the keys does not change;
+past 4 pt the contents stand out above the keyboard's view, which will show whether iOS clips
+there. **When the owner names the value: set `DS.Keyboard.stripHeight` and
+`MetricsConstants.portrait` to it, then delete the setting, its key, its Settings card, the
+`stripTopTrim*` tokens and this paragraph's tuning half.**
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

@@ -261,6 +261,13 @@ public final class Settings {
         didSet { persist(autoCapitalise, Keys.autoCapitalise) }
     }
 
+    /// Tuning, temporary: points taken off the top of the iPhone keyboard's suggestion strip,
+    /// in steps of 0.5. The owner is finding the value by eye (2026-11-25); once chosen it
+    /// becomes the strip's height and this setting and its Settings card are removed.
+    public var keyboardTopTrim: Double {
+        didSet { persist(keyboardTopTrim, Keys.keyboardTopTrim) }
+    }
+
     /// The thickness of the swipe trail on the iPhone keyboard. The Mac ignores it.
     public var swipeTrail: SwipeTrailChoice {
         didSet { persist(swipeTrail.rawValue, Keys.swipeTrail) }
@@ -293,6 +300,7 @@ public final class Settings {
         static let swipeTyping = "swipeTyping"
         static let swipeTrail = "swipeTrail"
         static let autoCapitalise = "autoCapitalise"
+        static let keyboardTopTrim = "keyboardTopTrim"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -322,6 +330,7 @@ public final class Settings {
         let swipeTyping: Bool
         let swipeTrail: SwipeTrailChoice
         let autoCapitalise: Bool
+        let keyboardTopTrim: Double
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -346,6 +355,7 @@ public final class Settings {
             swipeTyping = defaults.object(forKey: Keys.swipeTyping) as? Bool ?? true
             swipeTrail = SwipeTrailChoice(rawValue: defaults.string(forKey: Keys.swipeTrail) ?? "") ?? .regular
             autoCapitalise = defaults.object(forKey: Keys.autoCapitalise) as? Bool ?? false
+            keyboardTopTrim = defaults.object(forKey: Keys.keyboardTopTrim) as? Double ?? 0
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -380,6 +390,7 @@ public final class Settings {
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
+        keyboardTopTrim = values.keyboardTopTrim
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -409,6 +420,7 @@ public final class Settings {
         swipeTyping = values.swipeTyping
         swipeTrail = values.swipeTrail
         autoCapitalise = values.autoCapitalise
+        keyboardTopTrim = values.keyboardTopTrim
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

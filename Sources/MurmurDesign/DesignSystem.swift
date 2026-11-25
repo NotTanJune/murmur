@@ -305,6 +305,12 @@ public enum DS {
         /// The suggestion strip above the keys: 30 pt upright, the stock 44 pt turned.
         public static let stripHeight: CGFloat = 44
         public static let stripHeightLandscape: CGFloat = 44
+        /// Tuning, temporary (Settings, Keyboard tuning): how far the owner may trim the top of
+        /// the strip, and in what steps. The strip's contents keep their place above the keys;
+        /// past `(stripHeight - mCircleDiameter) / 2` they stand out above the keyboard's own
+        /// view, which shows whether iOS clips there.
+        public static let stripTopTrimLimit: Double = 12
+        public static let stripTopTrimStep: Double = 0.5
         /// Between the strip and the first row: 8 pt upright, 6 pt turned.
         public static let stripGap: CGFloat = 8
         /// While a burst of typing is under way, a touch this far up into the suggestion strip

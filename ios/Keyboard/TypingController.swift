@@ -8,9 +8,13 @@ import UIKit
 extension MetricsConstants {
     /// The stock keyboard's measurements for one orientation, filled from the design tokens.
     /// `MurmurTyping` cannot import `MurmurDesign`, so the iPhone target does it here.
+    ///
+    /// The strip is shorter by Settings' temporary top trim (`Settings.keyboardTopTrim`).
+    @MainActor
     static func keyboard(isLandscape: Bool) -> MetricsConstants {
-        MetricsConstants(
-            stripHeight: isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight,
+        let trim = CGFloat(min(max(Settings.shared.keyboardTopTrim, 0), DS.Keyboard.stripTopTrimLimit))
+        return MetricsConstants(
+            stripHeight: (isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight) - trim,
             stripGap: isLandscape ? DS.Keyboard.stripGapLandscape : DS.Keyboard.stripGap,
             keycapHeight: isLandscape ? DS.Keyboard.keycapHeightLandscape : DS.Keyboard.keycapHeight,
             rowGap: isLandscape ? DS.Keyboard.rowGapLandscape : DS.Keyboard.rowGap,
