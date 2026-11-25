@@ -86,6 +86,8 @@ class Tracker:
         self.counts = {"whit": 0, "event": 0, "layout": 0, "host": 0, "refused": 0, "overlap": 0, "stall": 0, "window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
                        "lost": 0, "silent": 0, "gesture": 0}
         self.typed: list[str] = []
+        self.stage: str | None = None
+        self.stages: dict[str, dict] = {}
 
     def stamp(self, t: float) -> str:
         if self.start is None:
@@ -117,7 +119,21 @@ class Tracker:
         elif kind == "hit":
             self.pending_hits.append(event)
             print(f"{DIM}{self.stamp(t)}  hit   ({event['x']:.0f},{event['y']:.0f}){RESET}")
+        elif kind == "stage":
+            self.stage = event.get("name")
+            print(f"{GREEN}{self.stamp(t)}  === stage: {self.stage} ==={RESET}")
+            if self.stage == "done":
+                self.stage = None
+            else:
+                self.stages.setdefault(self.stage, {"taps": 0, "repeats": 0, "last": None, "first": t, "end": t})
         elif kind == "began":
+            if getattr(self, "stage", None) and str(event.get("key", "")).startswith("character"):
+                record = self.stages[self.stage]
+                record["taps"] += 1
+                record["end"] = t
+                if record["last"] == event["key"]:
+                    record["repeats"] += 1
+                record["last"] = event["key"]
             # The oldest pending hit near this point is this touch's.
             for i, hit in enumerate(self.pending_hits):
                 if abs(hit["x"] - event["x"]) < 30 and abs(hit["y"] - event["y"]) < 30:
@@ -186,6 +202,13 @@ class Tracker:
         print(f"  cancelled                {c['cancelled']}")
         print(f"  inserts                  {c['insert']}")
         print(f"  gesture state changes    {c['gesture']}")
+        if self.stages:
+            print()
+            print("Two-key test (a repeat is the same key twice running: a tap the keyboard never got)")
+            for name, record in self.stages.items():
+                seconds = max(record["end"] - record["first"], 0.001)
+                print(f"  {name:<20} {record['taps']:4d} taps  {record['repeats']:3d} repeats  "
+                      f"{record['taps'] / seconds:4.1f} taps/s")
         typed = "".join(self.typed)
         if expect is not None:
             print(f"  expected  {expect!r}")

@@ -128,6 +128,8 @@ final class TypingController {
     @ObservationIgnored private var lettersLayout: LettersLayout?
     /// The next-letter bias, built off the typing path and cached per prefix.
     @ObservationIgnored private var biasCache = NextLetterBiasCache()
+    /// Diagnostics only: the staged two-key test, armed from Setup.
+    @ObservationIgnored private var stageTest = TypingStageTest()
     /// The strip is computed here, off the main thread; see `refreshSuggestions`.
     @ObservationIgnored private let suggestionQueue = DispatchQueue(
         label: "ai.pivotstudio.murmur.suggestions", qos: .userInitiated)
@@ -430,11 +432,45 @@ final class TypingController {
         case .tick:
             break
         }
-        let effects = engine.handle(event, bias: biasForTouch())
-        if !effects.isEmpty { apply(effects) }
+        let stage = stageTest.stage(for: event, at: uptime)
+        if stageTest.justFinished {
+            // Tell the owner the test is over; from here the keyboard types as usual.
+            proxy()?.insertText("\n[test done]\n")
+        }
+        let effects = engine.handle(event, bias: stage == nil ? biasForTouch() : [:])
+        if !effects.isEmpty {
+            if let stage, stage != .full { applyReduced(effects, stage: stage) } else { apply(effects) }
+        }
         let elapsed = (ContinuousClock.now - entered).components
         let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
         counters.slowestHandleMs = max(counters.slowestHandleMs, milliseconds)
+    }
+
+    /// The stage test's cut-down paths: only the parts of a key press the stage allows, with no
+    /// text rules, autocorrect or strip refresh, so a stage's lost taps can be laid at the door
+    /// of what it added.
+    private func applyReduced(_ effects: [TypingEffect], stage: TypingStageTest.Stage) {
+        for effect in effects {
+            switch effect {
+            case .insert(let text, _):
+                if stage.inserts { proxy()?.insertText(text) }
+            case .deleteBackward(let count):
+                if stage.inserts { for _ in 0..<count { proxy()?.deleteBackward() } }
+            case .showPopup(let kind, let alternates, let selected):
+                if stage.popups { showPopup(kind, alternates: alternates, selected: selected) }
+            case .hidePopup:
+                plane?.hidePopup()
+            case .feedback:
+                if stage.feedback { KeyFeedback.press() }
+            case .setPage, .setShift:
+                stateIsDirty = true
+            case .trackpad(let active):
+                plane?.setTrackpad(active)
+            case .deleteWordBackward, .moveCursor, .showEmoji, .globe:
+                break
+            }
+        }
+        flushState()
     }
 
     private func noteDelivery(_ seconds: TimeInterval) {

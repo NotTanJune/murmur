@@ -45,6 +45,7 @@ enum TypingDiagnostics {
 
     static func turnOff() {
         MurmurEnvironment.defaults.removeObject(forKey: defaultsKey)
+        disarmStageTest()
         try? FileManager.default.removeItem(at: url)
     }
 
@@ -54,6 +55,29 @@ enum TypingDiagnostics {
         guard raw > 0 else { return nil }
         let until = Date(timeIntervalSince1970: raw)
         return until > Date() ? until : nil
+    }
+
+    // MARK: - The staged two-key test
+
+    static let stageTestKey = "typingStageTestArmed"
+
+    /// Arms the test for the keyboard's next touch-down, and turns the log on for it.
+    static func armStageTest() {
+        turnOn()
+        MurmurEnvironment.defaults.set(true, forKey: stageTestKey)
+    }
+
+    static var stageTestArmed: Bool { MurmurEnvironment.defaults.bool(forKey: stageTestKey) }
+
+    static func disarmStageTest() {
+        MurmurEnvironment.defaults.removeObject(forKey: stageTestKey)
+    }
+
+    /// The keyboard asks at a touch-down: true once, when the test was armed.
+    static func takeStageTest() -> Bool {
+        guard isOn, stageTestArmed else { return false }
+        disarmStageTest()
+        return true
     }
 
     // MARK: - Logging

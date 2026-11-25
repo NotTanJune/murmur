@@ -129,6 +129,8 @@ struct SetupView: View {
     @State private var status = SetupStatus()
     /// The typing diagnostics switch; it turns itself off after `TypingDiagnostics.duration`.
     @State private var diagnosticsOn = TypingDiagnostics.expiry != nil
+    /// The staged two-key test is armed until the keyboard starts it.
+    @State private var stageTestArmed = TypingDiagnostics.stageTestArmed
 
     var body: some View {
         PhonePage(title: "Setup") {
@@ -196,6 +198,19 @@ struct SetupView: View {
                         set: { on in
                             if on { TypingDiagnostics.turnOn() } else { TypingDiagnostics.turnOff() }
                             diagnosticsOn = on
+                            if !on { stageTestArmed = false }
+                        }
+                    )
+                )
+                ToggleRow(
+                    title: "Two-key test",
+                    note: "Runs once, from your next key press, for 25 seconds: tap f and j in turn, fast, until \"[test done]\" is typed. The last 5 seconds type nothing.",
+                    isOn: Binding(
+                        get: { stageTestArmed },
+                        set: { on in
+                            if on { TypingDiagnostics.armStageTest() } else { TypingDiagnostics.disarmStageTest() }
+                            stageTestArmed = on
+                            diagnosticsOn = TypingDiagnostics.expiry != nil
                         }
                     )
                 )
@@ -224,9 +239,14 @@ struct SetupView: View {
         .onAppear {
             status.refresh()
             diagnosticsOn = TypingDiagnostics.expiry != nil
+            stageTestArmed = TypingDiagnostics.stageTestArmed
         }
         .onChange(of: phase) { _, now in
-            if now == .active { status.refresh() }
+            if now == .active {
+                status.refresh()
+                diagnosticsOn = TypingDiagnostics.expiry != nil
+                stageTestArmed = TypingDiagnostics.stageTestArmed
+            }
         }
         // The keyboard writes its report while this tab is on screen, in another app's text
         // field or beside this one, so look again while the tab is visible.
