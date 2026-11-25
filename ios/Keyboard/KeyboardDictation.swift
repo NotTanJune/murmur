@@ -278,6 +278,11 @@ final class KeyboardDictation {
         // The setting was just re-read above. On, the microphone opens now, ahead of the model
         // work below, so a press finds it already delivering audio; off, it opens at the press.
         keepsMicrophoneWarm = Settings.shared.alwaysOpenMic
+        // Diagnostics only: which of the keyboard's extras ran under a typing test.
+        TypingDiagnostics.log("appear", [
+            "t": ProcessInfo.processInfo.systemUptime,
+            "warmMic": keepsMicrophoneWarm, "haptics": Settings.shared.hapticsEnabled,
+        ])
         if keepsMicrophoneWarm {
             openMicrophone()
             scheduleIdleClose()

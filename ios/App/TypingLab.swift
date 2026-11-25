@@ -1,4 +1,5 @@
 import MurmurDesign
+import ObjectiveC
 import MurmurKit
 import SwiftUI
 import UIKit
@@ -14,7 +15,11 @@ import UIKit
 /// keyboard it sees when that is not the one it is for.
 struct TypingLab: View {
     static let sentence = "a quick brown fox jumps over the lazy dog"
-    static let fields = ["Apple", "Murmur"]
+    /// Each field's name and the keyboard it is for.
+    static let fields: [(name: String, keyboard: String)] = [
+        ("Apple", "Apple"), ("Murmur", "Murmur"), ("Gboard", "Gboard"), ("Murmur quiet", "Murmur"),
+    ]
+    static let quietNote = "Before this one: Settings tab, turn off Keep microphone ready and Haptics. Turn them back on after."
 
     @State private var cleared = 0
     /// The keyboard each field last saw, by field name.
@@ -23,18 +28,20 @@ struct TypingLab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.base) {
             Note(text: "Type this in each field with that keyboard, three times, fast, without correcting: \(Self.sentence)")
-            ForEach(Self.fields, id: \.self) { name in
+            ForEach(Self.fields, id: \.name) { field in
+                let name = field.name
                 VStack(alignment: .leading, spacing: DS.Space.snug) {
                     Text(name)
                         .font(DS.Font.bodyEmphasis)
                         .foregroundStyle(DS.Color.ink)
+                    if name != field.keyboard { Note(text: Self.quietNote) }
                     LabField(name: name) { keyboards[name] = $0 }
                         .id("\(name)-\(cleared)")
                         .frame(height: DS.Control.recordSize)
                         .padding(.horizontal, DS.Space.base)
                         .background(DS.Color.chrome, in: .rect(cornerRadius: DS.Radius.control))
-                    if let keyboard = keyboards[name], keyboard != name {
-                        Text("This is the \(keyboard) keyboard. Hold the globe key and pick \(name).")
+                    if let keyboard = keyboards[name], keyboard != field.keyboard {
+                        Text("This is the \(keyboard) keyboard. Hold the globe key and pick \(field.keyboard).")
                             .font(DS.Font.bodyEmphasis)
                             .foregroundStyle(DS.Color.ink)
                     }
@@ -46,6 +53,8 @@ struct TypingLab: View {
             }
             .font(DS.Font.body)
         }
+        .onAppear { LabTouchSpy.install() }
+        .onDisappear { LabTouchSpy.field = nil }
     }
 }
 
@@ -96,7 +105,10 @@ private struct LabField: UIViewRepresentable {
                 name: UITextInputMode.currentInputModeDidChangeNotification, object: nil)
         }
 
-        @MainActor @objc func began(_ field: UITextField) { noteKeyboard(field) }
+        @MainActor @objc func began(_ field: UITextField) {
+            LabTouchSpy.field = name
+            noteKeyboard(field)
+        }
 
         @MainActor @objc func modeChanged() {
             guard let field, field.isFirstResponder else { return }
@@ -136,9 +148,10 @@ enum TypingLabLog {
     private static let queue = DispatchQueue(label: "ai.pivotstudio.murmur.typing-lab", qos: .utility)
 
     static func append(field: String, keyboard: String, text: String) {
-        let object: [String: Any] = [
-            "field": field, "kb": keyboard, "t": ProcessInfo.processInfo.systemUptime, "text": text,
-        ]
+        write(["field": field, "kb": keyboard, "t": ProcessInfo.processInfo.systemUptime, "text": text])
+    }
+
+    static func write(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
         queue.async {
             let line = data + Data("\n".utf8)
@@ -154,5 +167,45 @@ enum TypingLabLog {
 
     static func clear() {
         queue.async { try? FileManager.default.removeItem(at: url) }
+    }
+}
+
+/// Watches every touch this app's own windows are sent while a lab field is being typed in, and
+/// logs each one as a `spy` line. A third-party keyboard runs in its own process, so its key
+/// presses should never show here; one that does was routed to the app instead of the keyboard,
+/// which is one place a tap the keyboard never received could have gone. `UIWindow.sendEvent`
+/// is swizzled once, for the lab alone, and goes when the lab does.
+@MainActor
+enum LabTouchSpy {
+    private static var installed = false
+    /// The lab field being typed in, or nil when none is.
+    static var field: String?
+
+    static func install() {
+        guard !installed else { return }
+        installed = true
+        let original = #selector(UIWindow.sendEvent(_:))
+        let spy = #selector(UIWindow.murmurLab_sendEvent(_:))
+        guard let originalMethod = class_getInstanceMethod(UIWindow.self, original),
+              let spyMethod = class_getInstanceMethod(UIWindow.self, spy)
+        else { return }
+        method_exchangeImplementations(originalMethod, spyMethod)
+    }
+}
+
+extension UIWindow {
+    @objc dynamic func murmurLab_sendEvent(_ event: UIEvent) {
+        if let field = LabTouchSpy.field, event.type == .touches, let touches = event.allTouches {
+            for touch in touches where touch.phase == .began {
+                let point = touch.location(in: self)
+                TypingLabLog.write([
+                    "spy": String(describing: type(of: self)), "field": field, "t": touch.timestamp,
+                    "view": touch.view.map { String(describing: type(of: $0)) } ?? "nil",
+                    "x": Double(point.x), "y": Double(point.y), "h": Double(bounds.height),
+                ])
+            }
+        }
+        // After the swizzle this name holds the original implementation.
+        murmurLab_sendEvent(event)
     }
 }
