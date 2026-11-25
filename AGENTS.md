@@ -867,8 +867,10 @@ touch events, the input click, `UILexicon`, the proxy's traits (autocorrection, 
 capitals, smart quotes and dashes, the return key's job), the double-space period, caps lock, and
 setup and settings in the app, not in the keyboard. Fixed on that day: `hasDictationKey` is true,
 because the m is a dictation key and iOS otherwise shows its own microphone under the keyboard.
-Set in `viewDidLoad` it changed nothing on the owner's phone (the microphone still showed), so it
-is set in `init`; whether iOS 26 honours it at all is unverified.
+Set in `viewDidLoad` and then in `init` it changed nothing on the owner's phone (the microphone
+still showed; the owner has the system's dictation switched on). The last try overrides the
+property so it always reads true and sets it again at each appearance. The owner does not mind
+the microphone: if it still shows, leave it and do not try further.
 The letters page's bottom row
 follows the field's keyboard type, as the stock keyboard's does (`KeyboardLayout.rows(for:showsGlobe:field:)`,
 `TypingEngine.setField`): an email field has the space bar, `@` and `.`; a web address field has
@@ -951,6 +953,10 @@ iPhone icon, which lives at `ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon.
 4. **Automatic profiles.** The cleanup profile is chosen by hand, not from the focused app.
 5. **The rest of the iPhone keyboard's plan** (`plans/001-keyboard-v2.md`): learning from the
    owner's typing, edits to dictated text as training labels, and a transformer language model.
+6. **Emoji search on the iPhone keyboard.** Benched by the owner on 2026-11-25 until the core of
+   the keyboard works well (typing, predictions, swiping). It needs a search row in the emoji
+   panel that the letter keys type into, and names and keywords in the generated emoji data
+   (`Tools/gen_emoji.py`).
 
 ## Murmur streaming options and verification
 

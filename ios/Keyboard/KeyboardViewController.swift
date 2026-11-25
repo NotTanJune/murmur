@@ -39,11 +39,19 @@ final class KeyboardViewController: UIInputViewController {
         PhoneEnvironment.configure()
         RunLog.prepare()
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
-        // Our own dictation is the m, so iOS need not add its microphone key under the keyboard
-        // (Apple, "Configuring a custom keyboard interface": two dictation buttons confuse). Set
-        // here and not in `viewDidLoad`: set there on 2026-11-25, the system's microphone still
-        // showed on the owner's phone. Whether iOS 26 honours it at all is unverified.
         hasDictationKey = true
+    }
+
+    /// Our own dictation is the m, so iOS need not add its microphone key under the keyboard
+    /// (Apple, "Configuring a custom keyboard interface": two dictation buttons confuse). The
+    /// system's microphone still showed on the owner's phone with the flag set in `viewDidLoad`,
+    /// then in `init` (2026-11-25). This is the last try, by the owner's word: the flag reads
+    /// true whenever the system asks, and is set again at each appearance. If the microphone
+    /// still shows, iOS 26 ignores the flag (the owner has the system's dictation switched on);
+    /// leave it and do not try further.
+    override var hasDictationKey: Bool {
+        get { true }
+        set { super.hasDictationKey = true }
     }
 
     required init?(coder: NSCoder) {
@@ -181,6 +189,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        hasDictationKey = true
         // Typing first: it resets the counters that the dictation's status write reports.
         typing.keyboardAppeared()
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
@@ -205,6 +214,7 @@ final class KeyboardViewController: UIInputViewController {
     /// `relaxTouchDelays`.
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        hasDictationKey = true
         // The proxy's traits may have been stale in `viewWillAppear`; read them again now.
         typing.keyboardDidAppear()
         relaxTouchDelays()
