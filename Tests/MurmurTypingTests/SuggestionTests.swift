@@ -102,6 +102,44 @@ import Testing
         #expect(suggestions[1...].allSatisfy { $0.kind == .completion })
     }
 
+    @Test("Explicit and spam words are never volunteered as the next word, though they still complete")
+    func neverVolunteered() throws {
+        let model = try model()
+        for text in ["my dog ", "watch the ", "free ", "hot ", "a video ", "online "] {
+            let words = SuggestionEngine.suggestions(before: text, model: model).map { $0.text.lowercased() }
+            #expect(words.count == 3)
+            #expect(words.allSatisfy { !SuggestionEngine.neverVolunteered.contains($0) }, "\(text): \(words)")
+        }
+        // Typed, the word is still there to finish.
+        #expect(try texts("porn").contains { $0.lowercased().hasPrefix("porn") })
+    }
+
+    @Test("Tapping the centre cell again and again does not loop")
+    func centreTapsDoNotLoop() throws {
+        let model = try model()
+        for start in ["The ", "I ", "Please ", "my dog "] {
+            var text = start
+            for _ in 0..<16 {
+                let cells = SuggestionEngine.suggestions(before: text, model: model)
+                let centre = try #require(cells.count >= 2 ? cells[1] : cells.first)
+                text += centre.text + " "
+            }
+            let words = SuggestionEngine.recentWords(before: text + "x").dropLast()
+            let pairs = zip(words, words.dropFirst()).map { "\($0) \($1)" }
+            #expect(Set(pairs).count == pairs.count, "a pair of words repeats in: \(text)")
+            #expect(text.lowercased().split(separator: " ").allSatisfy { !SuggestionEngine.neverVolunteered.contains(String($0)) })
+        }
+    }
+
+    @Test("The words of the sentence so far, oldest first, stopping at a sentence end")
+    func recentWords() {
+        #expect(SuggestionEngine.recentWords(before: "Hello there. The same time ") == ["the", "same", "time"])
+        #expect(SuggestionEngine.recentWords(before: "one\ntwo three") == ["two", "three"])
+        #expect(SuggestionEngine.recentWords(before: "") == [])
+        let long = (1...20).map { _ in "word" }.joined(separator: " ")
+        #expect(SuggestionEngine.recentWords(before: long).count == SuggestionEngine.repeatWindow)
+    }
+
     @Test func nextWordAfterISuggestsAmOrHave() throws {
         let suggestions = try SuggestionEngine.suggestions(before: "I ", model: model())
         #expect(suggestions.count == 3)

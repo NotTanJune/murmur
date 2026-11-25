@@ -39,6 +39,11 @@ final class KeyboardViewController: UIInputViewController {
         PhoneEnvironment.configure()
         RunLog.prepare()
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        // Our own dictation is the m, so iOS need not add its microphone key under the keyboard
+        // (Apple, "Configuring a custom keyboard interface": two dictation buttons confuse). Set
+        // here and not in `viewDidLoad`: set there on 2026-11-25, the system's microphone still
+        // showed on the owner's phone. Whether iOS 26 honours it at all is unverified.
+        hasDictationKey = true
     }
 
     required init?(coder: NSCoder) {
@@ -113,24 +118,6 @@ final class KeyboardViewController: UIInputViewController {
             planeHeight,
         ])
         typing.attach(plane)
-        // Our own dictation is the m, so iOS need not add its microphone key under the keyboard
-        // (Apple, "Configuring a custom keyboard interface": two dictation buttons confuse).
-        hasDictationKey = true
-        // The app's Keyboard tuning card changes the strip's trim while this keyboard is up.
-        KeyboardTuningSignal.observe { [weak self] in self?.tuningChanged() }
-    }
-
-    /// The app changed a tuning value: read it and lay out again, so the change shows on a
-    /// keyboard that is already up. The other process's write can reach this one's defaults a
-    /// moment after its notification does, so the values are read once more shortly after.
-    private func tuningChanged() {
-        Settings.shared.reloadFromDefaults()
-        view.setNeedsLayout()
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            Settings.shared.reloadFromDefaults()
-            self?.view.setNeedsLayout()
-        }
     }
 
     /// The key page's height follows the width and the orientation, so it is set at each layout.
@@ -146,8 +133,6 @@ final class KeyboardViewController: UIInputViewController {
         var width: CGFloat
         var isLandscape: Bool
         var showsGlobe: Bool
-        var topTrim: Double
-        var displayScale: CGFloat
     }
 
     private var lastLayout: LayoutKey?
@@ -166,13 +151,11 @@ final class KeyboardViewController: UIInputViewController {
         // 1.6 passes per key press (measured 2026-11-25). The geometry is only worked out again
         // when something it depends on changed.
         let geometry = LayoutKey(
-            width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey,
-            topTrim: Settings.shared.keyboardTopTrim, displayScale: traitCollection.displayScale)
+            width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey)
         if geometry != lastLayout {
             lastLayout = geometry
             typing.setLayout(
-                width: geometry.width, isLandscape: landscape, showsGlobe: geometry.showsGlobe,
-                displayScale: geometry.displayScale)
+                width: geometry.width, isLandscape: landscape, showsGlobe: geometry.showsGlobe)
             // The window's recognizers can appear after the first appearance; each new one is relaxed.
             relaxTouchDelays()
         }
@@ -201,8 +184,6 @@ final class KeyboardViewController: UIInputViewController {
         // Typing first: it resets the counters that the dictation's status write reports.
         typing.keyboardAppeared()
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
-        // The settings were just re-read; the strip's height is one of them while it is tuned.
-        view.setNeedsLayout()
         // Contact names and the owner's text replacements: words autocorrect must not undo. The
         // answer is asynchronous; the controller rebuilds its lexicon when it arrives.
         // The completion runs on a background queue (`com.apple.TextInput.lexicon-request`), so

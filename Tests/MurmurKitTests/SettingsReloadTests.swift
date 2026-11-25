@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail", "autoCapitalise", "keyboardTopTrim"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping", "swipeTrail", "autoCapitalise"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.

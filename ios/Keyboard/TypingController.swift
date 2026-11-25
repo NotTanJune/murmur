@@ -9,19 +9,10 @@ extension MetricsConstants {
     /// The stock keyboard's measurements for one orientation, filled from the design tokens.
     /// `MurmurTyping` cannot import `MurmurDesign`, so the iPhone target does it here.
     ///
-    /// The strip is shorter by Settings' temporary top trim (`Settings.keyboardTopTrim`), never
-    /// by more than the space above the m (`DS.Keyboard.stripTopTrimLimit`). Its height is a
-    /// whole number of pixels at `displayScale`: half a point is a pixel and a half on a 3x
-    /// screen, and a height between pixels is rounded differently by each layer that lays the
-    /// keyboard out (SwiftUI, Auto Layout, the system's own sizing), which moved the strip and
-    /// the keys by different amounts.
     @MainActor
-    static func keyboard(isLandscape: Bool, displayScale: CGFloat) -> MetricsConstants {
-        let trim = CGFloat(min(max(Settings.shared.keyboardTopTrim, 0), DS.Keyboard.stripTopTrimLimit))
-        let scale = max(displayScale, 1)
-        let full = isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight
-        return MetricsConstants(
-            stripHeight: ((full - trim) * scale).rounded() / scale,
+    static func keyboard(isLandscape: Bool) -> MetricsConstants {
+        MetricsConstants(
+            stripHeight: isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight,
             stripGap: isLandscape ? DS.Keyboard.stripGapLandscape : DS.Keyboard.stripGap,
             keycapHeight: isLandscape ? DS.Keyboard.keycapHeightLandscape : DS.Keyboard.keycapHeight,
             rowGap: isLandscape ? DS.Keyboard.rowGapLandscape : DS.Keyboard.rowGap,
@@ -201,7 +192,7 @@ final class TypingController {
         // Portrait at the reference width until the first layout says otherwise.
         let initial = KeyboardMetrics(
             width: DS.Keyboard.referenceWidth, isLandscape: false,
-            constants: .keyboard(isLandscape: false, displayScale: UITraitCollection.current.displayScale))
+            constants: .keyboard(isLandscape: false))
         metrics = initial
         engine = TypingEngine(metrics: initial)
         planeSpace = initial.height - initial.constants.stripHeight
@@ -218,17 +209,16 @@ final class TypingController {
     static var initialHeight: CGFloat {
         KeyboardMetrics(
             width: DS.Keyboard.referenceWidth, isLandscape: false,
-            constants: .keyboard(isLandscape: false, displayScale: UITraitCollection.current.displayScale)
+            constants: .keyboard(isLandscape: false)
         ).height
     }
 
     /// Called at each layout. The strip and the keys change size with the width, and the globe
     /// key appears or goes with the user's keyboard list.
-    func setLayout(width: CGFloat, isLandscape: Bool, showsGlobe: Bool, displayScale: CGFloat) {
+    func setLayout(width: CGFloat, isLandscape: Bool, showsGlobe: Bool) {
         guard width > 0 else { return }
         let next = KeyboardMetrics(
-            width: width, isLandscape: isLandscape,
-            constants: .keyboard(isLandscape: isLandscape, displayScale: displayScale))
+            width: width, isLandscape: isLandscape, constants: .keyboard(isLandscape: isLandscape))
         let framesBefore = engine.frames
         metrics = next
         self.showsGlobe = showsGlobe
@@ -710,7 +700,7 @@ final class TypingController {
 
         // The space a swipe left owed goes in ahead of a letter. Marks and the space key sit
         // against the word, so punctuation never has a space to take back.
-        if let owed, mark.isLetter, owed.isConsistent(with: before) {
+        if let owed, mark.isLetter, !swipesJoin, owed.isConsistent(with: before) {
             proxy.insertText(" ")
             before += " "
         }
@@ -1193,12 +1183,25 @@ final class TypingController {
     // MARK: - Swipe typing
 
     /// Whether a touch landing now may become a swipe: the setting is on, VoiceOver is off (it
-    /// activates keys, it does not drag), the word model has loaded, and the field takes
-    /// autocorrection in prose (no URL, email, number, phone, secure or no-autocorrect field). The
-    /// engine adds the page: only the letters page swipes.
+    /// activates keys, it does not drag), the word model has loaded, and the field is not a
+    /// password, a number or a phone field. A field that refuses autocorrection still swipes: a
+    /// swipe is how the word was typed, not a correction of it, and mail apps turn autocorrection
+    /// off in fields the owner writes whole messages in (asked for on 2026-11-25, with web and
+    /// email address fields). The engine adds the page: only the letters page swipes.
     private var swipeAllowed: Bool {
-        swipeDecoder != nil && Settings.shared.swipeTyping && !UIAccessibility.isVoiceOverRunning
-            && AutocorrectPolicy.allows(traits)
+        guard swipeDecoder != nil, Settings.shared.swipeTyping, !UIAccessibility.isVoiceOverRunning,
+            !traits.isSecure
+        else { return false }
+        switch traits.keyboardKind {
+        case .number, .phone: return false
+        case .default, .webSearch, .url, .email: return true
+        }
+    }
+
+    /// In a web or email address field swiped words join with no space between them or before
+    /// the next letter, because an address has none, and nothing before them is context.
+    private var swipesJoin: Bool {
+        traits.keyboardKind == .url || traits.keyboardKind == .email
     }
 
     /// The path so far, at each move of a swipe, and an empty one when the swipe was cancelled.
@@ -1239,8 +1242,8 @@ final class TypingController {
         let before = String(
             (proxy.documentContextBeforeInput ?? "").suffix(Self.contextLimit))
         swipeLive = SwipeLive(
-            previous: SwipeInsertion.previousWord(before: before).flatMap { model?.id(of: $0) },
-            sentenceCapital: SwipeInsertion.wantsCapital(
+            previous: swipesJoin ? nil : SwipeInsertion.previousWord(before: before).flatMap { model?.id(of: $0) },
+            sentenceCapital: !swipesJoin && SwipeInsertion.wantsCapital(
                 before: before, autocapitalization: traits.autocapitalization),
             lexicon: autocorrector?.lexicon ?? .empty)
     }
@@ -1285,7 +1288,7 @@ final class TypingController {
         refreshLexicon()
         var before = proxy.documentContextBeforeInput ?? ""
         let tail = String(before.suffix(Self.contextLimit))
-        let previousWord = SwipeInsertion.previousWord(before: tail)
+        let previousWord = swipesJoin ? nil : SwipeInsertion.previousWord(before: tail)
         let previous = previousWord.flatMap { model.id(of: $0) }
         swipeSamplePrevious = previousWord
 
@@ -1300,7 +1303,7 @@ final class TypingController {
             return false
         }
 
-        let needsSpace = SwipeInsertion.needsLeadingSpace(before: before)
+        let needsSpace = !swipesJoin && SwipeInsertion.needsLeadingSpace(before: before)
         if needsSpace, swipeOffer == nil, !WordAtCursor.trailingWord(of: before).isEmpty {
             before = finishWord(before: before, terminator: " ")
             if textRulesApply, autoCapitals, let fix = TextRules.standaloneI(before: before, typed: " ") {
@@ -1311,7 +1314,7 @@ final class TypingController {
 
         let shift = engine.shiftAtSwipeEnd
         let capital =
-            shift == .off
+            shift == .off && !swipesJoin
             && SwipeInsertion.wantsCapital(before: before, autocapitalization: traits.autocapitalization)
         var readings: [String] = []
         for candidate in candidates {

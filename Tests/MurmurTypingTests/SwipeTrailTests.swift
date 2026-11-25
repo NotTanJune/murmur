@@ -87,13 +87,15 @@ struct SwipeTrailTests {
         #expect(nearest > hypot(cornerBefore.point.x - 150, cornerBefore.point.y - 100) + 1)
     }
 
-    /// Draws the trail over a dark keyboard for a real swipe, at several moments, so its look
-    /// can be judged on the Mac: `MURMUR_TRAIL_PREVIEW=<folder> swift test --filter trailPreview`.
+    /// Draws the trail over a dark keyboard (a light one with `MURMUR_TRAIL_LIGHT` set) for a real
+    /// swipe, at several moments, so its look can be judged on the Mac:
+    /// `MURMUR_TRAIL_PREVIEW=<folder> swift test --filter trailPreview`.
     @Test("Preview frames", .enabled(if: ProcessInfo.processInfo.environment["MURMUR_TRAIL_PREVIEW"] != nil))
     func trailPreview() throws {
         let folder = URL(fileURLWithPath: ProcessInfo.processInfo.environment["MURMUR_TRAIL_PREVIEW"]!)
-        let opacity = Double(ProcessInfo.processInfo.environment["MURMUR_TRAIL_OPACITY"] ?? "") ?? 0.055
+        let opacity = Double(ProcessInfo.processInfo.environment["MURMUR_TRAIL_OPACITY"] ?? "") ?? 0.09
         let headWidth = Double(ProcessInfo.processInfo.environment["MURMUR_TRAIL_WIDTH"] ?? "") ?? 15
+        let light = ProcessInfo.processInfo.environment["MURMUR_TRAIL_LIGHT"] != nil
         struct Fixture: Decodable {
             struct Swipe: Decodable { let intended: String; let path: [[Double]] }
             let swipes: [Swipe]
@@ -119,14 +121,17 @@ struct SwipeTrailTests {
                 // Top-left origin, in points.
                 context.translateBy(x: 0, y: metrics.height * scale)
                 context.scaleBy(x: scale, y: -scale)
-                context.setFillColor(CGColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1))
+                let ground: CGFloat = light ? 0.82 : 0.13
+                let key: CGFloat = light ? 1 : 0.267
+                context.setFillColor(CGColor(red: ground, green: ground, blue: ground, alpha: 1))
                 context.fill(CGRect(x: 0, y: 0, width: 393, height: metrics.height))
-                context.setFillColor(CGColor(red: 0.267, green: 0.267, blue: 0.267, alpha: 1))
+                context.setFillColor(CGColor(red: key, green: key, blue: key, alpha: 1))
                 for frame in frames {
                     context.addPath(CGPath(roundedRect: frame.keycap, cornerWidth: 10, cornerHeight: 10, transform: nil))
                 }
                 context.fillPath()
-                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: opacity))
+                // The m's orange, `DS.Keyboard.wordmark` (0xF2A57E).
+                context.setFillColor(CGColor(red: 0.949, green: 0.647, blue: 0.494, alpha: opacity))
                 for layer in SwipeTrail.layers {
                     guard let path = trail.path(
                         at: time, headWidth: headWidth, widthShare: layer.widthShare, spanShare: layer.spanShare)

@@ -3,7 +3,7 @@ import MurmurTyping
 import SwiftUI
 import UIKit
 
-/// The strip above the keys, `TypingController.stripHeight` tall (44 pt less any top trim).
+/// The strip above the keys, `TypingController.stripHeight` tall (44 pt).
 /// From the leading end: the history button, three suggestion cells, and the **m**, which is Murmur's dictation
 /// button and grows into the recording capsule over the strip's trailing end.
 ///
@@ -34,11 +34,7 @@ struct SuggestionStrip: View {
                 RecordControl(dictation: dictation, stripWidth: geometry.size.width)
             }
         }
-        // The contents are laid out in the full strip and pinned to its bottom edge, so a top
-        // trim (Settings, Keyboard tuning) takes space off above them and leaves their distance
-        // to the keys alone.
-        .frame(height: DS.Keyboard.stripHeight)
-        .frame(height: typing.stripHeight, alignment: .bottom)
+        .frame(height: typing.stripHeight)
     }
 
     private var isFailed: Bool {

@@ -302,16 +302,11 @@ public enum DS {
         // `KeyboardMetrics` (MurmurTyping, which cannot import this module) is built from these
         // through `TypingController`'s constants.
 
-        /// The suggestion strip above the keys: 30 pt upright, the stock 44 pt turned.
+        /// The suggestion strip above the keys, 44 pt: the 36 pt m with 4 pt above and below. The
+        /// owner tried trimming its top through a temporary setting and kept it untrimmed
+        /// (2026-11-25).
         public static let stripHeight: CGFloat = 44
         public static let stripHeightLandscape: CGFloat = 44
-        /// Tuning, temporary (Settings, Keyboard tuning): how far the owner may trim the top of
-        /// the strip, and in what steps. The limit is the space the strip has above the m,
-        /// `(stripHeight - mCircleDiameter) / 2` (4 pt): the strip's contents keep their place
-        /// above the keys, so a larger trim would push the m out of the keyboard's own view,
-        /// where nothing is drawn and no touch arrives. The 16 pt above that belong to iOS.
-        public static let stripTopTrimLimit = Double((stripHeight - mCircleDiameter) / 2)
-        public static let stripTopTrimStep: Double = 0.5
         /// A key press's haptic tap: the light impact at this strength, the owner's choice by
         /// feel on 2026-11-25 (full strength read as heavy).
         public static let keyTapStrength: CGFloat = 0.7
@@ -383,11 +378,13 @@ public enum DS {
         public static let swipeTrailFadeSeconds: Double = 0.3
         /// Points of the path closer together than this are merged before the trail is drawn.
         public static let swipeTrailMinimumStep: CGFloat = 1.5
-        /// The strength of one of the trail's layers as a share of the label colour. The layers
-        /// (`SwipeTrail.layers`, four) lie over each other, so the middle of the trail is about
-        /// 0.2 and its edge 0.055. The second version was 0.35 with a glow of the same colour
-        /// around it, which the owner called shiny (2026-11-25).
-        public static let swipeTrailLayerOpacity: CGFloat = 0.055
+        /// The strength of one of the trail's layers. The layers (`SwipeTrail.layers`, four) lie
+        /// over each other, so on dark keys the middle of the trail is about 0.3 and its edge
+        /// 0.09; white keys take about twice that. The second version was 0.35 of the label
+        /// colour with a glow of the same colour around it, which the owner called shiny
+        /// (2026-11-25).
+        public static let swipeTrailLayerOpacity: CGFloat = 0.09
+        public static let swipeTrailLayerOpacityLight: CGFloat = 0.16
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
         /// the key page (iOS ignores a keyboard that grows after it first appears), and the grid
         /// divides what is left after the section title and the category bar.
@@ -442,7 +439,8 @@ public enum DS {
         /// The m, and the readiness caption. The record control is glass tinted dark brown in
         /// both appearances (`talkGlassTint`), so these colours do not adapt. `wordmark` is a soft orange, paler
         /// than `Color.record` on purpose: red means recording and nothing else.
-        public static let wordmark = SwiftUI.Color(hex: 0xF2A57E)
+        public static let wordmark = SwiftUI.Color(hex: wordmarkHex)
+        static let wordmarkHex: UInt32 = 0xF2A57E
         /// Text on the capsule that is not the word (the failure message).
         public static let onTalkKey = SwiftUI.Color(hex: 0xF0E8DA)
         /// The flat bars on the capsule before the hold has heard audio: soft and clearly visible
@@ -591,9 +589,14 @@ public enum DS {
         public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
         /// The key plane's glyphs.
         public static let keyLabelUIColor = UIColor.label
-        /// One layer of the swipe trail: the label colour at `swipeTrailLayerOpacity`, so it reads
-        /// on light and dark keys.
-        public static let swipeTrailUIColor = UIColor.label.withAlphaComponent(swipeTrailLayerOpacity)
+        /// One layer of the swipe trail: the m's orange (`wordmark`), as the owner asked on
+        /// 2026-11-25, at `swipeTrailLayerOpacity` on dark keys and `swipeTrailLayerOpacityLight`
+        /// on white ones, where the pale orange needs more to show.
+        public static let swipeTrailUIColor = UIColor {
+            UIColor(
+                hex: wordmarkHex,
+                alpha: $0.userInterfaceStyle == .dark ? swipeTrailLayerOpacity : swipeTrailLayerOpacityLight)
+        }
         /// The pop-up over a pressed key: the key's own colour in light, a little lighter than a
         /// key in dark so it reads as lifted. The accent row's chosen cell is the system blue.
         public static let popupUIFill = UIColor {

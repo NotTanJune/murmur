@@ -25,6 +25,29 @@ public enum SuggestionEngine {
     /// predict from. The model has no sentence-start statistics, so these are the stock
     /// keyboard's usual openers.
     static let sentenceStarters = ["I", "The", "I'm"]
+    /// Words the strip never offers as the next word by itself. The pair counts come from web
+    /// pages, where adult and spam pages are loud: after "dog" the likeliest next word was
+    /// "sex", and tapping the centre cell from there gave "video porno gratis" in a loop (the
+    /// owner's screenshot, 2026-11-25). The words stay in the model: they still complete when
+    /// typed, autocorrect leaves them alone and a swipe reads them. They are only never
+    /// volunteered.
+    static let neverVolunteered: Set<String> = [
+        "sex", "sexy", "sexual", "porn", "porno", "xxx", "nude", "naked", "erotic", "adult", "escort",
+        "fuck", "fucking", "shit", "bitch", "pussy", "dick", "cock", "cum", "anal", "tits", "boobs",
+        "milf", "hentai", "slut", "sluts", "whore", "rape", "incest", "bdsm", "fetish", "orgy",
+        "blowjob", "gay", "lesbian", "teen", "teens", "viagra", "cialis", "casino", "poker", "gratis",
+    ]
+    /// How far back a repeat is looked for, in words. A prediction that would repeat a pair of
+    /// words already in that stretch ("same time" after "the same time to the") is dropped, which
+    /// is what breaks a loop, and a word already in it keeps `repeatDiscount` of its score.
+    static let repeatWindow = 12
+    public static let repeatDiscount = 0.05
+    /// Words that repeat in ordinary writing and are not discounted for it.
+    static let repeatsFreely: Set<String> = [
+        "the", "a", "an", "to", "of", "and", "in", "is", "it", "i", "you", "that", "for", "on",
+        "with", "as", "at", "be", "this", "are", "was", "or", "by", "not", "have", "he", "we", "but",
+        "they", "from",
+    ]
 
     /// The suggestions for the text before the cursor, in strip order: left, centre, right.
     ///
@@ -40,7 +63,7 @@ public enum SuggestionEngine {
         let context = Context(text)
         guard context.isWordBoundary else { return [] }
         if context.partial.isEmpty {
-            return predictNext(context, model)
+            return predictNext(context, model, recent: recentWords(before: text))
         }
         return complete(context, model)
     }
@@ -103,33 +126,73 @@ public enum SuggestionEngine {
         return [typed] + completions
     }
 
-    private static func predictNext(_ context: Context, _ model: TypingModel) -> [Suggestion] {
+    private static func predictNext(
+        _ context: Context, _ model: TypingModel, recent: [String]
+    ) -> [Suggestion] {
         if context.isSentenceStart {
             return strip(sentenceStarters.map { Suggestion(text: $0, kind: .next) })
         }
         let previousID = context.previous.flatMap { model.id(of: $0) }
+        // The pairs of neighbouring words just written, so the same pair is not offered again.
+        var writtenPairs: Set<[String]> = []
+        for index in recent.indices.dropLast() { writtenPairs.insert([recent[index], recent[index + 1]]) }
+        let repeated = Set(recent).subtracting(repeatsFreely)
+        func offered(_ id: Int) -> Bool {
+            let word = model.word(id)
+            guard isSuggestible(word), !neverVolunteered.contains(word) else { return false }
+            if let previous = context.previous, writtenPairs.contains([previous, word]) { return false }
+            return true
+        }
+        let discounted = Set(repeated.compactMap { model.id(of: $0) })
         var ids: [Int] = []
         if let previousID {
             let successors = model.successors(of: previousID).map(\.id).filter {
                 // The n-gram data holds "the the" and the like, which are never worth predicting.
-                $0 != previousID && isSuggestible(model.word($0))
+                $0 != previousID && offered($0)
             }
             ids = Array(
-                rank(Set(successors), previous: previousID, typedLength: 0, model: model).prefix(3))
+                rank(
+                    Set(successors), previous: previousID, typedLength: 0, model: model,
+                    discounted: discounted
+                ).prefix(3))
         }
         // A previous word with fewer than three stored successors (or none known) falls back
         // to the most frequent words, so the strip is never short.
         if ids.count < 3 {
-            let common = Set(model.completions(prefix: "", limit: candidatePool)).subtracting(ids)
-            ids += rank(common, previous: nil, typedLength: 0, model: model).prefix(3 - ids.count)
+            let common = Set(model.completions(prefix: "", limit: candidatePool))
+                .subtracting(ids).filter(offered)
+            ids += rank(common, previous: nil, typedLength: 0, model: model, discounted: discounted)
+                .prefix(3 - ids.count)
         }
         return strip(ids.map { Suggestion(text: matchCase(model.word($0), to: ""), kind: .next) })
+    }
+
+    /// The last `repeatWindow` words of the sentence being written, folded to the model's form,
+    /// oldest first. A sentence end or a line break starts over.
+    static func recentWords(before text: String) -> [String] {
+        var words: [String] = []
+        var word = ""
+        for character in text.reversed() {
+            if isWordCharacter(character) {
+                word.append(character)
+                continue
+            }
+            if !word.isEmpty {
+                words.append(fold(String(word.reversed())))
+                word = ""
+                if words.count == repeatWindow { break }
+            }
+            if character.isNewline || ".!?".contains(character) { break }
+        }
+        if !word.isEmpty, words.count < repeatWindow { words.append(fold(String(word.reversed()))) }
+        return words.reversed()
     }
 
     /// Orders candidate ids by blended score, best first; ties go to the lower id so the answer
     /// never depends on set order.
     private static func rank(
-        _ ids: Set<Int>, previous: Int?, typedLength: Int, model: TypingModel
+        _ ids: Set<Int>, previous: Int?, typedLength: Int, model: TypingModel,
+        discounted: Set<Int> = []
     ) -> [Int] {
         let scored: [(id: Int, score: Double)] = ids.compactMap { id in
             let word = model.word(id)
@@ -142,6 +205,7 @@ public enum SuggestionEngine {
             if model.isContraction(id), typedLength < word.prefix(while: { $0 != "'" }).count {
                 score *= contractionDiscount
             }
+            if discounted.contains(id) { score *= repeatDiscount }
             return (id, score)
         }
         return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.id < $1.id }.map(\.id)

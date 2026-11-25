@@ -693,9 +693,13 @@ whole word and its space, and the owner asked for a backspace per character (202
 The strip then shows up to three other readings (best in the centre), and a tap swaps the word
 for one, offering the old word back. Any other edit, or a field that no longer ends with the word,
 drops the offer. A swipe resets the word-tap tracker and the undo offer. **Where it is off:** the
-setting `Settings.swipeTyping` (Settings tab, default on), VoiceOver running,
-`AutocorrectPolicy.allows(traits)` false (URL, email, number, phone, secure and no-autocorrect
-fields), a word model that has not loaded, and any page but letters. The trail is a `CAShapeLayer`
+setting `Settings.swipeTyping` (Settings tab, default on), VoiceOver running, a secure, number or
+phone field, a word model that has not loaded, and any page but letters. It was also off wherever
+autocorrect is (`AutocorrectPolicy.allows`), until the owner asked for it in web and email
+address fields and in mail apps' message fields, which turn autocorrection off (2026-11-25): a
+swipe is how the word is typed, not a correction. In a web or email address field
+(`TypingController.swipesJoin`) swiped words go in with no space before or after and with no
+previous word as context, because an address has none. The trail is a `CAShapeLayer`
 in `KeyPlaneView` over the keys, the last 0.45 s of the path. `TypingDiagnostics` logs `swipe`
 (word, other readings, decode ms, path to 0.1 pt) and `swipe-alt`. **Nothing here
 is verified on a device:** the 0.36 s window and the one-pitch threshold against real thumbs, the
@@ -713,8 +717,11 @@ benchmark is 92.65%. What changed: the decoder reads the five nearest keys at ea
 1.8 pitches (three within 1.2 before, which threw away about 10% of intended words), allows 50%
 plus 0.6 pitch of length difference, ranks cheaply first on how near the finger passed each key
 in order and re-scores the best 36, and scores a doubled letter with and without its loop.
-`scanBudget` (4,000 words read) exists only to keep a debug build under 15 ms; without it
-accuracy is 0.8 points higher. The cost: an exact swipe of a rare word can lose to a common
+Both stages read their tables through bare pointers (2026-11-25, scoring unchanged to the last
+digit), which took the debug build's 99th percentile from 12 to 14 ms down to 5 to 6 ms, and that
+paid for `scanBudget` 8,000 words read (4,000 before): held-out first choice 85.3% to 86.0%, top
+three 94.2% to 95.2%, the neat benchmark 92.65% to 92.60% (one word in 2,000), debug 99th
+percentile about 9 to 11 ms. The cost: an exact swipe of a rare word can lose to a common
 look-alike ("swipe" reads "store" first). The noise model is a guess, so these numbers say
 nothing certain about a thumb; `swipe-samples.jsonl` from the owner's phone is what to tune on
 next.
@@ -736,6 +743,18 @@ turns, so a corner of the path is not evidence of a key. Measured and worth taki
 stages on bare pointers halved the debug 99th percentile with accuracy unchanged, which pays for
 a larger `scanBudget`. A rare word like "swipe" will not come first after "of" from geometry;
 that needs the owner's own words to carry weight (plan Milestone 7) and more samples.
+
+**Next-word predictions never volunteer explicit words and do not loop.** The pair counts are
+SymSpell's, taken from web pages, where adult and spam pages are loud: after "dog" the likeliest
+next word was "sex", and tapping the centre cell from there wrote "video porno gratis" over and
+over (the owner's screenshot, 2026-11-25). Two rules in `SuggestionEngine.predictNext`:
+`neverVolunteered` (about forty explicit and spam words) are never offered as a next word,
+though they still complete when typed, are left alone by autocorrect and are read from a swipe;
+and within the last `repeatWindow` (12) words of the sentence a prediction that would repeat a
+pair of neighbouring words is dropped, and a word already used keeps 5% of its score unless it
+is one of thirty function words. Chains of centre taps are still not sentences ("the same time
+to the first to be a few"): a pair model knows one word of context. That is what the plan's
+language model (Milestone 9) is for.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
@@ -776,8 +795,10 @@ sample but the newest moves a little towards the middle of its neighbours, more 
 flow. The outline is one closed shape with a disc at each sharp turn (a swipe reverses at most
 letters, and an outline alone folds into a hole there) and under the finger. It is drawn as four
 filled copies (`SwipeTrail.layers`), each a little narrower and shorter than the last, at 5.5% of
-the label colour each (`swipeTrailLayerOpacity`): about 20% in the middle with a soft edge, and
-no shadow or blur anywhere. The plane's display link redraws it at every frame while a finger is
+the m's orange each (`swipeTrailUIColor`: `DS.Keyboard.wordmark` at `swipeTrailLayerOpacity`,
+9% on dark keys and 16% on white ones): about 30% in the middle on dark keys with a soft edge,
+and no shadow or blur anywhere. The first soft version was the label colour at 5.5% a layer; the
+owner liked the shape and asked for the m's colour. The plane's display link redraws it at every frame while a finger is
 down, and after the lift keeps running while the trail runs out and fades over
 `swipeTrailFadeSeconds`. `Settings.swipeTrail` picks the width at the finger (thin, regular,
 thick, bold: 6, 11, 15 and 19 pt), a `ChoiceKeys` card in the phone's Settings tab shown while
@@ -801,27 +822,22 @@ no automatic shift is set for typing, swiping or dictation; a lone "i" stays as 
 becomes "i'm", and the double-space period types no shift after it. Shift and caps lock work as
 before. Do not flip the default without the owner.
 
-**The strip's top trim is being tuned, and its setting is temporary.** iOS 26 puts a
-third-party keyboard inside its own rounded panel and keeps a margin above the keyboard's view
-that the extension can neither draw in nor remove (other keyboards report the same; LimeIME's
-`docs/SAFARI_EXTRA_SPACE.md` traces it to the host's `UIInputSetHostView`). Measured on
-2026-11-25 from the owner's screenshot: the m's top is 20 pt under the panel's edge, 16 pt of it
-that margin and 4 pt the strip's own space above the 36 pt m. So only 4 pt can be taken off.
-`Settings.keyboardTopTrim` (0 to 4 pt, `DS.Keyboard.stripTopTrimLimit`, in 0.5 pt steps;
-Settings tab, Keyboard tuning) shortens the strip from the top. The first version allowed 12 pt
-and let the contents stand out above the view past 4, and the owner found that it did not change
-the space above the keyboard accurately. What makes it exact now: the strip's height is rounded
-to whole pixels in `MetricsConstants.keyboard(isLandscape:displayScale:)` (half a point is a
-pixel and a half at 3x); `KeyboardView` places the strip directly above a clear space exactly as
-tall as the plane, both from the keyboard's bottom edge, so a height iOS has not applied yet, or
-rounds, shows as space above the strip and never between the strip and the keys; and the app
-posts `KeyboardTuningSignal` (a Darwin notification, `ios/Shared/PhoneEnvironment.swift`) at each
-step, on which a keyboard that is up re-reads the settings and lays out again. The tuning card
-has a text field so the keyboard can be up beside the stepper. Unverified on a device. **When
-the owner names the value: set `DS.Keyboard.stripHeight` and `MetricsConstants.portrait` to it,
-then delete the setting, its key, its Settings card and field, `KeyboardTuningSignal`, the
-`stripTopTrim*` tokens and this paragraph's tuning half.** Going further than 4 pt means a
-smaller m or less space between the strip and the keys, which is the owner's call.
+**The strip is 44 pt and untrimmed; the space above it belongs to iOS and varies by app.**
+iOS 26 puts a third-party keyboard inside its own rounded panel and, in some host apps, keeps a
+margin above the keyboard's view that the extension can neither draw in nor remove (other
+keyboards report the same; LimeIME's `docs/SAFARI_EXTRA_SPACE.md` traces it to the host's
+`UIInputSetHostView` and finds that it depends on the focused field). Measured on 2026-11-25
+from the owner's screenshots: in one app the m's top was 20 pt under the panel's edge (16 pt of
+margin plus the strip's own 4 pt above the 36 pt m), in Notes it was about 4 pt (no margin). The
+owner tuned a temporary "top trim" setting (0 to 4 pt, live on an open keyboard), settled on the
+look with the stored value at 0, and saw that other apps did not follow, which is that margin.
+The setting, its card and its signal are gone and `DS.Keyboard.stripHeight` stays 44: a trim
+that suits a 16 pt margin would press the m against the panel's edge where there is none. What
+stays from that work: `KeyboardView` places the strip directly above a clear space exactly as
+tall as the plane, both from the keyboard's bottom edge, so a height iOS has not applied yet
+shows as space above the strip and never between the strip and the keys. The strip is inside the
+keyboard's own view, so it cannot cover the host app's content: the app is told the keyboard's
+whole height, as for any keyboard.
 
 **Typing felt heavy, and what was cut.** With the lost taps fixed the owner called typing
 accurate but heavier than the stock keyboard (2026-11-25). Read off three diagnostics sessions:
@@ -851,6 +867,8 @@ touch events, the input click, `UILexicon`, the proxy's traits (autocorrection, 
 capitals, smart quotes and dashes, the return key's job), the double-space period, caps lock, and
 setup and settings in the app, not in the keyboard. Fixed on that day: `hasDictationKey` is true,
 because the m is a dictation key and iOS otherwise shows its own microphone under the keyboard.
+Set in `viewDidLoad` it changed nothing on the owner's phone (the microphone still showed), so it
+is set in `init`; whether iOS 26 honours it at all is unverified.
 The letters page's bottom row
 follows the field's keyboard type, as the stock keyboard's does (`KeyboardLayout.rows(for:showsGlobe:field:)`,
 `TypingEngine.setField`): an email field has the space bar, `@` and `.`; a web address field has

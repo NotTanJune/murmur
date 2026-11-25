@@ -90,7 +90,7 @@ public struct SwipeDecoder: Sendable {
         public var lengthSigma = 0.3
         /// The most words read from the model in one decode, the nearest buckets first. Zero for
         /// no limit.
-        public var scanBudget = 4000
+        public var scanBudget = 8000
         /// Weight of the second stage's term for how near the gesture stays to the ideal path.
         public var nearWeight = 1.0
         /// Spread of that term, in pitches.
@@ -504,12 +504,23 @@ public struct SwipeDecoder: Sendable {
             keyAt[letter] = at
         }
 
+        let tables = Workspace(points: count, pairDistance: pairDistance, weights: weights)
+        for index in 0..<count {
+            tables.gestureX[index] = gestureX[index]
+            tables.gestureY[index] = gestureY[index]
+            tables.gestureShapeX[index] = gestureShapeX[index]
+            tables.gestureShapeY[index] = gestureShapeY[index]
+        }
+        for letter in 0..<26 {
+            tables.near[letter] = keyNear[letter]
+            tables.at[letter] = keyAt[letter]
+        }
+
         let startKeys = nearestKeys(toX: rawX[0], y: rawY[0], count: configuration.startKeyCount)
         let endKeys = nearestKeys(
             toX: rawX[rawX.count - 1], y: rawY[rawY.count - 1], count: configuration.endKeyCount)
         let gesture = Gesture(
-            x: gestureX, y: gestureY, shapeX: gestureShapeX, shapeY: gestureShapeY,
-            keyNear: keyNear, keyAt: keyAt, length: gestureLength,
+            tables: tables, length: gestureLength,
             startX: rawX[0], startY: rawY[0], endX: rawX[rawX.count - 1], endY: rawY[rawY.count - 1],
             shortest: gestureLength * (1 - configuration.lengthTolerance) - configuration.lengthSlackPitches,
             longest: gestureLength * (1 + configuration.lengthTolerance) + configuration.lengthSlackPitches)
@@ -538,14 +549,8 @@ public struct SwipeDecoder: Sendable {
 
     /// What the gesture offers every word, built once per decode.
     private struct Gesture {
-        let x: [Double]
-        let y: [Double]
-        let shapeX: [Double]
-        let shapeY: [Double]
-        /// Distance in pitches from each letter's key centre to the nearest point of the gesture,
-        /// and how far along the gesture (0 to 1) that point is.
-        let keyNear: [Double]
-        let keyAt: [Double]
+        /// The gesture resampled, its key table and the scratch of both stages.
+        let tables: Workspace
         let length: Double
         /// The first and last point of the gesture.
         let startX: Double
@@ -555,6 +560,64 @@ public struct SwipeDecoder: Sendable {
         /// The ideal path lengths a word may have.
         let shortest: Double
         let longest: Double
+    }
+
+    /// What both stages read and write for every word, as bare memory: the first stage's loop
+    /// runs for thousands of words a decode and the second compares paths point by point, and
+    /// in a debug build, where the tests time them, every access to an array is a checked call.
+    /// One allocation per decode, freed with it.
+    private final class Workspace {
+        /// Points in the resampled gesture and in a resampled ideal path.
+        let points: Int
+        /// Distance in pitches between every pair of letters, `a * 26 + b`.
+        let pair: UnsafeMutablePointer<Double>
+        /// Distance in pitches from each letter's key centre to the nearest point of the gesture,
+        /// and how far along the gesture (0 to 1) that point is.
+        let near: UnsafeMutablePointer<Double>
+        let at: UnsafeMutablePointer<Double>
+        /// The gesture resampled, and scaled to one unit and centred.
+        let gestureX: UnsafeMutablePointer<Double>
+        let gestureY: UnsafeMutablePointer<Double>
+        let gestureShapeX: UnsafeMutablePointer<Double>
+        let gestureShapeY: UnsafeMutablePointer<Double>
+        /// The ideal path being scored, the same two ways.
+        let templateX: UnsafeMutablePointer<Double>
+        let templateY: UnsafeMutablePointer<Double>
+        let templateShapeX: UnsafeMutablePointer<Double>
+        let templateShapeY: UnsafeMutablePointer<Double>
+        /// The weights of the location channel.
+        let weights: UnsafeMutablePointer<Double>
+        /// The warping's rolling row: the cost and the steps of the cheapest alignment so far.
+        let warpCost: UnsafeMutablePointer<Double>
+        let warpSteps: UnsafeMutablePointer<Double>
+        private let doubles: UnsafeMutablePointer<Double>
+
+        init(points: Int, pairDistance: [Double], weights source: [Double]) {
+            self.points = points
+            let total = 26 * 26 + 2 * 26 + 11 * points
+            doubles = .allocate(capacity: total)
+            doubles.initialize(repeating: 0, count: total)
+            pair = doubles
+            near = pair + 26 * 26
+            at = near + 26
+            gestureX = at + 26
+            gestureY = gestureX + points
+            gestureShapeX = gestureY + points
+            gestureShapeY = gestureShapeX + points
+            templateX = gestureShapeY + points
+            templateY = templateX + points
+            templateShapeX = templateY + points
+            templateShapeY = templateShapeX + points
+            weights = templateShapeY + points
+            warpCost = weights + points
+            warpSteps = warpCost + points
+            for index in 0..<min(pairDistance.count, 26 * 26) { pair[index] = pairDistance[index] }
+            for index in 0..<min(source.count, points) { weights[index] = source[index] }
+        }
+
+        deinit {
+            doubles.deallocate()
+        }
     }
 
     /// A word that passed the first stage, kept for the second.
@@ -576,12 +639,6 @@ public struct SwipeDecoder: Sendable {
         var best: [Scored] = []
         var polyX: [Double] = []
         var polyY: [Double] = []
-        var templateX: [Double]
-        var templateY: [Double]
-        var templateShapeX: [Double]
-        var templateShapeY: [Double]
-        var warpCost: [Double]
-        var warpSteps: [Int]
 
         init(count: Int, keep: Int, margin: Double) {
             self.keep = keep
@@ -589,12 +646,6 @@ public struct SwipeDecoder: Sendable {
             best.reserveCapacity(keep + 1)
             polyX.reserveCapacity(64)
             polyY.reserveCapacity(64)
-            templateX = Array(repeating: 0, count: count)
-            templateY = Array(repeating: 0, count: count)
-            templateShapeX = Array(repeating: 0, count: count)
-            templateShapeY = Array(repeating: 0, count: count)
-            warpCost = Array(repeating: 0, count: count)
-            warpSteps = Array(repeating: 0, count: count)
         }
 
         mutating func insert(_ scored: Scored) {
@@ -615,16 +666,25 @@ public struct SwipeDecoder: Sendable {
     /// stage looks at the shape the gesture really has. An apostrophe has no key and is skipped,
     /// and any other byte that is not a lowercase letter rules the word out.
     private func firstStage(_ bytes: UnsafeBufferPointer<UInt8>, gesture: Gesture, stats: inout ScanStats) -> Double? {
+        guard let base = bytes.baseAddress else { return nil }
+        let count = bytes.count
+        let pair = gesture.tables.pair
+        let near = gesture.tables.near
+        let places = gesture.tables.at
+        let letterA: UInt8 = 97, apostrophe: UInt8 = 0x27
         var total = 0.0
         var doubled = 0
         var previous = -1
         var letters = 0
-        for byte in bytes {
-            if byte == Self.apostrophe { continue }
-            guard byte >= Self.letterA, byte < Self.letterA + 26 else { return nil }
-            let letter = Int(byte - Self.letterA)
+        var index = 0
+        while index < count {
+            let byte = base[index]
+            index += 1
+            if byte == apostrophe { continue }
+            guard byte >= letterA, byte < letterA + 26 else { return nil }
+            let letter = Int(byte - letterA)
             if previous >= 0 {
-                if previous == letter { doubled += 1 } else { total += pairDistance[previous * 26 + letter] }
+                if previous == letter { doubled += 1 } else { total += pair[previous * 26 + letter] }
             }
             previous = letter
             letters += 1
@@ -635,20 +695,24 @@ public struct SwipeDecoder: Sendable {
         stats.lengthPassed += 1
 
         let cap = configuration.passCapPitches
+        let limit = configuration.passLimitPitches
         var sum = 0.0
         var inversion = 0.0
         var previousLetter = -1
         var previousAt = -1.0
-        for byte in bytes {
-            if byte == Self.apostrophe { continue }
-            let letter = Int(byte - Self.letterA)
+        index = 0
+        while index < count {
+            let byte = base[index]
+            index += 1
+            if byte == apostrophe { continue }
+            let letter = Int(byte - letterA)
             if letter == previousLetter { continue }
             previousLetter = letter
-            let distance = gesture.keyNear[letter]
-            if distance > configuration.passLimitPitches { return nil }
+            let distance = near[letter]
+            if distance > limit { return nil }
             let capped = min(distance, cap)
             sum += capped * capped
-            let at = gesture.keyAt[letter]
+            let at = places[letter]
             // A key passed before the one the word has just before it: the word is out of order.
             if previousAt >= 0, at < previousAt { inversion += previousAt - at }
             previousAt = at
@@ -691,37 +755,56 @@ public struct SwipeDecoder: Sendable {
     /// passed in order, and how near the gesture stays to the path.
     private func pathScore(_ letters: [UInt8], loops: Bool, gesture: Gesture, search: inout Search) -> Double {
         buildIdealPath(letters, loops: loops, x: &search.polyX, y: &search.polyY)
-        let count = gesture.x.count
-        Self.resample(x: search.polyX, y: search.polyY, count: count, outX: &search.templateX, outY: &search.templateY)
-        let location = locationDistance(gesture.x, gesture.y, search.templateX, search.templateY)
+        let work = gesture.tables
+        let count = work.points
+        let vertices = search.polyX.count
+        var near = 0.0
+        search.polyX.withUnsafeBufferPointer { polyX in
+            search.polyY.withUnsafeBufferPointer { polyY in
+                guard let px = polyX.baseAddress, let py = polyY.baseAddress else { return }
+                Self.resample(
+                    x: px, y: py, points: vertices, count: count, outX: work.templateX, outY: work.templateY)
+                if configuration.nearWeight > 0 {
+                    near = Self.nearDistance(
+                        x: work.gestureX, y: work.gestureY, count: count, polyX: px, polyY: py, vertices: vertices)
+                }
+            }
+        }
+        let location = Self.locationDistance(
+            work.gestureX, work.gestureY, work.templateX, work.templateY, weights: work.weights, count: count)
         let locationLL = logLikelihood(
             distance: location, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
-        let warped = warpedDistance(gesture.x, gesture.y, search.templateX, search.templateY, scratch: &search)
+        let warped = warpedDistance(work.gestureX, work.gestureY, work.templateX, work.templateY, work: work)
         let warpedLL = logLikelihood(
             distance: warped, sigma: configuration.sigmaLocation, evidence: configuration.locationEvidence)
         Self.normalise(
-            x: search.templateX, y: search.templateY, intoX: &search.templateShapeX, intoY: &search.templateShapeY)
-        let shape = Self.meanDistance(gesture.shapeX, gesture.shapeY, search.templateShapeX, search.templateShapeY)
+            x: work.templateX, y: work.templateY, count: count, intoX: work.templateShapeX,
+            intoY: work.templateShapeY)
+        let shape = Self.meanDistance(
+            work.gestureShapeX, work.gestureShapeY, work.templateShapeX, work.templateShapeY, count: count)
         let shapeLL = logLikelihood(
             distance: shape, sigma: configuration.sigmaShape, evidence: configuration.shapeEvidence)
         var score = (1 - configuration.warpWeight) * locationLL + configuration.warpWeight * warpedLL + shapeLL
         if configuration.nearWeight > 0 {
             score += configuration.nearWeight
-                * logLikelihood(
-                    distance: nearDistance(gesture, polyX: search.polyX, polyY: search.polyY),
-                    sigma: configuration.sigmaNear, evidence: configuration.nearEvidence)
+                * logLikelihood(distance: near, sigma: configuration.sigmaNear, evidence: configuration.nearEvidence)
         }
         return score
     }
 
     /// The mean distance from the gesture's sample points to the nearest point of the ideal path.
-    private func nearDistance(_ gesture: Gesture, polyX: [Double], polyY: [Double]) -> Double {
-        guard polyX.count > 1 else { return 0 }
+    private static func nearDistance(
+        x: UnsafePointer<Double>, y: UnsafePointer<Double>, count: Int, polyX: UnsafePointer<Double>,
+        polyY: UnsafePointer<Double>, vertices: Int
+    ) -> Double {
+        guard vertices > 1, count > 0 else { return 0 }
         var total = 0.0
-        for index in 0..<gesture.x.count {
-            let px = gesture.x[index], py = gesture.y[index]
+        var index = 0
+        while index < count {
+            let px = x[index], py = y[index]
             var nearest = Double.infinity
-            for segment in 0..<(polyX.count - 1) {
+            var segment = 0
+            while segment < vertices - 1 {
                 let ax = polyX[segment], ay = polyY[segment]
                 let dx = polyX[segment + 1] - ax, dy = polyY[segment + 1] - ay
                 let lengthSquared = dx * dx + dy * dy
@@ -729,10 +812,12 @@ public struct SwipeDecoder: Sendable {
                 if lengthSquared > 1e-12 { t = min(max(((px - ax) * dx + (py - ay) * dy) / lengthSquared, 0), 1) }
                 let ex = px - (ax + t * dx), ey = py - (ay + t * dy)
                 nearest = min(nearest, ex * ex + ey * ey)
+                segment += 1
             }
             total += nearest.squareRoot()
+            index += 1
         }
-        return total / Double(gesture.x.count)
+        return total / Double(count)
     }
 
     // MARK: - Scoring
@@ -758,50 +843,69 @@ public struct SwipeDecoder: Sendable {
     }
 
     /// The weighted mean distance between the gesture and the ideal path, point for point.
-    private func locationDistance(_ ax: [Double], _ ay: [Double], _ bx: [Double], _ by: [Double]) -> Double {
+    private static func locationDistance(
+        _ ax: UnsafePointer<Double>, _ ay: UnsafePointer<Double>, _ bx: UnsafePointer<Double>,
+        _ by: UnsafePointer<Double>, weights: UnsafePointer<Double>, count: Int
+    ) -> Double {
         var sum = 0.0
-        for index in 0..<ax.count {
+        var index = 0
+        while index < count {
             sum += weights[index] * norm(ax[index] - bx[index], ay[index] - by[index])
+            index += 1
         }
         return sum
     }
 
-    private static func meanDistance(_ ax: [Double], _ ay: [Double], _ bx: [Double], _ by: [Double]) -> Double {
+    private static func meanDistance(
+        _ ax: UnsafePointer<Double>, _ ay: UnsafePointer<Double>, _ bx: UnsafePointer<Double>,
+        _ by: UnsafePointer<Double>, count: Int
+    ) -> Double {
         var sum = 0.0
-        for index in 0..<ax.count { sum += norm(ax[index] - bx[index], ay[index] - by[index]) }
-        return sum / Double(ax.count)
+        var index = 0
+        while index < count {
+            sum += norm(ax[index] - bx[index], ay[index] - by[index])
+            index += 1
+        }
+        return sum / Double(count)
     }
 
     /// Dynamic time warping between the two resampled paths, inside a diagonal band: the mean
-    /// distance along the cheapest alignment. Two rolling rows, so nothing is allocated.
+    /// distance along the cheapest alignment. One rolling row, so nothing is allocated.
     private func warpedDistance(
-        _ ax: [Double], _ ay: [Double], _ bx: [Double], _ by: [Double], scratch: inout Search
+        _ ax: UnsafePointer<Double>, _ ay: UnsafePointer<Double>, _ bx: UnsafePointer<Double>,
+        _ by: UnsafePointer<Double>, work: Workspace
     ) -> Double {
-        let n = ax.count
+        let n = work.points
         let band = max(configuration.warpBand, 1)
         let infinity = Double.infinity
-        for j in 0..<n {
-            scratch.warpCost[j] = infinity
-            scratch.warpSteps[j] = 0
+        let rowCost = work.warpCost, rowSteps = work.warpSteps
+        var j = 0
+        while j < n {
+            rowCost[j] = infinity
+            rowSteps[j] = 0
+            j += 1
         }
-        // `warpCost` holds the row above and, as it is overwritten left to right, the current one:
+        // `rowCost` holds the row above and, as it is overwritten left to right, the current one:
         // the cell left of j is already the current row's, the diagonal is kept in `diagonal*`.
-        for i in 0..<n {
+        var i = 0
+        while i < n {
             let low = max(0, i - band)
             let high = min(n - 1, i + band)
-            var diagonalCost = low > 0 ? scratch.warpCost[low - 1] : (i == 0 ? 0 : infinity)
-            var diagonalSteps = low > 0 ? scratch.warpSteps[low - 1] : 0
+            var diagonalCost = low > 0 ? rowCost[low - 1] : (i == 0 ? 0 : infinity)
+            var diagonalSteps = low > 0 ? rowSteps[low - 1] : 0
             if low > 0 {
                 // The cell just left of the band is out of it on the current row.
-                scratch.warpCost[low - 1] = infinity
-                scratch.warpSteps[low - 1] = 0
+                rowCost[low - 1] = infinity
+                rowSteps[low - 1] = 0
             }
-            for j in low...high {
-                let upCost = scratch.warpCost[j]
-                let upSteps = scratch.warpSteps[j]
-                let d = norm(ax[i] - bx[j], ay[i] - by[j])
+            let gx = ax[i], gy = ay[i]
+            j = low
+            while j <= high {
+                let upCost = rowCost[j]
+                let upSteps = rowSteps[j]
+                let d = norm(gx - bx[j], gy - by[j])
                 var bestCost = infinity
-                var bestSteps = 0
+                var bestSteps = 0.0
                 if i == 0 && j == 0 {
                     bestCost = 0
                 } else {
@@ -813,31 +917,33 @@ public struct SwipeDecoder: Sendable {
                         bestCost = upCost
                         bestSteps = upSteps
                     }
-                    if j > low || low == 0, j > 0, scratch.warpCost[j - 1] < bestCost {
-                        bestCost = scratch.warpCost[j - 1]
-                        bestSteps = scratch.warpSteps[j - 1]
+                    if j > low || low == 0, j > 0, rowCost[j - 1] < bestCost {
+                        bestCost = rowCost[j - 1]
+                        bestSteps = rowSteps[j - 1]
                     }
                 }
                 diagonalCost = upCost
                 diagonalSteps = upSteps
                 if bestCost < infinity {
-                    scratch.warpCost[j] = bestCost + d
-                    scratch.warpSteps[j] = bestSteps + 1
+                    rowCost[j] = bestCost + d
+                    rowSteps[j] = bestSteps + 1
                 } else {
-                    scratch.warpCost[j] = infinity
-                    scratch.warpSteps[j] = 0
+                    rowCost[j] = infinity
+                    rowSteps[j] = 0
                 }
+                j += 1
             }
             if high < n - 1 {
                 // The cells right of the band belong to no row yet.
-                scratch.warpCost[high + 1] = infinity
-                scratch.warpSteps[high + 1] = 0
+                rowCost[high + 1] = infinity
+                rowSteps[high + 1] = 0
             }
+            i += 1
         }
-        let cost = scratch.warpCost[n - 1]
-        let steps = scratch.warpSteps[n - 1]
+        let cost = rowCost[n - 1]
+        let steps = rowSteps[n - 1]
         guard cost < infinity, steps > 0 else { return infinity }
-        return cost / Double(steps)
+        return cost / steps
     }
 
     /// The `count` letters whose keys are nearest the point, nearest first.
@@ -956,7 +1062,33 @@ public struct SwipeDecoder: Sendable {
     /// Resamples a polyline to `count` points equally spaced along its length, in place of
     /// `outX` and `outY`, which must already hold `count` elements.
     private static func resample(x: [Double], y: [Double], count: Int, outX: inout [Double], outY: inout [Double]) {
-        let total = x.count > 1 ? length(x: x, y: y) : 0
+        let points = x.count
+        x.withUnsafeBufferPointer { sourceX in
+            y.withUnsafeBufferPointer { sourceY in
+                outX.withUnsafeMutableBufferPointer { intoX in
+                    outY.withUnsafeMutableBufferPointer { intoY in
+                        guard let sx = sourceX.baseAddress, let sy = sourceY.baseAddress,
+                            let ox = intoX.baseAddress, let oy = intoY.baseAddress
+                        else { return }
+                        resample(x: sx, y: sy, points: points, count: count, outX: ox, outY: oy)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The same over bare memory: `points` vertices in, `count` points out.
+    private static func resample(
+        x: UnsafePointer<Double>, y: UnsafePointer<Double>, points: Int, count: Int,
+        outX: UnsafeMutablePointer<Double>, outY: UnsafeMutablePointer<Double>
+    ) {
+        guard points > 0 else { return }
+        var total = 0.0
+        var vertex = 1
+        while vertex < points {
+            total += norm(x[vertex] - x[vertex - 1], y[vertex] - y[vertex - 1])
+            vertex += 1
+        }
         guard total > 1e-12, count > 1 else {
             for index in 0..<count {
                 outX[index] = x[0]
@@ -968,9 +1100,10 @@ public struct SwipeDecoder: Sendable {
         var segment = 0
         var segmentStart = 0.0
         var segmentLength = norm(x[1] - x[0], y[1] - y[0])
-        for index in 0..<count {
+        var index = 0
+        while index < count {
             let target = Double(index) * step
-            while segment < x.count - 2, segmentStart + segmentLength < target {
+            while segment < points - 2, segmentStart + segmentLength < target {
                 segmentStart += segmentLength
                 segment += 1
                 segmentLength = norm(x[segment + 1] - x[segment], y[segment + 1] - y[segment])
@@ -978,26 +1111,50 @@ public struct SwipeDecoder: Sendable {
             let t = segmentLength > 0 ? min(max((target - segmentStart) / segmentLength, 0), 1) : 0
             outX[index] = x[segment] + t * (x[segment + 1] - x[segment])
             outY[index] = y[segment] + t * (y[segment + 1] - y[segment])
+            index += 1
         }
     }
 
     /// Centres the path on its bounding box and scales it so the longest side is 1.
     private static func normalise(x: [Double], y: [Double], intoX: inout [Double], intoY: inout [Double]) {
+        let count = x.count
+        x.withUnsafeBufferPointer { sourceX in
+            y.withUnsafeBufferPointer { sourceY in
+                intoX.withUnsafeMutableBufferPointer { outX in
+                    intoY.withUnsafeMutableBufferPointer { outY in
+                        guard let sx = sourceX.baseAddress, let sy = sourceY.baseAddress,
+                            let ox = outX.baseAddress, let oy = outY.baseAddress
+                        else { return }
+                        normalise(x: sx, y: sy, count: count, intoX: ox, intoY: oy)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func normalise(
+        x: UnsafePointer<Double>, y: UnsafePointer<Double>, count: Int, intoX: UnsafeMutablePointer<Double>,
+        intoY: UnsafeMutablePointer<Double>
+    ) {
         var minX = Double.infinity, maxX = -Double.infinity
         var minY = Double.infinity, maxY = -Double.infinity
-        for index in 0..<x.count {
+        var index = 0
+        while index < count {
             minX = min(minX, x[index])
             maxX = max(maxX, x[index])
             minY = min(minY, y[index])
             maxY = max(maxY, y[index])
+            index += 1
         }
         let size = max(maxX - minX, maxY - minY)
         let scale = size > 1e-9 ? 1 / size : 1
         let midX = (minX + maxX) / 2
         let midY = (minY + maxY) / 2
-        for index in 0..<x.count {
+        index = 0
+        while index < count {
             intoX[index] = (x[index] - midX) * scale
             intoY[index] = (y[index] - midY) * scale
+            index += 1
         }
     }
 }
