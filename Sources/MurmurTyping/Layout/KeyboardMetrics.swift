@@ -84,7 +84,7 @@ public struct MetricsConstants: Sendable {
     /// gap are 38 pt and not the stock 52 (the gap was 4 until the owner asked for more air
     /// between the strip and the keys): 243 pt tall in total.
     public static let portrait = MetricsConstants(
-        stripHeight: 30, stripGap: 8, keycapHeight: 43, rowGap: 11, keyGap: 6, sideInset: 6,
+        stripHeight: 44, stripGap: 8, keycapHeight: 43, rowGap: 11, keyGap: 6, sideInset: 6,
         bottomInset: 0, referenceWidth: 393, modifierKeyWidth: 44, pageKeyWidth: 42,
         emojiKeyWidth: 42, globeKeyWidth: 42, returnKeyWidth: 91, spaceHitReach: 2.5)
 

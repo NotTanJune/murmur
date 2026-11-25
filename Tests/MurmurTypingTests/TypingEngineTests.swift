@@ -74,6 +74,17 @@ import Testing
         #expect(inserts(up(&engine, w, 0.1)) == ["w"])
     }
 
+    @Test("A tap that rolls a few points onto the neighbour as it lifts types the key it landed on")
+    func rollingTapTypesLandingKey() {
+        var engine = makeEngine()
+        let q = engine.frames.first { $0.kind == letter("q") }!.hitRect
+        let landing = CGPoint(x: q.maxX - 3, y: q.midY)
+        let lift = CGPoint(x: q.maxX + 4, y: q.midY)   // 7 pt on, inside w's hit rect
+        _ = down(&engine, landing, 0)
+        _ = move(&engine, lift, 0.04)
+        #expect(inserts(up(&engine, lift, 0.06)) == ["q"])
+    }
+
     @Test("A cancelled touch types nothing and hides its pop-up")
     func cancelledTypesNothing() {
         var engine = makeEngine()

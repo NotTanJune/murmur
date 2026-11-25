@@ -76,6 +76,10 @@ public struct TypingEngine: Sendable {
     /// this long turns the bar into a trackpad.
     public static let trackpadHoldDelay: TimeInterval = 0.35
     public static let trackpadStillRadius: CGFloat = 4
+    /// How far a character touch must travel before the key under the lift point, rather than
+    /// the one it landed on, is typed. About a third of a key pitch: a tap's roll stays well
+    /// under it, a slide to the next key goes well past it.
+    public static let slideCommitDistance: CGFloat = 12
     /// Effective travel per cursor step, in points.
     public static let trackpadPointsPerCharacter: CGFloat = 7.5
     /// Shortest time step used for a speed, so two events with the same timestamp do not read as
@@ -539,15 +543,21 @@ public struct TypingEngine: Sendable {
             }
             return
         }
+        // A quick tap types the key it landed on: a fast finger rolls a few points as it lifts,
+        // and reading the lift point typed the neighbour ("nrown", "ocer" on the owner's phone,
+        // 2026-11-25). Only a deliberate slide, longer than `slideCommitDistance`, types the key
+        // under the lift point.
+        let slid = distance(touch.point, touch.start) > Self.slideCommitDistance
+        let decidingPoint = slid ? touch.point : touch.start
         // A lift that hits no key (the finger drifted into the strip or past an edge) types the
         // key the touch was last on: a character touch that began on a key was meant to type.
-        var key = HitTester.key(at: touch.point, frames: frames, bias: bias)
+        var key = HitTester.key(at: decidingPoint, frames: frames, bias: bias)
         if key == nil, let last = touch.lastKey {
             key = last
             offKeyLifts += 1
         }
         if let key, case .character(let text) = key.kind {
-            typeCharacter(text, tap: touch.point, into: &out)
+            typeCharacter(text, tap: decidingPoint, into: &out)
         }
     }
 

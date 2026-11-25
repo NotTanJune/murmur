@@ -83,7 +83,7 @@ class Tracker:
         self.start: float | None = None
         self.pending_hits: list[dict] = []   # hits not yet matched by a began
         self.open_touches: dict[int, dict] = {}
-        self.counts = {"hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
+        self.counts = {"window": 0, "hit": 0, "began": 0, "ended": 0, "cancelled": 0, "insert": 0,
                        "lost": 0, "silent": 0, "gesture": 0}
         self.typed: list[str] = []
 
@@ -140,6 +140,12 @@ class Tracker:
             print(f"{self.stamp(t)}  delete")
         elif kind == "gesture":
             print(f"{YELLOW}{self.stamp(t)}  gesture {event.get('cls')} → {event.get('state')}{RESET}")
+        elif kind == "window":
+            view = event.get("view", "?")
+            colour = DIM if view == "KeyPlaneView" else YELLOW
+            print(f"{colour}{self.stamp(t)}  window touch on {view} (tap count {event.get('taps')}){RESET}")
+        elif kind == "disabled":
+            print(f"{YELLOW}{self.stamp(t)}  disabled {event.get('cls')}{RESET}")
         elif kind == "silent":
             print(f"{RED}{self.stamp(t)}  touch #{event.get('id')} reached the plane but typed nothing{RESET}")
 
@@ -148,6 +154,7 @@ class Tracker:
         c = self.counts
         print()
         print("Summary")
+        print(f"  touches the window saw   {c['window']}")
         print(f"  hit-tested touch-downs   {c['hit']}")
         print(f"  reached the plane        {c['began']}")
         print(f"  lost before the plane    {c['lost']}")

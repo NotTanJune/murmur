@@ -302,7 +302,7 @@ public enum DS {
         // through `TypingController`'s constants.
 
         /// The suggestion strip above the keys: 30 pt upright, the stock 44 pt turned.
-        public static let stripHeight: CGFloat = 30
+        public static let stripHeight: CGFloat = 44
         public static let stripHeightLandscape: CGFloat = 44
         /// Between the strip and the first row: 8 pt upright, 6 pt turned.
         public static let stripGap: CGFloat = 8
@@ -373,7 +373,7 @@ public enum DS {
         public static let iconFont = SwiftUI.Font.system(size: 19)
         public static let barFont = SwiftUI.Font.system(size: 15, weight: .medium)
         public static let barIconFont = SwiftUI.Font.system(size: 15)
-        public static let messageFont = SwiftUI.Font.system(size: 11)
+        public static let messageFont = SwiftUI.Font.system(size: 12)
         public static let messageActionFont = SwiftUI.Font.system(size: 13, weight: .semibold)
         /// The readiness line in the strip that says what is not ready yet.
         public static let captionFont = SwiftUI.Font.system(size: 11)
@@ -399,7 +399,7 @@ public enum DS {
         /// The m of the dictation button: the wordmark's face at a size that fits the 30 pt
         /// circle (`mCircleDiameter`). EB Garamond Italic is smaller on the body than SF at the
         /// same point size.
-        public static let mGlyphSize: CGFloat = 22
+        public static let mGlyphSize: CGFloat = 26
         #if canImport(UIKit)
         /// EB Garamond Italic, registered by the keyboard's `UIAppFonts`. Falls back to SF
         /// italic when the face does not resolve (a build without the file, or `swift test`).
@@ -431,16 +431,16 @@ public enum DS {
         /// and the whole cell takes the touch, so the button is bigger than it looks.
         public static let mButtonCellWidth: CGFloat = 59
         /// The m's glass circle, as tall as the strip so it fits in it.
-        public static let mCircleDiameter: CGFloat = 30
+        public static let mCircleDiameter: CGFloat = 36
         /// The recording capsule's height: the circle's, because the capsule is the circle grown
         /// leftward. It grows to end `padding` after the history cell (`functionKeyWidth`).
-        public static let recordingCapsuleHeight: CGFloat = 30
+        public static let recordingCapsuleHeight: CGFloat = 36
         /// A suggestion's text sits this far below the cell's centre. The stock strip's text is
         /// centred in the 30 pt strip, so none.
         public static let suggestionTextOffset: CGFloat = 0
         public static let suggestionInset: CGFloat = 4
         public static let suggestionMinimumScale: CGFloat = 0.7
-        public static let suggestionDividerHeight: CGFloat = 20
+        public static let suggestionDividerHeight: CGFloat = 24
         /// The undo chip in the left suggestion cell after an autocorrection: an arrow and the
         /// original word. The gap between the two.
         public static let undoChipSpacing: CGFloat = 4
@@ -488,7 +488,7 @@ public enum DS {
         /// The failure message's inset around its action, and the action's own insets.
         public static let messageGap: CGFloat = 8
         public static let messageActionInsetX: CGFloat = 12
-        public static let messageActionInsetY: CGFloat = 4
+        public static let messageActionInsetY: CGFloat = 6
         public static let messageLines = 2
 
         #if canImport(UIKit)

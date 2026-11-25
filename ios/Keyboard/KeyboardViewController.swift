@@ -166,6 +166,9 @@ final class KeyboardViewController: UIInputViewController {
         // The proxy's traits may have been stale in `viewWillAppear`; read them again now.
         typing.keyboardDidAppear()
         relaxTouchDelays()
+        if let window = view.window, !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchProbe }) {
+            window.addGestureRecognizer(TouchProbe())
+        }
     }
 
     /// Keys went missing on a device (62 taps counted, many more typed) with 0 cancelled and a
@@ -186,6 +189,16 @@ final class KeyboardViewController: UIInputViewController {
                 // Diagnostics: report this recognizer's state changes, so a touch lost while a
                 // system recognizer recognizes shows up in the live log next to it.
                 recognizer.addTarget(GestureWatcher.shared, action: #selector(GestureWatcher.changed(_:)))
+                // Experiment (2026-11-25): the live log showed taps that never reached the plane,
+                // not even its hit test, while `_UIDoubleTapInteractionGestureRecognizer` on the
+                // keyboard's `_UIHostedWindow` recognized 23 times in 138 taps. Fast typing is a
+                // stream of double taps to it. It is switched off for this keyboard only, to see
+                // whether the lost taps stop; the next live log decides whether this stays.
+                if String(describing: type(of: recognizer)).contains("DoubleTapInteraction") {
+                    recognizer.isEnabled = false
+                    Self.typingLog.info("disabled \(String(describing: type(of: recognizer)), privacy: .public) on \(String(describing: type(of: current)), privacy: .public)")
+                    TypingDiagnostics.log("disabled", ["cls": String(describing: type(of: recognizer))])
+                }
                 let beganWas = recognizer.delaysTouchesBegan
                 let endedWas = recognizer.delaysTouchesEnded
                 recognizer.delaysTouchesBegan = false
@@ -271,4 +284,43 @@ final class GestureWatcher: NSObject {
             "view": recognizer.view.map { String(describing: type(of: $0)) } ?? "none",
         ])
     }
+}
+
+/// Diagnostics only: sees every touch the keyboard's window receives, whichever view it was
+/// hit-tested to, and never recognizes, delays or cancels anything. A tap the live log shows
+/// here but not on the plane went to another view; one it never shows did not reach this
+/// process at all.
+final class TouchProbe: UIGestureRecognizer {
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    convenience init() { self.init(target: nil, action: nil) }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if TypingDiagnostics.isOn {
+            for touch in touches {
+                let point = touch.location(in: view)
+                TypingDiagnostics.log("window", [
+                    "t": touch.timestamp, "x": Double(point.x), "y": Double(point.y),
+                    "view": touch.view.map { String(describing: type(of: $0)) } ?? "none",
+                    "taps": touch.tapCount,
+                ])
+            }
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        if numberOfTouches == 0 || touches.count == event.allTouches?.count { state = .failed }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
 }
