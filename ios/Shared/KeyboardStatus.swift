@@ -63,6 +63,12 @@ struct KeyboardStatus: Codable, Equatable {
     var predictionLoadSeconds: Double?
     var predictionLastMs: Double?
     var predictionFootprintMB: Double?
+    /// Temporary (2026-11-25): `TypingStats`' four prediction counters since the keyboard last
+    /// appeared, to find where the model's answer is lost on the phone.
+    var predictionAnswers: Int?
+    var predictionStale: Int?
+    var stripPasses: Int?
+    var stripPassesWithPrediction: Int?
 
     enum BarkState: String {
         case loading, ready, notDownloaded, stoppedLastTime, failed, off

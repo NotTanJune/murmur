@@ -33,6 +33,7 @@
 		45D3ED531B23908012FCEC65 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADBBC8678DD81ED11ACAF7C /* SetupView.swift */; };
 		48BC99FB2C5937FA6F985D24 /* PhoneEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948F6A3F144F06B9915ED311 /* PhoneEnvironment.swift */; };
 		601461B10C67E87B3B13F988 /* KeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B806E79B87FA2CD3DA1A5B73 /* KeyboardView.swift */; };
+		62D70C3806F548D6658B595F /* PredictionSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2E54C89D059422DC709165 /* PredictionSelfTest.swift */; };
 		674BC8199AD64774F1662A17 /* PaperControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC70C22B23C15159705E5A9 /* PaperControls.swift */; };
 		68AB6F53955A1D3944120F95 /* EBGaramond-Italic[wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2931AFCC766E4CF23B7990F4 /* EBGaramond-Italic[wght].ttf */; };
 		6F59F8F521559898B02AB95C /* OFL-Figtree.txt in Resources */ = {isa = PBXBuildFile; fileRef = 38A18EA29BB2B0F49BD4945B /* OFL-Figtree.txt */; };
@@ -93,6 +94,7 @@
 
 /* Begin PBXFileReference section */
 		05AD0D5776C091609CEE64DC /* MurmurKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MurmurKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A2E54C89D059422DC709165 /* PredictionSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionSelfTest.swift; sourceTree = "<group>"; };
 		0A9BEF73481F2C13EAA83A63 /* MurmurPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MurmurPhone.entitlements; sourceTree = "<group>"; };
 		0E40D5940BB43BDC696CEC24 /* TypingLM */ = {isa = PBXFileReference; lastKnownFileType = folder; path = TypingLM; sourceTree = SOURCE_ROOT; };
 		0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticPlayer.swift; sourceTree = "<group>"; };
@@ -253,6 +255,7 @@
 				C9CB6ECCBC707799552D6FF6 /* ModelView.swift */,
 				0A9BEF73481F2C13EAA83A63 /* MurmurPhone.entitlements */,
 				80051BCE7D8D7FDB936C586D /* MurmurPhoneApp.swift */,
+				0A2E54C89D059422DC709165 /* PredictionSelfTest.swift */,
 				7BEA5BEC862877AFBA93A47F /* RunAudioPlayer.swift */,
 				B3C1BE603771B0CA97D95936 /* RunEditor.swift */,
 				31985D17A48C0DE2D931F5F7 /* SettingsView.swift */,
@@ -488,6 +491,7 @@
 				674BC8199AD64774F1662A17 /* PaperControls.swift in Sources */,
 				0CD2FD9057C11DE0465CE040 /* PaperSurfaces.swift in Sources */,
 				FD153DF43888B72C0595A1B2 /* PhoneEnvironment.swift in Sources */,
+				62D70C3806F548D6658B595F /* PredictionSelfTest.swift in Sources */,
 				7526A16E7E4823ED1EC3BBE7 /* RunAudioPlayer.swift in Sources */,
 				DEF4B0F1F0A4E802CD0C2DDA /* RunEditor.swift in Sources */,
 				C50636D3C218B0882040FE74 /* SettingsView.swift in Sources */,

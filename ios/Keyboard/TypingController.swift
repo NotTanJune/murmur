@@ -56,6 +56,13 @@ struct TypingStats: Equatable {
     var predictionLoadSeconds: Double?
     var predictionLastMs: Double?
     var predictionFootprintMB: Double?
+    /// Temporary (2026-11-25), to find where the model's answer is lost on the phone: answers
+    /// that arrived for the current word boundary, answers that arrived for one the text had
+    /// left, strip passes shown, and strip passes that had the model's answer for their text.
+    var predictionAnswers = 0
+    var predictionStale = 0
+    var stripPasses = 0
+    var stripPassesWithPrediction = 0
 }
 
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
@@ -1183,9 +1190,10 @@ final class TypingController {
         suggestionQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard latest.withLock({ $0 }) == generation else { return }
             let started = ContinuousClock.now
+            let answer = prediction.withLock { $0 }
+            let answered = answer != nil && answer?.boundary == SuggestionEngine.boundary(before: tail)
             var next = SuggestionEngine.suggestions(
-                before: tail, model: model, prediction: prediction.withLock { $0 },
-                capitalisesStarts: capitalisesStarts)
+                before: tail, model: model, prediction: answer, capitalisesStarts: capitalisesStarts)
             // Mid-word, a confident correction takes the centre cell, the typed word stays on
             // the left in quotes, and one completion stays on the right. The evaluation is the
             // one the word's end will make.
@@ -1199,6 +1207,8 @@ final class TypingController {
                 guard let self, self.suggestionGeneration.withLock({ $0 }) == generation else { return }
                 self.noteAutocorrectTime(since: started)
                 self.stripShownGeneration = generation
+                self.counters.stripPasses += 1
+                if answered { self.counters.stripPassesWithPrediction += 1 }
                 if result != self.suggestions { self.suggestions = result }
             }
         }
@@ -1226,7 +1236,11 @@ final class TypingController {
     /// kept for the strip's passes, and if the strip already shows this text without it, the pass
     /// is run again at once: the same generation, so a newer refresh still wins.
     private func predictionArrived(_ answer: WordPrediction) {
-        guard answer.boundary == requestedBoundary else { return }
+        guard answer.boundary == requestedBoundary else {
+            counters.predictionStale += 1
+            return
+        }
+        counters.predictionAnswers += 1
         prediction.withLock { $0 = answer }
         let generation = suggestionGeneration.withLock { $0 }
         guard stripShownGeneration == generation, let model, let text = stripText else { return }
