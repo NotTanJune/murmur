@@ -956,9 +956,9 @@ final class TypingController {
         let latest = suggestionGeneration
         // The strip is worked out on a background queue, and only once the keys have been quiet
         // for `DS.Keyboard.suggestionQuietSeconds`. A fast typist's next tap arrives 80 to 150 ms
-        // after the last, and on 2026-11-25 taps that landed while the main thread was busy
-        // with the previous key's suggestions and the strip's re-render never reached the
-        // keyboard (the live log saw no hit test for them). Typing now never waits on the strip.
+        // after the last, so typing never waits on the strip. This was first done on the theory
+        // that a busy main thread lost taps; it did not (they were lost in the clear gaps
+        // between keycaps, see `touchBackingUIColor`), and it stays because it is cheaper.
         suggestionQueue.asyncAfter(deadline: .now() + DS.Keyboard.suggestionQuietSeconds) { [weak self] in
             guard latest.withLock({ $0 }) == generation else { return }
             let started = ContinuousClock.now
