@@ -15,6 +15,7 @@
 		1647FBC2FFFA09F46B5480F1 /* MurmurKit in Frameworks */ = {isa = PBXBuildFile; productRef = A18116404CC54213587C1B9E /* MurmurKit */; };
 		16F516DCF742C2CC59D5405F /* EmojiRecents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */; };
 		1750A0C86B022FCC1FA58796 /* EmojiPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */; };
+		17B9E3D1B2CEB3E8E0E24FB5 /* TypingDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3872ACF4D111EFD385FB0D /* TypingDiagnostics.swift */; };
 		1ADE187A14E113757E6D3A18 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B037767311A660B55ED78B1F /* Assets.xcassets */; };
 		20A8D64726C45DBB1E1B972C /* KeyPlaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85BE6C7833C9ADAECEA8A755 /* KeyPlaneView.swift */; };
 		21CB223C09194E64E64710D2 /* default-dictionary.txt in Resources */ = {isa = PBXBuildFile; fileRef = 4AA1F9C6111308F82B26A3C2 /* default-dictionary.txt */; };
@@ -39,6 +40,7 @@
 		825789AD2D5BDDB0368377C6 /* OFL-EBGaramond.txt in Resources */ = {isa = PBXBuildFile; fileRef = BD56B9CFEDFC01EEF1151388 /* OFL-EBGaramond.txt */; };
 		85D49F3E1052BF98F55A0BDF /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */; };
 		A1DA459A6DB96E830A0D95CF /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
+		B63C26E115747D6D62112D3B /* TypingDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3872ACF4D111EFD385FB0D /* TypingDiagnostics.swift */; };
 		C50636D3C218B0882040FE74 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31985D17A48C0DE2D931F5F7 /* SettingsView.swift */; };
 		CFC6312F6BF4B81C29226FCE /* MurmurPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80051BCE7D8D7FDB936C586D /* MurmurPhoneApp.swift */; };
 		D4BB1D5042988A06EB9976BF /* Figtree[wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8D7B74B437D59CA05B2641AA /* Figtree[wght].ttf */; };
@@ -102,6 +104,7 @@
 		38A18EA29BB2B0F49BD4945B /* OFL-Figtree.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "OFL-Figtree.txt"; sourceTree = "<group>"; };
 		4AA1F9C6111308F82B26A3C2 /* default-dictionary.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "default-dictionary.txt"; sourceTree = "<group>"; };
 		5228D240776177D7572CA1C1 /* LicencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicencesView.swift; sourceTree = "<group>"; };
+		5C3872ACF4D111EFD385FB0D /* TypingDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingDiagnostics.swift; sourceTree = "<group>"; };
 		697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMicrophone.swift; sourceTree = "<group>"; };
 		6FCE543F0B78AAC0F91E61D8 /* SuggestionStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestionStrip.swift; sourceTree = "<group>"; };
 		76C4212D9899DC66A521DBD3 /* DictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryView.swift; sourceTree = "<group>"; };
@@ -191,6 +194,7 @@
 			children = (
 				2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */,
 				948F6A3F144F06B9915ED311 /* PhoneEnvironment.swift */,
+				5C3872ACF4D111EFD385FB0D /* TypingDiagnostics.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -447,6 +451,7 @@
 				48BC99FB2C5937FA6F985D24 /* PhoneEnvironment.swift in Sources */,
 				3128CC2718B1C26352078B7F /* SuggestionStrip.swift in Sources */,
 				F433394AB0A169CD1FC40258 /* TypingController.swift in Sources */,
+				B63C26E115747D6D62112D3B /* TypingDiagnostics.swift in Sources */,
 				F2BD34DA200CB5289D0D7461 /* WebMicrophone.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -469,6 +474,7 @@
 				C50636D3C218B0882040FE74 /* SettingsView.swift in Sources */,
 				45D3ED531B23908012FCEC65 /* SetupView.swift in Sources */,
 				034B211916DFF631B3E6F66C /* TrainingView.swift in Sources */,
+				17B9E3D1B2CEB3E8E0E24FB5 /* TypingDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

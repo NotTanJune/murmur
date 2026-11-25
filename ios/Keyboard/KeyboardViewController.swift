@@ -176,6 +176,9 @@ final class KeyboardViewController: UIInputViewController {
         while let current = node {
             for recognizer in current.gestureRecognizers ?? [] {
                 guard relaxedRecognizers.insert(ObjectIdentifier(recognizer)).inserted else { continue }
+                // Diagnostics: report this recognizer's state changes, so a touch lost while a
+                // system recognizer recognizes shows up in the live log next to it.
+                recognizer.addTarget(GestureWatcher.shared, action: #selector(GestureWatcher.changed(_:)))
                 let beganWas = recognizer.delaysTouchesBegan
                 let endedWas = recognizer.delaysTouchesEnded
                 recognizer.delaysTouchesBegan = false
@@ -237,4 +240,28 @@ final class KeyboardViewController: UIInputViewController {
 /// make a sound, and only when the user has keyboard clicks on.
 private final class ClickingInputView: UIInputView, UIInputViewAudioFeedback {
     var enableInputClicksWhenVisible: Bool { true }
+}
+
+/// Logs the state changes of the gesture recognizers between the key plane and its window,
+/// while typing diagnostics are on. A target adds nothing to a recognizer's behaviour.
+@MainActor
+final class GestureWatcher: NSObject {
+    static let shared = GestureWatcher()
+
+    @objc func changed(_ recognizer: UIGestureRecognizer) {
+        guard TypingDiagnostics.isOn else { return }
+        let state: String = switch recognizer.state {
+        case .possible: "possible"
+        case .began: "began"
+        case .changed: "changed"
+        case .ended: "ended"
+        case .cancelled: "cancelled"
+        case .failed: "failed"
+        @unknown default: "unknown"
+        }
+        TypingDiagnostics.log("gesture", [
+            "cls": String(describing: type(of: recognizer)), "state": state,
+            "view": recognizer.view.map { String(describing: type(of: $0)) } ?? "none",
+        ])
+    }
 }

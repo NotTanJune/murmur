@@ -127,6 +127,8 @@ final class SetupStatus {
 struct SetupView: View {
     @Environment(\.scenePhase) private var phase
     @State private var status = SetupStatus()
+    /// The typing diagnostics switch; it turns itself off after `TypingDiagnostics.duration`.
+    @State private var diagnosticsOn = TypingDiagnostics.expiry != nil
 
     var body: some View {
         PhonePage(title: "Setup") {
@@ -186,6 +188,17 @@ struct SetupView: View {
                 if let line = typingLine {
                     Note(text: line)
                 }
+                ToggleRow(
+                    title: "Typing diagnostics",
+                    note: "Logs each key touch for 10 minutes so the Mac's live log can show dropped taps. It records what you type, stays on this iPhone, and is deleted when switched off.",
+                    isOn: Binding(
+                        get: { diagnosticsOn },
+                        set: { on in
+                            if on { TypingDiagnostics.turnOn() } else { TypingDiagnostics.turnOff() }
+                            diagnosticsOn = on
+                        }
+                    )
+                )
             }
 
             Card(title: "Model") {
@@ -208,7 +221,10 @@ struct SetupView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear { status.refresh() }
+        .onAppear {
+            status.refresh()
+            diagnosticsOn = TypingDiagnostics.expiry != nil
+        }
         .onChange(of: phase) { _, now in
             if now == .active { status.refresh() }
         }

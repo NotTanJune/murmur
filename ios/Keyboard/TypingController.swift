@@ -247,6 +247,7 @@ final class TypingController {
     /// The keyboard came up: read the field, start on the right page, and reset what belongs to
     /// the last field (a pending space, the double-space clock).
     func keyboardAppeared() {
+        TypingDiagnostics.startSession()
         counters = TypingStats()
         offKeyAtReset = engine.offKeyLifts
         if !modelLoaded {
@@ -430,12 +431,14 @@ final class TypingController {
         for effect in effects {
             switch effect {
             case .insert(let text, let tap):
+                TypingDiagnostics.log("insert", ["text": text])
                 typeInsert(text, tap: tap)
                 counters.typed += 1
                 textChanged = true
             case .deleteBackward(let count):
                 // The one delete that follows a replacement keeps its offer (and shows it);
                 // anything else ends it. The taps of the word lose the letters deleted.
+                TypingDiagnostics.log("delete", ["count": count])
                 undo = undo?.afterDelete(count: count)
                 tracker.dropLast(count)
                 deleteBackward(count)
