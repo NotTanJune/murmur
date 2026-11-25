@@ -144,9 +144,16 @@ final class KeyboardViewController: UIInputViewController {
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
         // Contact names and the owner's text replacements: words autocorrect must not undo. The
         // answer is asynchronous; the controller rebuilds its lexicon when it arrives.
-        requestSupplementaryLexicon { [weak self] lexicon in
-            let words = lexicon.entries.map(\.documentText)
-            Task { @MainActor in self?.typing.setSystemLexicon(words) }
+        // The completion runs on a background queue (`com.apple.TextInput.lexicon-request`), so
+        // the closure must not inherit the main actor: an inherited isolation is asserted when it
+        // runs, and that assertion crashed the keyboard on every appearance on 2026-11-25.
+        // UIKit declares the entries main-actor isolated, so they are read after the hop; the
+        // lexicon object itself is immutable once delivered.
+        requestSupplementaryLexicon { @Sendable [weak self] lexicon in
+            nonisolated(unsafe) let lexicon = lexicon
+            Task { @MainActor in
+                self?.typing.setSystemLexicon(lexicon.entries.map(\.documentText))
+            }
         }
     }
 

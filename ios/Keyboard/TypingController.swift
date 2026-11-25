@@ -311,8 +311,21 @@ final class TypingController {
         flushState()
     }
 
+    /// The field's identity. `UITextDocumentProxy.documentIdentifier` is declared as a
+    /// non-optional `UUID`, but a host can leave it nil, and bridging that nil to `UUID` traps:
+    /// it crashed the keyboard in `runTextRefresh` on 2026-11-25. So it is read through the
+    /// Objective-C runtime as an optional object.
+    private func currentDocumentID() -> UUID? {
+        guard let object = proxy() as? NSObject else { return nil }
+        let selector = NSSelectorFromString("documentIdentifier")
+        guard object.responds(to: selector),
+              let value = object.perform(selector)?.takeUnretainedValue() as? NSUUID
+        else { return nil }
+        return value as UUID
+    }
+
     private func resetFieldState() {
-        documentID = proxy()?.documentIdentifier
+        documentID = currentDocumentID()
         pending.disarm()
         lastSpaceTime = nil
         autoShifted = false
@@ -818,7 +831,7 @@ final class TypingController {
         textRefreshPending = false
         if fieldCheckPending {
             fieldCheckPending = false
-            let id = proxy()?.documentIdentifier
+            let id = currentDocumentID()
             if id != documentID { resetFieldState() }
         }
         // The traits are read on every pass, not only after the host reported a change. At
