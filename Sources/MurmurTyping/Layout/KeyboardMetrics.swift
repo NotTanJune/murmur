@@ -182,12 +182,12 @@ public struct KeyboardMetrics: Sendable {
     // MARK: - Row widths
 
     /// The keycaps of one row, left to right. Three shapes of row exist, told apart by their
-    /// content so the layout needs no per-page table: the bottom row (it holds the space bar),
+    /// content so the layout needs no per-page table: the bottom row (it ends with return),
     /// a row between a modifier and delete, and a plain row of characters.
     private func keycapRects(for row: [KeyKind], top: CGFloat) -> [CGRect] {
         let widths: [CGFloat]
         let gaps: [CGFloat]
-        if row.contains(.space) {
+        if row.last == .return {
             widths = bottomRowWidths(row)
             gaps = Array(repeating: constants.keyGap, count: max(row.count - 1, 0))
         } else if row.count >= 3, row.last == .delete {
@@ -209,21 +209,31 @@ public struct KeyboardMetrics: Sendable {
     }
 
     /// Page key, emoji, globe and return keep fixed widths; the space bar takes what is left, so
-    /// the row always spans exactly the view between its insets.
+    /// the row always spans exactly the view between its insets. A field's own keys beside the
+    /// space bar (`@` and `.` in an email field) are as wide as the page key. A row with no
+    /// space bar (a web address field's `.`, `/` and `.com`) shares what is left between its
+    /// character keys.
     private func bottomRowWidths(_ row: [KeyKind]) -> [CGFloat] {
+        let hasSpace = row.contains(.space)
+        let characters = row.indices.filter { row[$0].characterValue != nil }
         var widths = row.map { kind -> CGFloat in
             switch kind {
             case .pageSwitch: constants.pageKeyWidth
             case .emoji: constants.emojiKeyWidth
             case .globe: constants.globeKeyWidth
             case .return: constants.returnKeyWidth
+            case .character: hasSpace ? constants.pageKeyWidth : 0
             default: 0
             }
         }
         let gaps = CGFloat(max(row.count - 1, 0)) * constants.keyGap
         let fixed = widths.reduce(0, +)
-        let space = width - 2 * constants.sideInset - fixed - gaps
-        if let index = row.firstIndex(of: .space) { widths[index] = max(space, 0) }
+        let left = max(width - 2 * constants.sideInset - fixed - gaps, 0)
+        if let index = row.firstIndex(of: .space) {
+            widths[index] = left
+        } else if !characters.isEmpty {
+            for index in characters { widths[index] = left / CGFloat(characters.count) }
+        }
         return widths
     }
 

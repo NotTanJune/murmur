@@ -239,9 +239,11 @@ into the Mac's history and recordings.
 
 Added 2026-11-22. `ios/project.yml` is an XcodeGen spec for two targets: `MurmurPhone`, the app
 (tabs Setup, History, Dictionary and Settings), and `MurmurKeyboard`, the keyboard extension it
-embeds. The deployment target is iOS 26.0. The keyboard is dictation only: a talk key, a
-history panel, punctuation and number pages, space, delete, return, globe, hide and an emoji
-panel. It has no letters. S1-mini never runs on the phone, so the rule pass and Apple
+embeds. The deployment target is iOS 26.0. Version 1 was dictation only (a talk key and no
+letters). On the `keyboard-v2` branch it is a full keyboard: letters, number and symbol pages, an
+emoji panel, autocorrect, suggestions and swipe typing, with dictation on the **m** in the
+suggestion strip (`plans/001-keyboard-v2.md`). Sections below that describe the talk key are
+version 1's and partly superseded. S1-mini never runs on the phone, so the rule pass and Apple
 Intelligence are its cleanup engines, and the phone defaults to Bark Clean where the Mac
 defaults to Apple.
 
@@ -540,7 +542,7 @@ lab's keys `hapticLabStart`, `hapticLabDone` and `hapticLabActive` may linger in
 defaults on the user's phone; nothing reads them.
 
 **Key taps.** Every ordinary key gives the input click and a light haptic tap
-(`UIImpactFeedbackGenerator`, `.light`) at touch-down, as the stock keyboard does, through
+(`UIImpactFeedbackGenerator`, `.light`, at strength 0.7) at touch-down, as the stock keyboard does, through
 `KeyFeedback` (`ios/Keyboard/KeyFeedback.swift`). SwiftUI buttons get it from `KeyPressStyle` or
 `PlainKeyStyle` (the emoji category bar) when `isPressed` turns true, so the feedback no longer
 waits for the release; the delete key (on each repeated deletion too), the globe key
@@ -685,8 +687,9 @@ was itself swiped. Shift capitalises the first letter and is spent like a typed 
 uppercases all, and the sentence-start rule is judged on the text with the swipe's own space in.
 **The space after the word is owed, not typed** (`SwipeOffer`, the reverse of `PendingSpace`):
 the next swipe types it, a typed letter types it first, and the space key, `, . ! ? ; : ) ] } ' -
-/` and the rest sit against the word, so there is no space to take back. A delete right after a
-swipe removes the word and the space the swipe typed before it, once; a repeat deletes as usual.
+/` and the rest sit against the word, so there is no space to take back. A delete after a swipe
+removes one character, like any other delete, and ends the offer: the first version took the
+whole word and its space, and the owner asked for a backspace per character (2026-11-25).
 The strip then shows up to three other readings (best in the centre), and a tap swaps the word
 for one, offering the old word back. Any other edit, or a field that no longer ends with the word,
 drops the offer. A swipe resets the word-tap tracker and the undo offer. **Where it is off:** the
@@ -694,7 +697,7 @@ setting `Settings.swipeTyping` (Settings tab, default on), VoiceOver running,
 `AutocorrectPolicy.allows(traits)` false (URL, email, number, phone, secure and no-autocorrect
 fields), a word model that has not loaded, and any page but letters. The trail is a `CAShapeLayer`
 in `KeyPlaneView` over the keys, the last 0.45 s of the path. `TypingDiagnostics` logs `swipe`
-(word, other readings, decode ms, path to 0.1 pt), `swipe-delete` and `swipe-alt`. **Nothing here
+(word, other readings, decode ms, path to 0.1 pt) and `swipe-alt`. **Nothing here
 is verified on a device:** the 0.36 s window and the one-pitch threshold against real thumbs, the
 trail's width and look, whether the lift-time decode is quick enough on a phone, how often the
 live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
@@ -715,6 +718,24 @@ accuracy is 0.8 points higher. The cost: an exact swipe of a rare word can lose 
 look-alike ("swipe" reads "store" first). The noise model is a guess, so these numbers say
 nothing certain about a thumb; `swipe-samples.jsonl` from the owner's phone is what to tune on
 next.
+
+**The first real swipes: 8 of 10, and what they showed.** On 2026-11-25 the owner swiped "this
+is a test of swipe typing on the new keyboard" with diagnostics on; the ten paths are
+`Tests/MurmurTypingTests/real-swipes.json`, and `RealSwipeReplayTests` replays them (the Mac
+gives the phone's first reading on all ten). "swipe" came out "serious" and was not offered, and
+"typing" came out "tripping" with "typing" fourth. An agent diagnosed both and changed nothing
+in the decoder, because nothing it tried was clearly better without fitting ten samples.
+What it found: "swipe" was never scored (the start lay nearer d than s, and `scanBudget` ran out
+before the s-to-e words were read), would have been cut from the 36 re-scored words by short
+frequent ones, and loses on the language model anyway (the stored pair "of serious" against a
+backoff for "swipe"); the "typing" path really did run left to between e and r first, so
+"tripping" is a fair reading. Against the simulated noise the real hand hits its keys (0.21
+pitch from the middle keys, simulated 0.43), runs on past the last key (0.27 pitch, simulated
+none), starts sideways of the first key (0.47 pitch across, 0.21 up and down) and overshoots its
+turns, so a corner of the path is not evidence of a key. Measured and worth taking next: both
+stages on bare pointers halved the debug 99th percentile with accuracy unchanged, which pays for
+a larger `scanBudget`. A rare word like "swipe" will not come first after "of" from geometry;
+that needs the owner's own words to carry weight (plan Milestone 7) and more samples.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
@@ -742,21 +763,33 @@ otherwise worked out only after a text change or a host call, and a host call wi
 context reads as a sentence start. That second cause is suspected, not observed; the
 diagnostics log now records `autoshift` and `swipe-case` to settle it.
 
-**The swipe trail is a tapered shape, and its width is a setting.** The first trail was one even
-8 pt stroke of the last 0.45 s of the path; the owner called it static and rigid beside the stock
-keyboard's and Gboard's (screen recordings, 2026-11-25: Apple draws a soft grey comet, wide at
-the finger and thinning to nothing; Gboard a thin blue line that fades at its tail). The trail is
-now one filled outline in `KeyPlaneView.trailOutline`: the centre line is rounded once, each
-point's width falls from `swipeTrailWidth` under the finger to zero where the point is about to
-expire (`swipeTrailSeconds`, `swipeTrailTaper`), the finger's end is round, the layer's shadow
-gives a soft edge, and at lift the layer fades over `swipeTrailFadeSeconds` instead of
-vanishing. `Settings.swipeTrail` picks the width at the finger (thin, regular, thick, bold: 6,
-11, 15 and 19 pt), a `ChoiceKeys` card in the phone's Settings tab shown while swipe typing is
-on; the controller hands the width to the plane at each touch-down. Unverified on a device.
+**The swipe trail is a soft ribbon that relaxes behind the finger, and its width is a
+setting.** Three versions, each from the owner's words (2026-11-25). An even 8 pt stroke of the
+last 0.45 s of the path was static and rigid beside the stock keyboard's soft grey comet and
+Gboard's thin fading line. A tapered outline at 35% of the label colour with a blurred shadow of
+the same colour was still shiny and rigid: the shadow doubled the colour into a glow, and the
+shape traced every touch sample. The trail is now `SwipeTrail` (`Sources/MurmurTyping/Input`), a
+pure type that `KeyPlaneView` feeds and draws. A sample lives 0.6 s (`swipeTrailSeconds`) and the
+width eases from `swipeTrailWidth` under the finger to nothing at the tail. At every frame each
+sample but the newest moves a little towards the middle of its neighbours, more the older it is
+(`swipeTrailRelaxRate`), so corners round off and the tail straightens as it ages: that is the
+flow. The outline is one closed shape with a disc at each sharp turn (a swipe reverses at most
+letters, and an outline alone folds into a hole there) and under the finger. It is drawn as four
+filled copies (`SwipeTrail.layers`), each a little narrower and shorter than the last, at 5.5% of
+the label colour each (`swipeTrailLayerOpacity`): about 20% in the middle with a soft edge, and
+no shadow or blur anywhere. The plane's display link redraws it at every frame while a finger is
+down, and after the lift keeps running while the trail runs out and fades over
+`swipeTrailFadeSeconds`. `Settings.swipeTrail` picks the width at the finger (thin, regular,
+thick, bold: 6, 11, 15 and 19 pt), a `ChoiceKeys` card in the phone's Settings tab shown while
+swipe typing is on. The look was checked on the Mac, not on the phone:
+`MURMUR_TRAIL_PREVIEW=<folder> swift test --filter trailPreview` draws the trail over a dark
+keyboard for three of the owner's real swipes. How it moves, and what four shape layers redrawn
+at 120 Hz cost on a phone, are unverified.
 
 **Swipe samples outlive a session.** The touch log is cleared at every appearance, so two swipe
 sessions were lost before they were read. While Typing diagnostics is on, each swiped word (its
-readings, the previous word and the path), each whole-word delete and each alternative chosen is
+readings, the previous word and the path), the first delete after one (`swipe-backspace`, a hint
+that the word was wrong) and each alternative chosen is
 also appended to `swipe-samples.jsonl` in the App Group (`TypingDiagnostics.logSwipeSample`),
 up to 2 MB, across appearances and expiries, until the switch is turned off. A screenshot hides
 any third-party keyboard until it is saved; Gboard does the same, so that is iOS and not a bug.
@@ -768,18 +801,27 @@ no automatic shift is set for typing, swiping or dictation; a lone "i" stays as 
 becomes "i'm", and the double-space period types no shift after it. Shift and caps lock work as
 before. Do not flip the default without the owner.
 
-**The strip's top trim is being tuned, and its setting is temporary.** The system draws about
-16 pt of its own backdrop above a third-party keyboard's view (measured again on 2026-11-25 from
-the owner's screenshot: the strip's centre is 38 pt under the panel's edge, 22 pt of it ours),
-and with the 44 pt strip's own 4 pt above the 36 pt m that reads as too much space. The owner
-asked for a control to find the right amount by eye: `Settings.keyboardTopTrim` (0 to 12 pt in
-0.5 pt steps; Settings tab, Keyboard tuning) shortens the strip from the top.
-`MetricsConstants.keyboard(isLandscape:)` subtracts it, and `SuggestionStrip` lays its contents
-out in the full 44 pt pinned to the bottom edge, so their distance to the keys does not change;
-past 4 pt the contents stand out above the keyboard's view, which will show whether iOS clips
-there. **When the owner names the value: set `DS.Keyboard.stripHeight` and
-`MetricsConstants.portrait` to it, then delete the setting, its key, its Settings card, the
-`stripTopTrim*` tokens and this paragraph's tuning half.**
+**The strip's top trim is being tuned, and its setting is temporary.** iOS 26 puts a
+third-party keyboard inside its own rounded panel and keeps a margin above the keyboard's view
+that the extension can neither draw in nor remove (other keyboards report the same; LimeIME's
+`docs/SAFARI_EXTRA_SPACE.md` traces it to the host's `UIInputSetHostView`). Measured on
+2026-11-25 from the owner's screenshot: the m's top is 20 pt under the panel's edge, 16 pt of it
+that margin and 4 pt the strip's own space above the 36 pt m. So only 4 pt can be taken off.
+`Settings.keyboardTopTrim` (0 to 4 pt, `DS.Keyboard.stripTopTrimLimit`, in 0.5 pt steps;
+Settings tab, Keyboard tuning) shortens the strip from the top. The first version allowed 12 pt
+and let the contents stand out above the view past 4, and the owner found that it did not change
+the space above the keyboard accurately. What makes it exact now: the strip's height is rounded
+to whole pixels in `MetricsConstants.keyboard(isLandscape:displayScale:)` (half a point is a
+pixel and a half at 3x); `KeyboardView` places the strip directly above a clear space exactly as
+tall as the plane, both from the keyboard's bottom edge, so a height iOS has not applied yet, or
+rounds, shows as space above the strip and never between the strip and the keys; and the app
+posts `KeyboardTuningSignal` (a Darwin notification, `ios/Shared/PhoneEnvironment.swift`) at each
+step, on which a keyboard that is up re-reads the settings and lays out again. The tuning card
+has a text field so the keyboard can be up beside the stepper. Unverified on a device. **When
+the owner names the value: set `DS.Keyboard.stripHeight` and `MetricsConstants.portrait` to it,
+then delete the setting, its key, its Settings card and field, `KeyboardTuningSignal`, the
+`stripTopTrim*` tokens and this paragraph's tuning half.** Going further than 4 pt means a
+smaller m or less space between the strip and the keys, which is the owner's call.
 
 **Typing felt heavy, and what was cut.** With the lost taps fixed the owner called typing
 accurate but heavier than the stock keyboard (2026-11-25). Read off three diagnostics sessions:
@@ -795,11 +837,31 @@ keyboard's `Info.plist` sets `CADisableMinimumFrameDurationOnPhone`. (3)
 `viewDidLayoutSubviews` works the geometry out again only when the width, the orientation, the
 globe key or the top trim changed, and reports the height only when it changed. The diagnostics
 log has a `timing` line per touch-down and lift (`late`: milliseconds from the touch to its
-handling; `ms`: the handling itself) to compare against the numbers above. **The key tap is
-being tuned too:** `Settings.keyTapStyle` (light, soft, rigid) and `keyTapStrength` (0.1 to 1),
-in Settings, Keyboard tuning, because "heavy" may be the `.light` impact at full strength and
-not time. Both are temporary: once the owner picks, they become constants in `KeyFeedback` and
-the settings, their rows and the `keyTapStrength*` tokens go.
+handling; `ms`: the handling itself) to compare against the numbers above. **The key tap is the light
+impact at 0.7** (`DS.Keyboard.keyTapStrength`, in `KeyFeedback`): the owner tried light, soft and
+rigid at strengths from 0.1 to 1 through two temporary settings and chose it by feel on
+2026-11-25, because "heavy" was partly the tap at full strength. The settings are gone. Do not
+change it without the owner.
+
+**Checked against Apple's custom keyboard guides** (2026-11-25: "Creating a custom keyboard",
+"Configuring a custom keyboard interface", and the Human Interface Guidelines page "Virtual
+keyboards"). Done as they say: the four `NSExtensionAttributes`, the required height constraint,
+the globe key only while `needsInputModeSwitchKey` and wired to `handleInputModeList` for all
+touch events, the input click, `UILexicon`, the proxy's traits (autocorrection, spell checking,
+capitals, smart quotes and dashes, the return key's job), the double-space period, caps lock, and
+setup and settings in the app, not in the keyboard. Fixed on that day: `hasDictationKey` is true,
+because the m is a dictation key and iOS otherwise shows its own microphone under the keyboard.
+The letters page's bottom row
+follows the field's keyboard type, as the stock keyboard's does (`KeyboardLayout.rows(for:showsGlobe:field:)`,
+`TypingEngine.setField`): an email field has the space bar, `@` and `.`; a web address field has
+`.`, `/` and `.com` and no space bar; a web search has the space bar and `.`; a number field opens
+on the number page. `.com` keeps its case under shift, darkens when pressed and has no pop-up.
+Unverified on a device. **Open gaps:** `enablesReturnKeyAutomatically` is not honoured (the
+return key should dim in an empty field that asks for it; `hasText` is not reliable in every
+host, and a wrong answer is a dead return key), and there is no `didReceiveMemoryWarning`
+handling (the word model is memory-mapped and Bark is deliberately kept, so there is little to
+release). The keyboard is iPhone only (`TARGETED_DEVICE_FAMILY = 1`),
+so iPad's floating and regular widths do not apply.
 
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
@@ -869,7 +931,8 @@ iPhone icon, which lives at `ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon.
 3. **Notarization.** The app is signed with a Developer ID but not notarized for
    distribution.
 4. **Automatic profiles.** The cleanup profile is chosen by hand, not from the focused app.
-5. **Letters on the iPhone keyboard.** It has the talk key and no letters.
+5. **The rest of the iPhone keyboard's plan** (`plans/001-keyboard-v2.md`): learning from the
+   owner's typing, edits to dictated text as training labels, and a transformer language model.
 
 ## Murmur streaming options and verification
 

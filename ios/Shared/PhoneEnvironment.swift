@@ -46,3 +46,32 @@ enum PhoneEnvironment {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) != nil
     }
 }
+
+/// Tuning, temporary: tells a keyboard that is already on screen that the app changed a value in
+/// Settings, Keyboard tuning, so the owner sees each step at once. A Darwin notification, as the
+/// run log uses: it crosses processes and carries nothing, and the keyboard then reads the shared
+/// defaults. It goes with the tuning card.
+@MainActor
+enum KeyboardTuningSignal {
+    private static let name = "ai.pivotstudio.murmur.keyboard-tuning-changed"
+    private static var handler: (() -> Void)?
+    private static var isObserving = false
+
+    static func post() {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name as CFString), nil, nil, true)
+    }
+
+    /// One handler per process: the newest keyboard controller's.
+    static func observe(_ handler: @escaping () -> Void) {
+        self.handler = handler
+        guard !isObserving else { return }
+        isObserving = true
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), nil,
+            { _, _, _, _, _ in
+                Task { @MainActor in KeyboardTuningSignal.handler?() }
+            },
+            name as CFString, nil, .deliverImmediately)
+    }
+}

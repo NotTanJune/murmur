@@ -3,9 +3,8 @@ import MurmurTyping
 import SwiftUI
 import UIKit
 
-/// The strip above the keys, 30 pt tall upright (`TypingController.stripHeight`). From the
-/// leading end: the history button (shown while no
-/// word is being typed), three suggestion cells, and the **m**, which is Murmur's dictation
+/// The strip above the keys, `TypingController.stripHeight` tall (44 pt less any top trim).
+/// From the leading end: the history button, three suggestion cells, and the **m**, which is Murmur's dictation
 /// button and grows into the recording capsule over the strip's trailing end.
 ///
 /// Taps here are infrequent next to the keys, so the strip is SwiftUI.

@@ -14,8 +14,8 @@ import MurmurKit
 /// for a touch-down, `began` / `ended` / `cancelled` from the plane, `insert` / `delete` from the
 /// typing effects, and `gesture` for a state change of a recognizer between the plane and its
 /// window. `swipe` is one swiped word (the word, its other readings, the decode
-/// milliseconds and the path in points to 0.1), `swipe-delete` a delete that took the whole word and
-/// `swipe-alt` a tap on one of its other readings. `t` is `systemUptime`, the clock `UITouch.timestamp` uses.
+/// milliseconds and the path in points to 0.1), `swipe-backspace` (in the swipe samples) the first
+/// delete after a swiped word, and `swipe-alt` a tap on one of its other readings. `t` is `systemUptime`, the clock `UITouch.timestamp` uses.
 enum TypingDiagnostics {
     static let defaultsKey = "typingDiagnosticsUntil"
     static let duration: TimeInterval = 600
@@ -165,7 +165,7 @@ enum TypingDiagnostics {
             guard let data = line.data(using: .utf8) else { return }
             let path = swipeSamplesURL
             let size = (try? FileManager.default.attributesOfItem(atPath: path.path)[.size] as? Int) ?? 0
-            guard (size ?? 0) < swipeSampleLimit else { return }
+            guard size < swipeSampleLimit else { return }
             if let handle = try? FileHandle(forWritingTo: path) {
                 defer { try? handle.close() }
                 _ = try? handle.seekToEnd()

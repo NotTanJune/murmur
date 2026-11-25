@@ -1,7 +1,7 @@
 import Foundation
 
-/// A swiped word the keyboard has typed and may still change: what was typed, how it can be
-/// taken back, and the other readings the strip offers in its place.
+/// A swiped word the keyboard has typed and may still change: what was typed and the other
+/// readings the strip offers in its place.
 ///
 /// A swipe types the word and **not** the space after it. That space is owed: the next swipe types
 /// it first (the text ends in a letter, so `SwipeInsertion.needsLeadingSpace` says so), a typed
@@ -10,8 +10,9 @@ import Foundation
 /// delete. This is `PendingSpace`'s idea turned around: that type holds a space already typed
 /// that a mark may take back, this one holds a space not yet typed that a letter may claim.
 ///
-/// The offer lives until anything else edits the text; the controller drops it on every key but a
-/// delete, and `isConsistent(with:)` drops it when the field no longer ends with the word.
+/// The offer lives until anything else edits the text: the controller drops it on every key, a
+/// delete included (a delete takes one character, as anywhere else), and `isConsistent(with:)`
+/// drops it when the field no longer ends with the word.
 public struct SwipeOffer: Equatable, Sendable {
     /// How many other readings the strip shows.
     public static let alternativeLimit = 3
@@ -21,15 +22,12 @@ public struct SwipeOffer: Equatable, Sendable {
     public let readings: [String]
     /// Which reading is typed now.
     public let index: Int
-    /// The swipe typed a space before the word, which a delete takes back with it.
-    public let leadingSpace: Bool
 
     /// - Precondition: `readings` is not empty.
-    public init(readings: [String], index: Int = 0, leadingSpace: Bool) {
+    public init(readings: [String], index: Int = 0) {
         precondition(!readings.isEmpty && readings.indices.contains(index))
         self.readings = readings
         self.index = index
-        self.leadingSpace = leadingSpace
     }
 
     /// The word in the field.
@@ -40,11 +38,7 @@ public struct SwipeOffer: Equatable, Sendable {
         readings.enumerated().filter { $0.offset != index }.map(\.element).prefix(Self.alternativeLimit).map { $0 }
     }
 
-    /// How many characters (as `deleteBackward` counts them) take the word, and the space the
-    /// swipe typed before it, out of the field.
-    public var deleteCount: Int { word.count + (leadingSpace ? 1 : 0) }
-
-    /// Whether the field still ends with the word, so a delete or a swap may act on it.
+    /// Whether the field still ends with the word, so a swap may act on it.
     public func isConsistent(with textBefore: String) -> Bool {
         textBefore.hasSuffix(word)
     }
@@ -54,7 +48,7 @@ public struct SwipeOffer: Equatable, Sendable {
     /// alternative.
     public func choosing(_ text: String) -> SwipeOffer? {
         guard let next = readings.firstIndex(of: text), next != index else { return nil }
-        return SwipeOffer(readings: readings, index: next, leadingSpace: leadingSpace)
+        return SwipeOffer(readings: readings, index: next)
     }
 }
 

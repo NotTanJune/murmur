@@ -5,6 +5,8 @@ import SwiftUI
 /// The fourth tab: cleanup, appearance, and the way into the model, training and licence pages.
 struct SettingsView: View {
     @State private var settings = Settings.shared
+    /// Tuning, temporary: text typed into the tuning card's field. It is not kept.
+    @State private var tuningPreview = ""
 
     var body: some View {
         NavigationStack {
@@ -64,6 +66,10 @@ struct SettingsView: View {
                 }
 
                 Card(title: "Keyboard tuning") {
+                    // Keeps the keyboard up beside the stepper, so each step shows as it is made.
+                    TextField("Tap here to show the keyboard", text: $tuningPreview)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Color.ink)
                     Stepper(
                         value: $settings.keyboardTopTrim,
                         in: 0...DS.Keyboard.stripTopTrimLimit,
@@ -73,20 +79,7 @@ struct SettingsView: View {
                             .font(DS.Font.bodyEmphasis)
                             .foregroundStyle(DS.Color.ink)
                     }
-                    ChoiceKeys(
-                        options: KeyTapStyle.allCases,
-                        selection: $settings.keyTapStyle,
-                        title: \.displayName
-                    )
-                    Stepper(
-                        value: $settings.keyTapStrength,
-                        in: DS.Keyboard.keyTapStrengthMinimum...1,
-                        step: DS.Keyboard.keyTapStrengthStep
-                    ) {
-                        Text("Key tap: \(settings.keyTapStrength.formatted(.number.precision(.fractionLength(1))))")
-                            .font(DS.Font.bodyEmphasis)
-                            .foregroundStyle(DS.Color.ink)
-                    }
+                    .onChange(of: settings.keyboardTopTrim) { KeyboardTuningSignal.post() }
                 }
 
                 Card(title: "Appearance") {

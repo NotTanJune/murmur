@@ -279,6 +279,23 @@ import Testing
         #expect(TypingEngine.trackpadGain(speed: 5000) == 2.6)
     }
 
+    @Test("A web address field's .com key types .com, with shift on too, and the row follows the field")
+    func addressField() {
+        var engine = makeEngine()
+        #expect(engine.frames.contains { $0.kind == .space })
+        engine.setField(.url)
+        #expect(!engine.frames.contains { $0.kind == .space })
+        let com = center(letter(".com"), in: engine)
+        _ = down(&engine, com, 0)
+        #expect(inserts(up(&engine, com, 0.05)) == [".com"])
+        engine.setShift(.on)
+        _ = down(&engine, 2, com, 1)
+        #expect(inserts(up(&engine, 2, com, 1.05)) == [".com"])
+        engine.setField(.default)
+        #expect(engine.frames.contains { $0.kind == .space })
+        #expect(!engine.frames.contains { $0.kind == letter(".com") })
+    }
+
     @Test("Shift: a tap turns one capital on, typing it turns shift off again")
     func shiftOneCapital() {
         var engine = makeEngine()

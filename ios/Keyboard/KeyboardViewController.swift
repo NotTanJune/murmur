@@ -113,6 +113,24 @@ final class KeyboardViewController: UIInputViewController {
             planeHeight,
         ])
         typing.attach(plane)
+        // Our own dictation is the m, so iOS need not add its microphone key under the keyboard
+        // (Apple, "Configuring a custom keyboard interface": two dictation buttons confuse).
+        hasDictationKey = true
+        // The app's Keyboard tuning card changes the strip's trim while this keyboard is up.
+        KeyboardTuningSignal.observe { [weak self] in self?.tuningChanged() }
+    }
+
+    /// The app changed a tuning value: read it and lay out again, so the change shows on a
+    /// keyboard that is already up. The other process's write can reach this one's defaults a
+    /// moment after its notification does, so the values are read once more shortly after.
+    private func tuningChanged() {
+        Settings.shared.reloadFromDefaults()
+        view.setNeedsLayout()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            Settings.shared.reloadFromDefaults()
+            self?.view.setNeedsLayout()
+        }
     }
 
     /// The key page's height follows the width and the orientation, so it is set at each layout.
@@ -129,6 +147,7 @@ final class KeyboardViewController: UIInputViewController {
         var isLandscape: Bool
         var showsGlobe: Bool
         var topTrim: Double
+        var displayScale: CGFloat
     }
 
     private var lastLayout: LayoutKey?
@@ -148,11 +167,12 @@ final class KeyboardViewController: UIInputViewController {
         // when something it depends on changed.
         let geometry = LayoutKey(
             width: view.bounds.width, isLandscape: landscape, showsGlobe: needsInputModeSwitchKey,
-            topTrim: Settings.shared.keyboardTopTrim)
+            topTrim: Settings.shared.keyboardTopTrim, displayScale: traitCollection.displayScale)
         if geometry != lastLayout {
             lastLayout = geometry
             typing.setLayout(
-                width: geometry.width, isLandscape: landscape, showsGlobe: geometry.showsGlobe)
+                width: geometry.width, isLandscape: landscape, showsGlobe: geometry.showsGlobe,
+                displayScale: geometry.displayScale)
             // The window's recognizers can appear after the first appearance; each new one is relaxed.
             relaxTouchDelays()
         }

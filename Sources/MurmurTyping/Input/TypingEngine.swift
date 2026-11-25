@@ -139,6 +139,8 @@ public struct TypingEngine: Sendable {
 
     private var metrics: KeyboardMetrics
     private var showsGlobe: Bool
+    /// The kind of field being typed into, which decides the letters page's bottom row.
+    private var field: FieldKeyboardKind = .default
     private var touches: [Int: Touch] = [:]
     /// The touch-down time of the last shift tap that turned shift on, for the double tap.
     private var lastShiftTapDown: TimeInterval?
@@ -162,6 +164,14 @@ public struct TypingEngine: Sendable {
     public mutating func setLayout(metrics: KeyboardMetrics, showsGlobe: Bool) {
         self.metrics = metrics
         self.showsGlobe = showsGlobe
+        recomputeFrames()
+    }
+
+    /// The field changed kind (an email address, a web address): the letters page's bottom row
+    /// follows it. Touches already down look keys up again at their next event.
+    public mutating func setField(_ field: FieldKeyboardKind) {
+        guard field != self.field else { return }
+        self.field = field
         recomputeFrames()
     }
 
@@ -293,7 +303,7 @@ public struct TypingEngine: Sendable {
     }
 
     private mutating func recomputeFrames() {
-        frames = metrics.frames(for: KeyboardLayout.rows(for: page, showsGlobe: showsGlobe))
+        frames = metrics.frames(for: KeyboardLayout.rows(for: page, showsGlobe: showsGlobe, field: field))
         if page == .letters { letterPitch = Self.pitch(of: frames) }
     }
 
@@ -737,8 +747,10 @@ public struct TypingEngine: Sendable {
 
     /// "ß" has no one-letter uppercase in `uppercased()` (it becomes "SS"); the capital sharp s
     /// is the right capital for a key that types one letter.
+    /// A key that types more than one character (".com") is not a letter and keeps its case.
     private static func capitalised(_ text: String) -> String {
-        text == "ß" ? "\u{1E9E}" : text.uppercased()
+        guard text.count == 1 else { return text }
+        return text == "ß" ? "\u{1E9E}" : text.uppercased()
     }
 
     // MARK: - Shift

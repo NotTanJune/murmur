@@ -53,12 +53,11 @@ import Testing
         #expect(SwipeInsertion.previousWord(before: "Hello.") == nil)
     }
 
-    @Test("An offer lists the other readings, deletes the word and its space, and survives a swap")
+    @Test("An offer lists the other readings and survives a swap")
     func offer() {
-        let offer = SwipeOffer(readings: ["hello", "jello", "hells", "hallo", "hullo"], leadingSpace: true)
+        let offer = SwipeOffer(readings: ["hello", "jello", "hells", "hallo", "hullo"])
         #expect(offer.word == "hello")
         #expect(offer.alternatives == ["jello", "hells", "hallo"])
-        #expect(offer.deleteCount == 6)
         #expect(offer.isConsistent(with: "say hello"))
         #expect(!offer.isConsistent(with: "say hello "))
         #expect(!offer.isConsistent(with: "say hell"))
@@ -66,18 +65,16 @@ import Testing
         let swapped = offer.choosing("hells")
         #expect(swapped?.word == "hells")
         #expect(swapped?.alternatives == ["hello", "jello", "hallo"], "the word that was typed is offered back")
-        #expect(swapped?.leadingSpace == true)
         #expect(offer.choosing("hello") == nil)
         #expect(offer.choosing("nothing") == nil)
 
-        #expect(SwipeOffer(readings: ["hello"], leadingSpace: false).deleteCount == 5)
-        #expect(SwipeOffer(readings: ["hello"], leadingSpace: false).alternatives.isEmpty)
+        #expect(SwipeOffer(readings: ["hello"]).alternatives.isEmpty)
     }
 
     @Test("The strip puts the best other reading in the centre and the runner-up on the left")
     func stripCells() {
         func cells(_ readings: [String]) -> [String] {
-            SwipeInsertion.stripCells(for: SwipeOffer(readings: readings, leadingSpace: false)).map(\.text)
+            SwipeInsertion.stripCells(for: SwipeOffer(readings: readings)).map(\.text)
         }
         #expect(cells(["a", "b", "c", "d"]) == ["c", "b", "d"])
         #expect(cells(["a", "b", "c"]) == ["c", "b"])

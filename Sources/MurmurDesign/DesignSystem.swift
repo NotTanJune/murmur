@@ -306,14 +306,15 @@ public enum DS {
         public static let stripHeight: CGFloat = 44
         public static let stripHeightLandscape: CGFloat = 44
         /// Tuning, temporary (Settings, Keyboard tuning): how far the owner may trim the top of
-        /// the strip, and in what steps. The strip's contents keep their place above the keys;
-        /// past `(stripHeight - mCircleDiameter) / 2` they stand out above the keyboard's own
-        /// view, which shows whether iOS clips there.
-        public static let stripTopTrimLimit: Double = 12
+        /// the strip, and in what steps. The limit is the space the strip has above the m,
+        /// `(stripHeight - mCircleDiameter) / 2` (4 pt): the strip's contents keep their place
+        /// above the keys, so a larger trim would push the m out of the keyboard's own view,
+        /// where nothing is drawn and no touch arrives. The 16 pt above that belong to iOS.
+        public static let stripTopTrimLimit = Double((stripHeight - mCircleDiameter) / 2)
         public static let stripTopTrimStep: Double = 0.5
-        /// Tuning, temporary: the range and step of the key tap's strength.
-        public static let keyTapStrengthMinimum: Double = 0.1
-        public static let keyTapStrengthStep: Double = 0.1
+        /// A key press's haptic tap: the light impact at this strength, the owner's choice by
+        /// feel on 2026-11-25 (full strength read as heavy).
+        public static let keyTapStrength: CGFloat = 0.7
         /// Between the strip and the first row: 8 pt upright, 6 pt turned.
         public static let stripGap: CGFloat = 8
         /// While a burst of typing is under way, a touch this far up into the suggestion strip
@@ -363,9 +364,9 @@ public enum DS {
         /// most this often. A decode costs well under a millisecond on a Mac, but the finger
         /// moves 60 to 120 times a second and a reading that changes every frame only flickers.
         public static let swipeLiveDecodeSeconds: Double = 0.07
-        /// How much of the swipe's path the trail keeps drawing: the last stretch of it, so it
-        /// follows the finger and thins out behind it instead of drawing the whole word.
-        public static let swipeTrailSeconds: Double = 0.55
+        /// How long a point of the swipe's path stays in the trail. The trail is the last stretch
+        /// of the path, so it follows the finger and thins out behind it.
+        public static let swipeTrailSeconds: Double = 0.6
         /// The trail's width at the finger. It tapers to nothing at its tail, as the stock
         /// keyboard's and Gboard's do (the owner's screen recordings, 2026-11-25): the first
         /// version was one even 8 pt line cut off at its end, which read as rigid.
@@ -375,19 +376,18 @@ public enum DS {
         public static let swipeTrailWidthThin: CGFloat = 6
         public static let swipeTrailWidthThick: CGFloat = 15
         public static let swipeTrailWidthBold: CGFloat = 19
-        /// How the width falls off from the finger to the tail: the share of the trail's span
-        /// still to run, raised to this power. Under 1 keeps the body full for longer.
-        public static let swipeTrailTaper: Double = 0.8
-        /// The soft edge around the trail, as a blur radius.
-        public static let swipeTrailBlur: CGFloat = 2.5
+        /// How fast the trail relaxes behind the finger (`SwipeTrail.Configuration.relaxRate`):
+        /// higher rounds corners off sooner.
+        public static let swipeTrailRelaxRate: Double = 16
         /// How long the trail takes to fade once the finger lifts.
-        public static let swipeTrailFadeSeconds: Double = 0.22
+        public static let swipeTrailFadeSeconds: Double = 0.3
         /// Points of the path closer together than this are merged before the trail is drawn.
-        public static let swipeTrailMinimumStep: CGFloat = 0.75
-        /// How many straight pieces draw the rounded end at the finger.
-        public static let swipeTrailCapSegments = 8
-        /// The trail's strength as a share of the label colour.
-        public static let swipeTrailOpacity: CGFloat = 0.35
+        public static let swipeTrailMinimumStep: CGFloat = 1.5
+        /// The strength of one of the trail's layers as a share of the label colour. The layers
+        /// (`SwipeTrail.layers`, four) lie over each other, so the middle of the trail is about
+        /// 0.2 and its edge 0.055. The second version was 0.35 with a glow of the same colour
+        /// around it, which the owner called shiny (2026-11-25).
+        public static let swipeTrailLayerOpacity: CGFloat = 0.055
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
         /// the key page (iOS ignores a keyboard that grows after it first appears), and the grid
         /// divides what is left after the section title and the category bar.
@@ -591,8 +591,9 @@ public enum DS {
         public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
         /// The key plane's glyphs.
         public static let keyLabelUIColor = UIColor.label
-        /// The swipe trail: the label colour at `swipeTrailOpacity`, so it reads on light and dark keys.
-        public static let swipeTrailUIColor = UIColor.label.withAlphaComponent(swipeTrailOpacity)
+        /// One layer of the swipe trail: the label colour at `swipeTrailLayerOpacity`, so it reads
+        /// on light and dark keys.
+        public static let swipeTrailUIColor = UIColor.label.withAlphaComponent(swipeTrailLayerOpacity)
         /// The pop-up over a pressed key: the key's own colour in light, a little lighter than a
         /// key in dark so it reads as lifted. The accent row's chosen cell is the system blue.
         public static let popupUIFill = UIColor {

@@ -21,6 +21,9 @@ public enum HitTester {
     ) -> KeyFrame? {
         guard let base = baseKey(at: point, frames: frames) else { return nil }
         guard let letter = base.kind.characterValue, !bias.isEmpty else { return base }
+        // A mark beside the space bar (an email field's "@", a web search's ".") is not a letter
+        // the bias knows, so every letter would count as likelier: it keeps its own key.
+        guard letter.count == 1, letter.first?.isLetter == true else { return base }
         let own = bias[letter] ?? 0
 
         // Of the likelier letters close enough to claim the point, the likeliest wins.

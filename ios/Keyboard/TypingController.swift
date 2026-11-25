@@ -9,12 +9,19 @@ extension MetricsConstants {
     /// The stock keyboard's measurements for one orientation, filled from the design tokens.
     /// `MurmurTyping` cannot import `MurmurDesign`, so the iPhone target does it here.
     ///
-    /// The strip is shorter by Settings' temporary top trim (`Settings.keyboardTopTrim`).
+    /// The strip is shorter by Settings' temporary top trim (`Settings.keyboardTopTrim`), never
+    /// by more than the space above the m (`DS.Keyboard.stripTopTrimLimit`). Its height is a
+    /// whole number of pixels at `displayScale`: half a point is a pixel and a half on a 3x
+    /// screen, and a height between pixels is rounded differently by each layer that lays the
+    /// keyboard out (SwiftUI, Auto Layout, the system's own sizing), which moved the strip and
+    /// the keys by different amounts.
     @MainActor
-    static func keyboard(isLandscape: Bool) -> MetricsConstants {
+    static func keyboard(isLandscape: Bool, displayScale: CGFloat) -> MetricsConstants {
         let trim = CGFloat(min(max(Settings.shared.keyboardTopTrim, 0), DS.Keyboard.stripTopTrimLimit))
+        let scale = max(displayScale, 1)
+        let full = isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight
         return MetricsConstants(
-            stripHeight: (isLandscape ? DS.Keyboard.stripHeightLandscape : DS.Keyboard.stripHeight) - trim,
+            stripHeight: ((full - trim) * scale).rounded() / scale,
             stripGap: isLandscape ? DS.Keyboard.stripGapLandscape : DS.Keyboard.stripGap,
             keycapHeight: isLandscape ? DS.Keyboard.keycapHeightLandscape : DS.Keyboard.keycapHeight,
             rowGap: isLandscape ? DS.Keyboard.rowGapLandscape : DS.Keyboard.rowGap,
@@ -71,6 +78,9 @@ final class TypingController {
 
     /// The strip's height at the current orientation. The strip is SwiftUI and reads it.
     private(set) var stripHeight = DS.Keyboard.stripHeight
+    /// The height of the key plane, for the SwiftUI layer, which keeps that much clear under the
+    /// strip. Observed, unlike `planeHeight`, which the view controller reads at each layout.
+    private(set) var planeSpace: CGFloat = 0
 
     /// The word autocorrect replaced, while its undo offer shows: the strip's left suggestion
     /// cell is the undo chip with this word. Nil when no offer is live.
@@ -191,9 +201,10 @@ final class TypingController {
         // Portrait at the reference width until the first layout says otherwise.
         let initial = KeyboardMetrics(
             width: DS.Keyboard.referenceWidth, isLandscape: false,
-            constants: .keyboard(isLandscape: false))
+            constants: .keyboard(isLandscape: false, displayScale: UITraitCollection.current.displayScale))
         metrics = initial
         engine = TypingEngine(metrics: initial)
+        planeSpace = initial.height - initial.constants.stripHeight
         lettersFrames = initial.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false))
     }
 
@@ -207,16 +218,17 @@ final class TypingController {
     static var initialHeight: CGFloat {
         KeyboardMetrics(
             width: DS.Keyboard.referenceWidth, isLandscape: false,
-            constants: .keyboard(isLandscape: false)
+            constants: .keyboard(isLandscape: false, displayScale: UITraitCollection.current.displayScale)
         ).height
     }
 
     /// Called at each layout. The strip and the keys change size with the width, and the globe
     /// key appears or goes with the user's keyboard list.
-    func setLayout(width: CGFloat, isLandscape: Bool, showsGlobe: Bool) {
+    func setLayout(width: CGFloat, isLandscape: Bool, showsGlobe: Bool, displayScale: CGFloat) {
         guard width > 0 else { return }
         let next = KeyboardMetrics(
-            width: width, isLandscape: isLandscape, constants: .keyboard(isLandscape: isLandscape))
+            width: width, isLandscape: isLandscape,
+            constants: .keyboard(isLandscape: isLandscape, displayScale: displayScale))
         let framesBefore = engine.frames
         metrics = next
         self.showsGlobe = showsGlobe
@@ -227,6 +239,7 @@ final class TypingController {
             stripHeight = next.constants.stripHeight
             stateIsDirty = true
         }
+        if planeSpace != planeHeight { planeSpace = planeHeight }
         flushState()
     }
 
@@ -410,6 +423,8 @@ final class TypingController {
         if next != traits || prominent != returnIsProminent {
             traits = next
             returnIsProminent = prominent
+            // An email or web address field has its own bottom row on the letters page.
+            engine.setField(next.keyboardKind)
             stateIsDirty = true
         }
     }
@@ -556,9 +571,11 @@ final class TypingController {
                 // The one delete that follows a replacement keeps its offer (and shows it);
                 // anything else ends it. The taps of the word lose the letters deleted.
                 TypingDiagnostics.log("delete", ["count": count])
-                if let offer = swipeOffer, deleteSwipedWord(offer, count: count) {
-                    textChanged = true
-                    continue
+                // A delete after a swipe takes one character, like any other delete: the owner
+                // asked for that over deleting the whole word (2026-11-25). It ends the offer.
+                if let offer = swipeOffer {
+                    swipeOffer = nil
+                    TypingDiagnostics.logSwipeSample(["e": "swipe-backspace", "word": offer.word])
                 }
                 undo = undo?.afterDelete(count: count)
                 tracker.dropLast(count)
@@ -1314,7 +1331,7 @@ final class TypingController {
             "shift": String(describing: shift), "sentenceStart": capital, "before": before.count,
         ])
         proxy.insertText((needsSpace ? " " : "") + readings[0])
-        swipeOffer = SwipeOffer(readings: readings, leadingSpace: needsSpace)
+        swipeOffer = SwipeOffer(readings: readings)
         undo = nil
         pending.disarm()
         lastSpaceTime = nil
@@ -1324,23 +1341,6 @@ final class TypingController {
             stateIsDirty = true
         }
         logSwipe(readings: readings, milliseconds: milliseconds, path: path)
-        return true
-    }
-
-    /// A delete right after a swipe takes the whole swiped word, and the space the swipe typed
-    /// before it. Only the first delete of a press does (a repeat deletes by the usual rules), and
-    /// only while the field still ends with the word. False when it did not act.
-    private func deleteSwipedWord(_ offer: SwipeOffer, count: Int) -> Bool {
-        swipeOffer = nil
-        guard count == 1, let proxy = proxy(), offer.isConsistent(with: proxy.documentContextBeforeInput ?? "")
-        else { return false }
-        TypingDiagnostics.log("swipe-delete", ["word": offer.word, "count": offer.deleteCount])
-        TypingDiagnostics.logSwipeSample(["e": "swipe-delete"].merging(["word": offer.word, "count": offer.deleteCount]) { a, _ in a })
-        undo = nil
-        tracker.reset()
-        pending.disarm()
-        lastSpaceTime = nil
-        for _ in 0..<offer.deleteCount { proxy.deleteBackward() }
         return true
     }
 

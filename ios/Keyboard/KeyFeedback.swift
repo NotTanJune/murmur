@@ -1,3 +1,4 @@
+import MurmurDesign
 import MurmurKit
 import UIKit
 
@@ -11,25 +12,20 @@ import UIKit
 /// Keyboard Clicks setting on its own. A keyboard extension plays haptics only with Full Access.
 @MainActor
 enum KeyFeedback {
-    /// One generator per style the owner can pick while the key tap is being tuned (Settings,
-    /// Keyboard tuning). Once chosen, one generator and one strength stay.
-    private static var taps: [KeyTapStyle: UIImpactFeedbackGenerator] = [:]
+    /// The light impact at `DS.Keyboard.keyTapStrength` (0.7): the owner chose both by feel on
+    /// 2026-11-25, after full strength made typing feel heavy.
+    private static var tap: UIImpactFeedbackGenerator?
 
     /// Called once by the view controller, with its root view.
     static func attach(to view: UIView) {
-        taps = [
-            .light: UIImpactFeedbackGenerator(style: .light, view: view),
-            .soft: UIImpactFeedbackGenerator(style: .soft, view: view),
-            .rigid: UIImpactFeedbackGenerator(style: .rigid, view: view),
-        ]
-        taps[Settings.shared.keyTapStyle]?.prepare()
+        tap = UIImpactFeedbackGenerator(style: .light, view: view)
+        tap?.prepare()
     }
 
     static func press() {
         UIDevice.current.playInputClick()
-        let settings = Settings.shared
-        guard settings.hapticsEnabled, let tap = taps[settings.keyTapStyle] else { return }
-        tap.impactOccurred(intensity: CGFloat(min(max(settings.keyTapStrength, 0.1), 1)))
+        guard Settings.shared.hapticsEnabled, let tap else { return }
+        tap.impactOccurred(intensity: DS.Keyboard.keyTapStrength)
         // Keeps the Taptic Engine ready for the next key, so fast typing gets no late taps.
         tap.prepare()
     }

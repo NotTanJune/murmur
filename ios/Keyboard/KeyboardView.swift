@@ -56,17 +56,21 @@ struct KeyboardView: View {
         typing.setPlaneVisible(next == .keys)
     }
 
-    /// The strip, then clear space as tall as the plane (the rest of the keyboard's height),
-    /// which the view controller lays the plane over. The plane draws its own side inset, so there is no padding here: the 6 pt padding
-    /// belongs to the emoji and history panels only.
+    /// The strip directly above clear space exactly as tall as the plane, which the view
+    /// controller lays the plane over. Both are placed from the keyboard's bottom edge, as the
+    /// plane is, so the strip always sits against the keys: whatever height iOS gives the
+    /// keyboard (it can lag behind a change, or round it), a difference shows only as space above
+    /// the strip and never as a gap or an overlap between the strip and the first row. The plane
+    /// draws its own side inset, so there is no padding here: the 6 pt padding belongs to the
+    /// emoji and history panels only.
     private var keys: some View {
         VStack(spacing: 0) {
             SuggestionStrip(
                 dictation: dictation, typing: typing, actions: actions,
                 showHistory: { show(.history) })
-            Color.clear.frame(maxHeight: .infinity)
+            Color.clear.frame(height: typing.planeSpace)
         }
-        // The strip is placed from the keyboard's top, as `KeyboardMetrics` places it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea()
     }
 }

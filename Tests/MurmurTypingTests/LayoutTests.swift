@@ -205,6 +205,64 @@ import Testing
         }
     }
 
+    @Test("An email field adds @ and . beside a narrower space bar; the other pages do not change")
+    func emailRow() throws {
+        let rows = KeyboardLayout.rows(for: .letters, showsGlobe: false, field: .email)
+        #expect(rows[3] == [.pageSwitch(.numbers), .emoji, .space, letter("@"), letter("."), .return])
+        #expect(Array(rows[0..<3]) == Array(KeyboardLayout.rows(for: .letters, showsGlobe: false)[0..<3]))
+        #expect(KeyboardLayout.rows(for: .numbers, showsGlobe: false, field: .email)
+            == KeyboardLayout.rows(for: .numbers, showsGlobe: false))
+        let all = metrics.frames(for: rows)
+        let space = try frame(.space, in: all)
+        let at = try frame(letter("@"), in: all)
+        let dot = try frame(letter("."), in: all)
+        let ret = try frame(.return, in: all)
+        #expect(at.keycap.width == 42 && dot.keycap.width == 42 && ret.keycap.width == 91)
+        #expect(abs(space.keycap.maxX + 6 - at.keycap.minX) < 0.001)
+        #expect(abs(at.keycap.maxX + 6 - dot.keycap.minX) < 0.001)
+        #expect(abs(dot.keycap.maxX + 6 - ret.keycap.minX) < 0.001)
+        #expect(abs(ret.keycap.maxX - (width - 6)) < 0.001)
+        let plain = try frame(.space, in: frames())
+        #expect(abs(plain.keycap.width - space.keycap.width - 96) < 0.001)
+        #expect(dot.hitRect.maxY == metrics.height)
+    }
+
+    @Test("A web address field has . / .com and no space bar; a web search has a space bar and .")
+    func addressRows() throws {
+        let rows = KeyboardLayout.rows(for: .letters, showsGlobe: true, field: .url)
+        #expect(rows[3] == [.pageSwitch(.numbers), .globe, .emoji, letter("."), letter("/"), letter(".com"), .return])
+        let all = metrics.frames(for: rows)
+        let dot = try frame(letter("."), in: all)
+        let slash = try frame(letter("/"), in: all)
+        let com = try frame(letter(".com"), in: all)
+        let emoji = try frame(.emoji, in: all)
+        let ret = try frame(.return, in: all)
+        #expect(abs(dot.keycap.width - slash.keycap.width) < 0.001)
+        #expect(abs(slash.keycap.width - com.keycap.width) < 0.001)
+        #expect(abs(emoji.keycap.maxX + 6 - dot.keycap.minX) < 0.001)
+        #expect(abs(com.keycap.maxX + 6 - ret.keycap.minX) < 0.001)
+        #expect(abs(ret.keycap.maxX - (width - 6)) < 0.001)
+        // Every point of the bottom row still hits exactly one key.
+        let y = ret.keycap.midY
+        for x in stride(from: CGFloat(0.5), to: width, by: 1) {
+            #expect(all.filter { $0.hitRect.contains(CGPoint(x: x, y: y)) }.count == 1)
+        }
+        #expect(KeyboardLayout.rows(for: .letters, showsGlobe: false, field: .webSearch)[3]
+            == [.pageSwitch(.numbers), .emoji, .space, letter("."), .return])
+        for field in [FieldKeyboardKind.default, .number, .phone] {
+            #expect(KeyboardLayout.rows(for: .letters, showsGlobe: false, field: field)
+                == KeyboardLayout.rows(for: .letters, showsGlobe: false))
+        }
+    }
+
+    @Test("A mark beside the space bar is never given to a likelier letter above it")
+    func marksKeepTheirKey() throws {
+        let all = metrics.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false, field: .email))
+        let at = try frame(letter("@"), in: all)
+        let point = CGPoint(x: at.keycap.midX, y: at.hitRect.minY + 0.5)
+        #expect(HitTester.key(at: point, frames: all, bias: ["n": 6, "m": 6, "b": 6])?.kind == letter("@"))
+    }
+
     @Test("The space bar's hit rect reaches 2.5 pt up into the row above and wins there")
     func spaceReachesUp() throws {
         let all = frames()
