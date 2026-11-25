@@ -231,6 +231,12 @@ public final class Settings {
         didSet { persist(hapticsEnabled, Keys.hapticsEnabled) }
     }
 
+    /// The iPhone keyboard's swipe typing: a finger dragged across the letters types a word.
+    /// Off, or with VoiceOver on, the keys only tap. The Mac ignores it.
+    public var swipeTyping: Bool {
+        didSet { persist(swipeTyping, Keys.swipeTyping) }
+    }
+
     /// When Parakeet and Bark transcribe: as windows fill during the hold, or on release.
     public var transcribeTiming: TranscribeTiming {
         didSet { persist(transcribeTiming.rawValue, Keys.transcribeTiming) }
@@ -255,6 +261,7 @@ public final class Settings {
         static let cleanupEnabled = "cleanupEnabled"
         static let soundEnabled = "soundEnabled"
         static let hapticsEnabled = "hapticsEnabled"
+        static let swipeTyping = "swipeTyping"
         static let engine = "engine"
         /// Legacy: the old on/off for Apple Intelligence cleanup. Read once to migrate.
         static let smartCleanup = "smartCleanup"
@@ -281,6 +288,7 @@ public final class Settings {
         let compareMode: Bool
         let soundEnabled: Bool
         let hapticsEnabled: Bool
+        let swipeTyping: Bool
         let appearance: AppearanceChoice
         let alwaysOpenMic: Bool
         let keepSystemInput: Bool
@@ -302,6 +310,7 @@ public final class Settings {
             compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
             soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
             hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
+            swipeTyping = defaults.object(forKey: Keys.swipeTyping) as? Bool ?? true
             appearance = AppearanceChoice(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
             alwaysOpenMic = defaults.object(forKey: Keys.alwaysOpenMic) as? Bool ?? true
             keepSystemInput = defaults.object(forKey: Keys.keepSystemInput) as? Bool ?? true
@@ -333,6 +342,7 @@ public final class Settings {
         compareMode = values.compareMode
         soundEnabled = values.soundEnabled
         hapticsEnabled = values.hapticsEnabled
+        swipeTyping = values.swipeTyping
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput
@@ -359,6 +369,7 @@ public final class Settings {
         compareMode = values.compareMode
         soundEnabled = values.soundEnabled
         hapticsEnabled = values.hapticsEnabled
+        swipeTyping = values.swipeTyping
         appearance = values.appearance
         alwaysOpenMic = values.alwaysOpenMic
         keepSystemInput = values.keepSystemInput

@@ -37,7 +37,7 @@ struct SettingsReloadTests {
 
         // Keys nobody wrote stay unwritten: the reload assigns without persisting.
         for key in ["soundEnabled", "alwaysOpenMic", "keepSystemInput", "idleUnload", "compareMode",
-                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled"] {
+                    "barkDecoder", "cleanupProfile", "pushToTalkKey", "hapticsEnabled", "swipeTyping"] {
             #expect(defaults.object(forKey: key) == nil, "\(key) was written back")
         }
         // The values written from outside are still what they were.
@@ -90,5 +90,34 @@ struct SettingsReloadTests {
         settings.reloadFromDefaults()
         #expect(settings.hapticsEnabled, "a removed key falls back to on")
         #expect(defaults.object(forKey: "hapticsEnabled") == nil, "the reload does not write back")
+    }
+
+    @MainActor
+    @Test("Swipe typing defaults on, persists, and reloads from another process's write")
+    func swipeTypingPersistsAndReloads() throws {
+        let name = "murmur-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let settings = Settings(defaults: defaults)
+        #expect(settings.swipeTyping)
+        #expect(defaults.object(forKey: "swipeTyping") == nil, "the default is not written")
+
+        settings.swipeTyping = false
+        #expect(defaults.object(forKey: "swipeTyping") as? Bool == false)
+        #expect(Settings(defaults: defaults).swipeTyping == false, "a new instance reads the stored value")
+
+        // The app turns it back on while the keyboard's instance holds the old value.
+        defaults.set(true, forKey: "swipeTyping")
+        #expect(settings.swipeTyping == false)
+        settings.reloadFromDefaults()
+        #expect(settings.swipeTyping)
+
+        defaults.set(false, forKey: "swipeTyping")
+        settings.reloadFromDefaults()
+        #expect(settings.swipeTyping == false)
+        defaults.removeObject(forKey: "swipeTyping")
+        settings.reloadFromDefaults()
+        #expect(settings.swipeTyping, "a removed key falls back to on")
+        #expect(defaults.object(forKey: "swipeTyping") == nil, "the reload does not write back")
     }
 }

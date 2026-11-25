@@ -72,6 +72,10 @@ final class TypingController {
     /// cell is the undo chip with this word. Nil when no offer is live.
     private(set) var undoChip: String?
 
+    /// The best reading of the swipe in progress, for the strip's centre cell. Nil when no swipe is
+    /// under way or the decoder has no reading yet. While it is set the strip shows only this.
+    private(set) var swipePreview: String?
+
     /// What a tap on the key plane's emoji key does. Set by the keyboard view, which owns the
     /// panels.
     @ObservationIgnored var onShowEmoji: () -> Void = {}
@@ -136,6 +140,30 @@ final class TypingController {
     /// Counts strip refreshes, read on both queues, so a superseded result is dropped.
     @ObservationIgnored private let suggestionGeneration = OSAllocatedUnfairLock(initialState: 0)
     @ObservationIgnored private var biasTask: Task<Void, Never>?
+
+    // Swipe typing (Milestone 6). The logic is in `MurmurTyping` (`SwipeDecoder`, `SwipeInsertion`);
+    // this is the state it needs.
+    /// The decoder for the letters page's frames. Nil until the word model has loaded.
+    @ObservationIgnored private var swipeDecoder: SwipeDecoder?
+    /// The swiped word that is still the last thing typed, with the other readings the strip
+    /// offers. Dropped by anything else that edits the text.
+    @ObservationIgnored private var swipeOffer: SwipeOffer?
+    /// What the live decode needs from the text, read once when the swipe starts: the text cannot
+    /// change under a swipe (a second finger ends it), and the proxy is a round trip.
+    @ObservationIgnored private var swipeLive: SwipeLive?
+    /// Live decodes run here, off the main thread, and their results are dropped when a newer
+    /// request or the end of the swipe has superseded them (`swipeLiveGeneration`).
+    @ObservationIgnored private let swipeQueue = DispatchQueue(
+        label: "ai.pivotstudio.murmur.swipe", qos: .userInitiated)
+    @ObservationIgnored private var swipeLiveGeneration = 0
+    @ObservationIgnored private var lastLiveDecode: TimeInterval = 0
+
+    private struct SwipeLive {
+        var previous: Int?
+        var sentenceCapital: Bool
+        var lexicon: UserLexicon
+    }
+
     /// The Murmur dictionary revision the lexicon was built from, and the words the system's
     /// supplementary lexicon (contacts, text replacements) brought.
     @ObservationIgnored private var lexiconRevision = -1
@@ -206,6 +234,12 @@ final class TypingController {
         lettersLayout = layout
         lettersFrames = metrics.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: showsGlobe))
         autocorrector?.setLettersFrames(lettersFrames)
+        rebuildSwipeDecoder()
+    }
+
+    /// The swipe decoder reads the same letters frames as the tap decoder and follows them.
+    private func rebuildSwipeDecoder() {
+        swipeDecoder = model.map { SwipeDecoder(model: $0, frames: lettersFrames) }
     }
 
     /// The height of the key plane: everything under the strip.
@@ -263,6 +297,7 @@ final class TypingController {
                 let loaded = try TypingModel.bundled()
                 model = loaded
                 autocorrector = Autocorrector(model: loaded, lettersFrames: lettersFrames)
+                rebuildSwipeDecoder()
                 buildBias(model: loaded)
             } catch {
                 Self.log.error("word model did not load: \(String(describing: error), privacy: .public)")
@@ -293,6 +328,8 @@ final class TypingController {
             "typing: \(snapshot.touchDowns) touch-downs, \(snapshot.typed) typed, \(snapshot.cancelled) cancelled, \(snapshot.offKey) off-key, slowest handle \(snapshot.slowestHandleMs, format: .fixed(precision: 1)) ms, delivery \(snapshot.maxDeliveryMs, format: .fixed(precision: 1)) ms, autocorrect \(snapshot.slowestAutocorrectMs, format: .fixed(precision: 1)) ms")
         undo = nil
         tracker.reset()
+        cancelLiveSwipe()
+        swipeOffer = nil
     }
 
     /// The host changed the text, the selection or the field. Traits can differ between fields,
@@ -339,6 +376,7 @@ final class TypingController {
         // Taps and an undo offer belong to the text of the last field.
         tracker.reset()
         undo = nil
+        swipeOffer = nil
     }
 
     /// Maps the proxy's traits onto `FieldTraits`. Each optional-looking property is read into
@@ -437,6 +475,9 @@ final class TypingController {
             // Tell the owner the test is over; from here the keyboard types as usual.
             proxy()?.insertText("\n[test done]\n")
         }
+        // Whether a touch may swipe is decided as the finger lands, from the setting as it stands
+        // now, never in the staged test (its cut-down paths know nothing of swipes).
+        if case .began = event { engine.swipeEnabled = stage == nil && swipeAllowed }
         let effects = engine.handle(event, bias: stage == nil ? biasForTouch() : [:])
         if !effects.isEmpty {
             if let stage, stage != .full { applyReduced(effects, stage: stage) } else { apply(effects) }
@@ -466,7 +507,7 @@ final class TypingController {
                 stateIsDirty = true
             case .trackpad(let active):
                 plane?.setTrackpad(active)
-            case .deleteWordBackward, .moveCursor, .showEmoji, .globe:
+            case .deleteWordBackward, .moveCursor, .showEmoji, .globe, .swipeUpdate, .swipeEnded:
                 break
             }
         }
@@ -493,17 +534,23 @@ final class TypingController {
                 // The one delete that follows a replacement keeps its offer (and shows it);
                 // anything else ends it. The taps of the word lose the letters deleted.
                 TypingDiagnostics.log("delete", ["count": count])
+                if let offer = swipeOffer, deleteSwipedWord(offer, count: count) {
+                    textChanged = true
+                    continue
+                }
                 undo = undo?.afterDelete(count: count)
                 tracker.dropLast(count)
                 deleteBackward(count)
                 textChanged = true
             case .deleteWordBackward:
                 undo = nil
+                swipeOffer = nil
                 tracker.reset()
                 deleteWordBackward()
                 textChanged = true
             case .moveCursor(let offset):
                 undo = nil
+                swipeOffer = nil
                 tracker.reset()
                 proxy()?.adjustTextPosition(byCharacterOffset: offset)
                 textChanged = true
@@ -527,6 +574,10 @@ final class TypingController {
             case .globe:
                 // The globe is a button over its key, which takes its touches itself.
                 break
+            case .swipeUpdate(let path):
+                swipeUpdate(path)
+            case .swipeEnded(let path, let times):
+                if swipeEnded(path: path, times: times) { textChanged = true }
             }
         }
         if textChanged { textChangedByKeys() }
@@ -565,6 +616,10 @@ final class TypingController {
     /// offer; the autocorrect this key may cause starts a new one.
     private func typeInsert(_ text: String, tap: CGPoint?) {
         undo = nil
+        // A swiped word is the last thing typed until this key; it is owed a space, which a letter
+        // claims below and anything else leaves alone.
+        let owed = swipeOffer
+        swipeOffer = nil
         guard let proxy = proxy() else { return }
         guard text.count == 1, let mark = text.first else {
             pending.disarm()
@@ -576,7 +631,7 @@ final class TypingController {
         var before = proxy.documentContextBeforeInput ?? ""
 
         if mark == " " {
-            typeSpace(before: before, proxy: proxy)
+            typeSpace(before: before, proxy: proxy, finishesWord: owed == nil)
             return
         }
 
@@ -588,14 +643,22 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
 
-        // A closing mark ends the word, so the word is checked before the mark goes in.
-        if PendingSpace.closingMarks.contains(mark) {
+        // A closing mark ends the word, so the word is checked before the mark goes in. A swiped
+        // word was chosen by the decoder and is not checked again.
+        if PendingSpace.closingMarks.contains(mark), owed == nil {
             before = finishWord(before: before, terminator: String(mark))
         }
 
         if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: mark) {
             perform(fix)
             before = String(before.dropLast()) + "I"
+        }
+
+        // The space a swipe left owed goes in ahead of a letter. Marks and the space key sit
+        // against the word, so punctuation never has a space to take back.
+        if let owed, mark.isLetter, owed.isConsistent(with: before) {
+            proxy.insertText(" ")
+            before += " "
         }
 
         switch mark {
@@ -620,7 +683,7 @@ final class TypingController {
         }
     }
 
-    private func typeSpace(before: String, proxy: UITextDocumentProxy) {
+    private func typeSpace(before: String, proxy: UITextDocumentProxy, finishesWord: Bool = true) {
         var before = before
         let time = now
         if pending.consumeSpace(), before.last == " " {
@@ -636,9 +699,11 @@ final class TypingController {
             lastSpaceTime = nil
             return
         }
-        before = finishWord(before: before, terminator: " ")
-        if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
-            perform(fix)
+        if finishesWord {
+            before = finishWord(before: before, terminator: " ")
+            if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
+                perform(fix)
+            }
         }
         proxy.insertText(" ")
         lastSpaceTime = time
@@ -690,6 +755,7 @@ final class TypingController {
             autocorrector?.recordUndo(offer)
         }
         undo = nil
+        swipeOffer = nil
         tracker.reset()
         pending.disarm()
         lastSpaceTime = nil
@@ -740,6 +806,9 @@ final class TypingController {
     /// The log-odds for this touch, only in fields that take autocorrect and on the letters page.
     private func biasForTouch() -> [String: Double] {
         guard engine.page == .letters, AutocorrectPolicy.allows(traits) else { return [:] }
+        // A swiped word is followed by an owed space, so the next letter starts a new word and the
+        // swiped one's letters say nothing about it.
+        guard swipeOffer == nil else { return [:] }
         return biasCache.logOdds(tracker: tracker)
     }
 
@@ -815,6 +884,7 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
         undo = nil
+        swipeOffer = nil
         tracker.reset()
         proxy()?.insertText(text)
         textChangedByKeys()
@@ -823,6 +893,7 @@ final class TypingController {
 
     func deleteExternal() {
         undo = nil
+        swipeOffer = nil
         tracker.reset()
         deleteBackward(1)
         textChangedByKeys()
@@ -834,6 +905,7 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
         undo = nil
+        swipeOffer = nil
         tracker.reset()
         textChangedByKeys()
         flushState()
@@ -900,6 +972,7 @@ final class TypingController {
         // undo offer survive only while the field still reads the way we left it.
         if !tracker.isEmpty, !tracker.isConsistent(with: before) { tracker.reset() }
         if let offer = undo, !offer.isConsistent(with: before) { undo = nil }
+        if let offer = swipeOffer, !offer.isConsistent(with: before) { swipeOffer = nil }
         recomputeAutoShift(before: before)
         if let model {
             biasCache.noteText(
@@ -948,6 +1021,13 @@ final class TypingController {
             value += 1
             return value
         }
+        // Right after a swipe the strip offers the swipe's other readings, until anything else
+        // edits the text. With none to offer it falls through to the word's usual strip.
+        if let offer = swipeOffer, !offer.alternatives.isEmpty {
+            let cells = SwipeInsertion.stripCells(for: offer)
+            if cells != suggestions { suggestions = cells }
+            return
+        }
         guard suggestionsAllowed, let model, after?.first?.isLetter != true else {
             if !suggestions.isEmpty { suggestions = [] }
             return
@@ -989,6 +1069,11 @@ final class TypingController {
     /// The model stores a straight apostrophe, so smart quotes turn it curly here.
     func choose(_ suggestion: Suggestion) {
         guard let proxy = proxy() else { return }
+        if let offer = swipeOffer, let next = offer.choosing(suggestion.text) {
+            chooseSwipeReading(next, replacing: offer, proxy: proxy)
+            return
+        }
+        swipeOffer = nil
         KeyFeedback.press()
         undo = nil
         tracker.reset()
@@ -1007,5 +1092,196 @@ final class TypingController {
         lastSpaceTime = nil
         textChangedByKeys()
         flushState()
+    }
+
+    // MARK: - Swipe typing
+
+    /// Whether a touch landing now may become a swipe: the setting is on, VoiceOver is off (it
+    /// activates keys, it does not drag), the word model has loaded, and the field takes
+    /// autocorrection in prose (no URL, email, number, phone, secure or no-autocorrect field). The
+    /// engine adds the page: only the letters page swipes.
+    private var swipeAllowed: Bool {
+        swipeDecoder != nil && Settings.shared.swipeTyping && !UIAccessibility.isVoiceOverRunning
+            && AutocorrectPolicy.allows(traits)
+    }
+
+    /// The path so far, at each move of a swipe, and an empty one when the swipe was cancelled.
+    /// Draws the trail, and about every `swipeLiveDecodeSeconds` decodes the path off the main
+    /// thread and shows the best reading in the strip's centre cell. A result that a newer one or
+    /// the swipe's end has overtaken is dropped.
+    private func swipeUpdate(_ path: [CGPoint]) {
+        plane?.setSwipePath(path)
+        guard !path.isEmpty else {
+            cancelLiveSwipe()
+            return
+        }
+        let time = now
+        if swipeLive == nil {
+            beginLiveSwipe()
+            lastLiveDecode = time
+        }
+        guard let decoder = swipeDecoder, let live = swipeLive,
+            time - lastLiveDecode >= DS.Keyboard.swipeLiveDecodeSeconds
+        else { return }
+        lastLiveDecode = time
+        swipeLiveGeneration += 1
+        let generation = swipeLiveGeneration
+        swipeQueue.async { [weak self] in
+            let best = decoder.decode(
+                path: path, times: nil, previous: live.previous, lexicon: live.lexicon, limit: 1
+            ).first?.text
+            Task { @MainActor [weak self] in
+                self?.showSwipePreview(best, generation: generation)
+            }
+        }
+    }
+
+    /// Reads what the live decode needs from the text, once, as the swipe starts.
+    private func beginLiveSwipe() {
+        guard let proxy = proxy() else { return }
+        refreshLexicon()
+        let before = String(
+            (proxy.documentContextBeforeInput ?? "").suffix(Self.contextLimit))
+        swipeLive = SwipeLive(
+            previous: SwipeInsertion.previousWord(before: before).flatMap { model?.id(of: $0) },
+            sentenceCapital: SwipeInsertion.wantsCapital(
+                before: before, autocapitalization: traits.autocapitalization),
+            lexicon: autocorrector?.lexicon ?? .empty)
+    }
+
+    private func showSwipePreview(_ word: String?, generation: Int) {
+        guard generation == swipeLiveGeneration, let live = swipeLive else { return }
+        let text = word.map {
+            SwipeInsertion.cased(
+                smartApostrophes($0), shift: engine.shift, sentenceCapital: live.sentenceCapital)
+        }
+        if text != swipePreview { swipePreview = text }
+    }
+
+    /// The swipe is over (lifted, cancelled or ended by a second finger): late live results are
+    /// dropped and the strip's centre cell goes back to the suggestions.
+    private func cancelLiveSwipe() {
+        swipeLiveGeneration += 1
+        swipeLive = nil
+        if swipePreview != nil { swipePreview = nil }
+    }
+
+    /// Types the swiped word, when the decoder has one. Returns whether it typed.
+    ///
+    /// The decode runs here, on the main thread, at the lift. Its cost is the benchmark's: under a
+    /// millisecond at the 99th percentile in a release build on a Mac, a few on a phone, in the
+    /// time the keyboard spends on a key tap. Doing it synchronously also keeps the order: the
+    /// word is in the field before the next effect of the same event (a second finger's delete) and
+    /// before any later key's insert, which an asynchronous decode could not promise without a
+    /// queue of pending inserts.
+    ///
+    /// The word goes in after a space unless the text before the cursor is empty, ends in
+    /// whitespace or an opening mark. Shift, caps lock and a sentence start case it. The space
+    /// after it is not typed: it is owed (`SwipeOffer`). A typed word before it is finished first,
+    /// as a space would finish it (autocorrect and a lone "i"), unless that word was itself swiped.
+    private func swipeEnded(path: [CGPoint], times: [TimeInterval]) -> Bool {
+        plane?.setSwipePath([])
+        cancelLiveSwipe()
+        undo = nil
+        tracker.reset()
+        guard let proxy = proxy(), let decoder = swipeDecoder, let model else { return false }
+        refreshLexicon()
+        var before = proxy.documentContextBeforeInput ?? ""
+        let tail = String(before.suffix(Self.contextLimit))
+        let previous = SwipeInsertion.previousWord(before: tail).flatMap { model.id(of: $0) }
+
+        let started = ContinuousClock.now
+        let candidates = decoder.decode(
+            path: path, times: times, previous: previous, lexicon: autocorrector?.lexicon ?? .empty,
+            limit: 1 + SwipeOffer.alternativeLimit)
+        let elapsed = (ContinuousClock.now - started).components
+        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+        guard !candidates.isEmpty else {
+            logSwipe(readings: [], milliseconds: milliseconds, path: path)
+            return false
+        }
+
+        let needsSpace = SwipeInsertion.needsLeadingSpace(before: before)
+        if needsSpace, swipeOffer == nil, !WordAtCursor.trailingWord(of: before).isEmpty {
+            before = finishWord(before: before, terminator: " ")
+            if textRulesApply, let fix = TextRules.standaloneI(before: before, typed: " ") {
+                perform(fix)
+            }
+        }
+        swipeOffer = nil
+
+        let shift = engine.shiftAtSwipeEnd
+        let capital =
+            shift == .off
+            && SwipeInsertion.wantsCapital(before: before, autocapitalization: traits.autocapitalization)
+        var readings: [String] = []
+        for candidate in candidates {
+            let reading = SwipeInsertion.cased(
+                smartApostrophes(candidate.text), shift: shift, sentenceCapital: capital)
+            if !readings.contains(reading) { readings.append(reading) }
+        }
+        proxy.insertText((needsSpace ? " " : "") + readings[0])
+        swipeOffer = SwipeOffer(readings: readings, leadingSpace: needsSpace)
+        undo = nil
+        pending.disarm()
+        lastSpaceTime = nil
+        counters.typed += 1
+        if engine.spendShiftAfterSwipe() {
+            autoShifted = false
+            stateIsDirty = true
+        }
+        logSwipe(readings: readings, milliseconds: milliseconds, path: path)
+        return true
+    }
+
+    /// A delete right after a swipe takes the whole swiped word, and the space the swipe typed
+    /// before it. Only the first delete of a press does (a repeat deletes by the usual rules), and
+    /// only while the field still ends with the word. False when it did not act.
+    private func deleteSwipedWord(_ offer: SwipeOffer, count: Int) -> Bool {
+        swipeOffer = nil
+        guard count == 1, let proxy = proxy(), offer.isConsistent(with: proxy.documentContextBeforeInput ?? "")
+        else { return false }
+        TypingDiagnostics.log("swipe-delete", ["word": offer.word, "count": offer.deleteCount])
+        undo = nil
+        tracker.reset()
+        pending.disarm()
+        lastSpaceTime = nil
+        for _ in 0..<offer.deleteCount { proxy.deleteBackward() }
+        return true
+    }
+
+    /// A tap on one of the strip's other readings replaces the swiped word with it. The space
+    /// the swipe typed before it stays, and the space after it stays owed. The word that was
+    /// typed becomes one of the alternatives.
+    private func chooseSwipeReading(_ next: SwipeOffer, replacing offer: SwipeOffer, proxy: UITextDocumentProxy) {
+        KeyFeedback.press()
+        guard offer.isConsistent(with: proxy.documentContextBeforeInput ?? "") else {
+            swipeOffer = nil
+            textChangedByKeys()
+            flushState()
+            return
+        }
+        TypingDiagnostics.log("swipe-alt", ["from": offer.word, "to": next.word])
+        for _ in 0..<offer.word.count { proxy.deleteBackward() }
+        proxy.insertText(next.word)
+        swipeOffer = next
+        undo = nil
+        tracker.reset()
+        pending.disarm()
+        lastSpaceTime = nil
+        textChangedByKeys()
+        flushState()
+    }
+
+    /// Diagnostics: one line per swipe with what was typed, the other readings, the decode time
+    /// and the path (points to 0.1 pt), so real swipes can later tune the decoder.
+    private func logSwipe(readings: [String], milliseconds: Double, path: [CGPoint]) {
+        guard TypingDiagnostics.isOn else { return }
+        func tenth(_ value: CGFloat) -> Double { (Double(value) * 10).rounded() / 10 }
+        TypingDiagnostics.log("swipe", [
+            "word": readings.first ?? "", "alts": Array(readings.dropFirst()),
+            "ms": (milliseconds * 100).rounded() / 100,
+            "path": path.map { [tenth($0.x), tenth($0.y)] },
+        ])
     }
 }

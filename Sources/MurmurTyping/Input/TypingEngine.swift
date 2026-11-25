@@ -36,6 +36,16 @@ public enum TypingEffect: Equatable, Sendable {
     case feedback
     case showEmoji
     case globe
+    /// A swipe is under way, or has just begun: the path so far, in the engine's coordinates, from
+    /// where the finger landed. The trail draws it and the live decode reads it. An **empty** path
+    /// means the swipe was cancelled (iOS took the touch, or the plane went away): the trail
+    /// clears and nothing is decoded or typed.
+    case swipeUpdate([CGPoint])
+    /// A swipe lifted, or a second finger landed and ended it: the whole path with the time of
+    /// each point, for the controller's decoder. Nothing has been typed for it: the controller
+    /// types the word. A path that is really a tap never comes out as this (the key types as an
+    /// ordinary tap instead).
+    case swipeEnded([CGPoint], times: [TimeInterval])
 }
 
 /// Turns finger events into typing effects: which key a touch means, when a pop-up shows, how
@@ -46,9 +56,14 @@ public enum TypingEffect: Equatable, Sendable {
 /// from the role: a character types at touch-up at the key then under the finger, delete acts at
 /// touch-down and repeats, the space bar types at touch-up unless a still hold turns it into a
 /// trackpad, shift and the page keys resolve at touch-up and can be slid off onto a character.
-/// Milestone 6 adds a swipe path to the character role (a touch that travels more than a key
-/// pitch before the accent hold fires); everything it needs is already per touch: its start,
-/// its current key and the time it entered it.
+///
+/// Swipe typing is one more branch of the character role, and it is off unless `swipeEnabled`.
+/// A touch that lands on a letter of the letters page while it is on is a swipe *candidate*; it
+/// becomes a swipe at the first move that has carried it more than one key pitch from where it
+/// landed, if that happens within `accentHoldDelay` of touch-down and the accent row has not
+/// opened. From then on its key never types, no pop-up or accent row shows, and the engine
+/// reports the path (`swipeUpdate`, `swipeEnded`). A touch that travels one pitch or less is
+/// exactly the touch it always was.
 public struct TypingEngine: Sendable {
     // MARK: - Timings and constants
 
@@ -109,6 +124,19 @@ public struct TypingEngine: Sendable {
     /// keyboard's typing evidence (Setup), never reset by the engine.
     public private(set) var offKeyLifts = 0
 
+    /// Whether a touch that lands on a letter may become a swipe. The controller sets it from the
+    /// setting, VoiceOver and the field (default off, in which case the engine behaves as it did
+    /// before swipe typing). It is read once per touch, at touch-down.
+    public var swipeEnabled = false
+    /// The shift state when the last `swipeEnded` was emitted, for the controller, which types
+    /// the word after the engine has already moved on (a second finger that landed on shift
+    /// changes `shift` in the same event). Caps lock uppercases the word, `on` capitalises it.
+    public private(set) var shiftAtSwipeEnd: ShiftState = .off
+
+    /// A letter key's width plus the gap, in points: the unit of a swipe's thresholds. Read off
+    /// the letters page, q to w across, as `SwipeDecoder` reads it; kept when another page shows.
+    private var letterPitch: CGFloat = 0
+
     private var metrics: KeyboardMetrics
     private var showsGlobe: Bool
     private var touches: [Int: Touch] = [:]
@@ -124,6 +152,9 @@ public struct TypingEngine: Sendable {
         self.page = page
         self.shift = shift
         recomputeFrames()
+        if page != .letters {
+            letterPitch = Self.pitch(of: metrics.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: showsGlobe)))
+        }
     }
 
     /// New geometry, when the keyboard's width or orientation changes or the globe key appears.
@@ -251,10 +282,28 @@ public struct TypingEngine: Sendable {
         var shiftUsed = false
         /// Page key: the page to return to after a slide onto a key.
         var returnPage: Page = .letters
+        /// Character: swipe typing was on when the finger landed on a letter of the letters
+        /// page, so this touch may become a swipe. Only a candidate records its path.
+        var swipeCandidate = false
+        /// The finger has travelled past `swipeStartPitches` in time: this touch is a swipe.
+        var isSwiping = false
+        /// A candidate's points from touch-down, and the time of each. Empty for any other touch.
+        var path: [CGPoint] = []
+        var times: [TimeInterval] = []
     }
 
     private mutating func recomputeFrames() {
         frames = metrics.frames(for: KeyboardLayout.rows(for: page, showsGlobe: showsGlobe))
+        if page == .letters { letterPitch = Self.pitch(of: frames) }
+    }
+
+    /// The distance between the centres of q and w, which sit in one row: a key's width plus the
+    /// gap. Zero when the frames are not the letters page.
+    private static func pitch(of frames: [KeyFrame]) -> CGFloat {
+        guard let q = frames.first(where: { $0.kind == .character("q") }),
+            let w = frames.first(where: { $0.kind == .character("w") })
+        else { return 0 }
+        return abs(w.keycap.midX - q.keycap.midX)
     }
 
     // MARK: - Events
@@ -301,6 +350,11 @@ public struct TypingEngine: Sendable {
         case .character:
             touch.role = .character
             touch.popup = frame.kind
+            if swipeEnabled, page == .letters, letterPitch > 0 {
+                touch.swipeCandidate = true
+                touch.path = [point]
+                touch.times = [time]
+            }
             out.append(.showPopup(frame.kind, alternates: [], selected: nil))
         case .delete:
             touch.role = .delete
@@ -338,7 +392,25 @@ public struct TypingEngine: Sendable {
 
         switch touch.role {
         case .character, .shift, .pageKey:
-            if touch.accents != nil {
+            if touch.swipeCandidate {
+                touch.path.append(point)
+                touch.times.append(time)
+                if touch.isSwiping {
+                    out.append(.swipeUpdate(touch.path))
+                } else if touch.accents == nil, startsSwipe(touch, at: time) {
+                    touch.isSwiping = true
+                    // The key's pop-up goes: a swipe shows no previews.
+                    if touch.popup != nil {
+                        touch.popup = nil
+                        out.append(.hidePopup)
+                    }
+                    out.append(.swipeUpdate(touch.path))
+                } else if touch.accents != nil {
+                    updateAccentSelection(&touch, into: &out)
+                } else {
+                    followKey(&touch, bias: bias, time: time, into: &out)
+                }
+            } else if touch.accents != nil {
                 updateAccentSelection(&touch, into: &out)
             } else {
                 followKey(&touch, bias: bias, time: time, into: &out)
@@ -366,7 +438,11 @@ public struct TypingEngine: Sendable {
 
         switch touch.role {
         case .character:
-            finishCharacter(touch, bias: bias, into: &out)
+            if touch.isSwiping {
+                finishSwipe(touch, at: time, into: &out)
+            } else {
+                finishCharacter(touch, bias: bias, into: &out)
+            }
         case .space:
             if touch.trackpadActive {
                 out.append(.trackpad(false))
@@ -404,6 +480,7 @@ public struct TypingEngine: Sendable {
     private mutating func cancelled(id: Int, into out: inout [TypingEffect]) {
         guard let touch = touches.removeValue(forKey: id) else { return }
         if touch.popup != nil { out.append(.hidePopup) }
+        if touch.isSwiping { out.append(.swipeUpdate([])) }
         if touch.trackpadActive { out.append(.trackpad(false)) }
         if touch.role == .shift, shift != touch.priorShift {
             shift = touch.priorShift
@@ -420,7 +497,7 @@ public struct TypingEngine: Sendable {
         guard var touch = touches[id] else { return }
         switch touch.role {
         case .character:
-            if touch.accents == nil, let key = touch.currentKey,
+            if touch.accents == nil, !touch.isSwiping, let key = touch.currentKey,
                 case .character(let text) = key.kind,
                 time - touch.keyEnteredAt + Self.epsilon >= Self.accentHoldDelay
             {
@@ -561,6 +638,47 @@ public struct TypingEngine: Sendable {
         }
     }
 
+    /// Whether this move makes the touch a swipe: swipe typing is on for the touch, no accent row
+    /// is open, the touch is still within `accentHoldDelay` of touch-down, and the finger is now
+    /// more than one key pitch from where it landed. Later than that the touch is the plain
+    /// character touch it always was, so a slow slide types the key under the lift.
+    private func startsSwipe(_ touch: Touch, at time: TimeInterval) -> Bool {
+        guard page == .letters, time - touch.downTime + Self.epsilon < Self.accentHoldDelay else { return false }
+        return SwipeDecoder.isSwipe(start: touch.start, current: touch.point, pitch: letterPitch)
+    }
+
+    /// The end of a swipe, by lift or by another finger landing. A path that lifts on its
+    /// starting key within `tapTravelPitches` of it is a tap, typed as one at the point where the
+    /// finger landed. Anything else is handed to the controller, which decodes and types it. The
+    /// shift state is noted first, because the event that ended the swipe may change it.
+    private mutating func finishSwipe(_ touch: Touch, at time: TimeInterval, into out: inout [TypingEffect]) {
+        var path = touch.path
+        var times = touch.times
+        if path.last != touch.point {
+            path.append(touch.point)
+            times.append(max(time, times.last ?? time))
+        }
+        if SwipeDecoder.isTap(path: path, frames: frames, pitch: letterPitch),
+            case .character(let text) = touch.origin.kind
+        {
+            typeCharacter(text, tap: touch.start, into: &out)
+            return
+        }
+        shiftAtSwipeEnd = shift
+        out.append(.swipeEnded(path, times: times))
+    }
+
+    /// Spends shift after the controller typed a swiped word, as a typed capital spends it: one
+    /// shift goes back to off unless a finger still holds the shift key, caps lock stays. True
+    /// when shift changed, so the controller redraws the keys.
+    public mutating func spendShiftAfterSwipe() -> Bool {
+        guard page == .letters, shift == .on, !touches.values.contains(where: { $0.role == .shift })
+        else { return false }
+        shift = .off
+        lastShiftTapDown = nil
+        return true
+    }
+
     /// Commits a held character or space (not a trackpad) as if it had lifted, then marks it
     /// finished so its real lift does nothing.
     private mutating func commitIfHeld(
@@ -569,7 +687,12 @@ public struct TypingEngine: Sendable {
         guard var touch = touches[id] else { return }
         switch touch.role {
         case .character:
-            finishCharacter(touch, bias: bias, into: &out)
+            if touch.isSwiping {
+                // A second finger landed: the swipe ends here, before that finger is handled.
+                finishSwipe(touch, at: touch.times.last ?? touch.downTime, into: &out)
+            } else {
+                finishCharacter(touch, bias: bias, into: &out)
+            }
         case .space where !touch.trackpadActive:
             typeSpace(into: &out)
         default:
@@ -578,6 +701,7 @@ public struct TypingEngine: Sendable {
         touch.role = .finished
         touch.popup = nil
         touch.accents = nil
+        touch.isSwiping = false
         touches[id] = touch
     }
 

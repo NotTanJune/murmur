@@ -345,6 +345,17 @@ public enum DS {
         public static let stallThresholdSeconds: Double = 0.034
         public static let tickRateMinimum: Float = 30
         public static let tickRateMaximum: Float = 60
+        /// Swipe typing: while a finger swipes, the strip's centre cell shows the best reading at
+        /// most this often. A decode costs well under a millisecond on a Mac, but the finger
+        /// moves 60 to 120 times a second and a reading that changes every frame only flickers.
+        public static let swipeLiveDecodeSeconds: Double = 0.07
+        /// How much of the swipe's path the trail keeps drawing: the last stretch of it, so the
+        /// line follows the finger and fades behind it instead of drawing the whole word.
+        public static let swipeTrailSeconds: Double = 0.45
+        /// The trail's line width. Unmeasured against the stock keyboard's trail.
+        public static let swipeTrailWidth: CGFloat = 8
+        /// The trail's strength as a share of the label colour.
+        public static let swipeTrailOpacity: CGFloat = 0.35
         /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
         /// the key page (iOS ignores a keyboard that grows after it first appears), and the grid
         /// divides what is left after the section title and the category bar.
@@ -523,6 +534,8 @@ public enum DS {
         public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
         /// The key plane's glyphs.
         public static let keyLabelUIColor = UIColor.label
+        /// The swipe trail: the label colour at `swipeTrailOpacity`, so it reads on light and dark keys.
+        public static let swipeTrailUIColor = UIColor.label.withAlphaComponent(swipeTrailOpacity)
         /// The pop-up over a pressed key: the key's own colour in light, a little lighter than a
         /// key in dark so it reads as lifted. The accent row's chosen cell is the system blue.
         public static let popupUIFill = UIColor {

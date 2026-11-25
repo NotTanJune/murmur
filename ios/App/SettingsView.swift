@@ -49,6 +49,7 @@ struct SettingsView: View {
                         note: "A double tap when dictation starts, and a buzz then a double tap when the text is typed.",
                         isOn: $settings.hapticsEnabled
                     )
+                    ToggleRow(title: "Swipe typing", isOn: $settings.swipeTyping)
                 }
 
                 Card(title: "Appearance") {

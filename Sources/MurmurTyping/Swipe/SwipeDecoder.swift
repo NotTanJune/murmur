@@ -199,8 +199,18 @@ public struct SwipeDecoder: Sendable {
     /// never wandered beyond `tapTravelPitches` from where it began. That is a finger that slid
     /// a little while pressing, and it types its key.
     public func isTap(path: [CGPoint]) -> Bool {
-        guard let start = path.first, let end = path.last, isUsable else { return false }
-        let limit = configuration.tapTravelPitches * pitch
+        guard isUsable else { return false }
+        return Self.isTap(path: path, frames: frames, pitch: CGFloat(pitch), configuration: configuration)
+    }
+
+    /// The same rule with no word model: the touch engine, which has the frames and the pitch
+    /// but no `TypingModel`, decides a tap-shaped swipe with it. Keys are found without the
+    /// next-letter bias, as the instance form does.
+    public static func isTap(
+        path: [CGPoint], frames: [KeyFrame], pitch: CGFloat, configuration: Configuration = .tuned
+    ) -> Bool {
+        guard let start = path.first, let end = path.last, pitch > 0 else { return false }
+        let limit = configuration.tapTravelPitches * Double(pitch)
         for point in path where Double(hypot(point.x - start.x, point.y - start.y)) > limit { return false }
         guard let first = HitTester.key(at: start, frames: frames, bias: [:]),
             let last = HitTester.key(at: end, frames: frames, bias: [:])

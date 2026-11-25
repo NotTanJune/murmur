@@ -68,6 +68,14 @@ final class KeyPlaneView: UIView {
     private var displayLink: CADisplayLink?
     private var trackpadActive = false
     private var popup: CALayer?
+    /// The swipe's trail: one stroked path above the keys. It is a layer of this view, so it
+    /// needs no SwiftUI and no drawing pass; each update only swaps its path.
+    private let trail = CAShapeLayer()
+    /// The points the trail still draws, in this view's coordinates, with the time each arrived.
+    private var trailPoints: [(point: CGPoint, time: TimeInterval)] = []
+    /// How many points of the controller's path the trail has taken, so an update that repeats
+    /// the path with one more point at its end adds only that point.
+    private var trailTaken = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -81,6 +89,13 @@ final class KeyPlaneView: UIView {
         globeButton.addTarget(self, action: #selector(globeLanded), for: .touchDown)
         globeButton.isHidden = true
         addSubview(globeButton)
+        trail.fillColor = nil
+        trail.lineCap = .round
+        trail.lineJoin = .round
+        trail.lineWidth = DS.Keyboard.swipeTrailWidth
+        // Above every key layer, which sit at zero and are rebuilt on each reload.
+        trail.zPosition = 1
+        layer.addSublayer(trail)
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) {
             (view: KeyPlaneView, _) in view.reload()
         }
@@ -108,6 +123,7 @@ final class KeyPlaneView: UIView {
         pressed.removeAll()
         stopTicking()
         hidePopup()
+        setSwipePath([])
     }
 
     // MARK: - Drawing
@@ -135,6 +151,7 @@ final class KeyPlaneView: UIView {
         keyLayers = state.frames.map(makeLayers)
         for item in keyLayers { layer.addSublayer(item.body) }
         applyPressedAndTrackpad()
+        trail.strokeColor = resolved(DS.Keyboard.swipeTrailUIColor).cgColor
         CATransaction.commit()
         updateGlobeButton()
         rebuildAccessibility()
@@ -443,7 +460,56 @@ final class KeyPlaneView: UIView {
     }
 
     @objc private func fireTick() {
-        onTouch?(.tick(time: ProcessInfo.processInfo.systemUptime))
+        let now = ProcessInfo.processInfo.systemUptime
+        onTouch?(.tick(time: now))
+        // A finger that rests mid-swipe sends no move, so the trail's tail still fades here.
+        if !trailPoints.isEmpty { redrawTrail(at: now) }
+    }
+
+    // MARK: - Swipe trail
+
+    /// Shows the swipe's path so far, in the engine's coordinates, as the last
+    /// `swipeTrailSeconds` of it. The controller sends the whole path at each move; the view
+    /// stamps the points it has not seen with the time they arrive (a move and its update are one
+    /// run-loop turn apart). An empty path clears the trail.
+    func setSwipePath(_ path: [CGPoint]) {
+        guard !path.isEmpty else {
+            guard !trailPoints.isEmpty || trailTaken != 0 else { return }
+            trailPoints.removeAll(keepingCapacity: true)
+            trailTaken = 0
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            trail.path = nil
+            CATransaction.commit()
+            return
+        }
+        if path.count < trailTaken {
+            trailPoints.removeAll(keepingCapacity: true)
+            trailTaken = 0
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        for point in path[trailTaken...] {
+            trailPoints.append((CGPoint(x: point.x, y: point.y - state.stripHeight), now))
+        }
+        trailTaken = path.count
+        redrawTrail(at: now)
+    }
+
+    /// Drops the points older than the trail's span and strokes the rest as one path. The only
+    /// allocation is the path itself.
+    private func redrawTrail(at now: TimeInterval) {
+        let cutoff = now - DS.Keyboard.swipeTrailSeconds
+        let expired = trailPoints.firstIndex { $0.time >= cutoff } ?? trailPoints.count
+        if expired > 0 { trailPoints.removeFirst(expired) }
+        let path = CGMutablePath()
+        if let first = trailPoints.first {
+            path.move(to: first.point)
+            for item in trailPoints.dropFirst() { path.addLine(to: item.point) }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        trail.path = trailPoints.isEmpty ? nil : path
+        CATransaction.commit()
     }
 
     // MARK: - Pop-up

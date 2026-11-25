@@ -75,7 +75,7 @@ struct SuggestionStrip: View {
     @ViewBuilder private var suggestionCells: some View {
         if capsuleShowing {
             Color.clear.frame(maxWidth: .infinity)
-        } else if !typing.suggestions.isEmpty || typing.undoChip != nil {
+        } else if !typing.suggestions.isEmpty || typing.undoChip != nil || typing.swipePreview != nil {
             HStack(spacing: 0) {
                 ForEach(0..<Self.slotCount, id: \.self) { slot in
                     cell(at: slot)
@@ -100,7 +100,21 @@ struct SuggestionStrip: View {
     private static let slotCount = 3
 
     @ViewBuilder private func cell(at slot: Int) -> some View {
-        if slot == 0, let original = typing.undoChip {
+        if let preview = typing.swipePreview {
+            // A swipe in progress: its best reading in the centre, not tappable, and nothing else.
+            if slot == 1 {
+                Text(preview)
+                    .font(DS.Keyboard.suggestionEmphasisFont)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(DS.Keyboard.suggestionMinimumScale)
+                    .padding(.horizontal, DS.Keyboard.suggestionInset)
+                    .offset(y: DS.Keyboard.suggestionTextOffset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Color.clear.frame(maxWidth: .infinity)
+            }
+        } else if slot == 0, let original = typing.undoChip {
             undoChip(original)
         } else if slot < typing.suggestions.count {
             let suggestion = typing.suggestions[slot]
@@ -152,7 +166,7 @@ struct SuggestionStrip: View {
 
     /// A hairline between two filled cells.
     @ViewBuilder private func divider(after slot: Int) -> some View {
-        let filled = typing.suggestions.count > slot + 1
+        let filled = typing.swipePreview == nil && typing.suggestions.count > slot + 1
         Rectangle()
             .fill(filled ? DS.Keyboard.suggestionDivider : .clear)
             .frame(width: DS.Stroke.hairline, height: DS.Keyboard.suggestionDividerHeight)

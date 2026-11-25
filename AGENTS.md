@@ -654,6 +654,52 @@ tapped in its lowest 12 pt within 0.35 s of a key types a letter instead, which 
 The diagnostics log also records what the keyboard changed by itself: `replace` (autocorrect),
 `undo`, `suggest` and `rule` (the text rules).
 
+**Swipe typing.** Added 2026-11-25 (Milestone 6 of `plans/001-keyboard-v2.md`). The decoder is
+`SwipeDecoder` (`Sources/MurmurTyping/Swipe`); the touch rules are in `TypingEngine`, which stays
+pure. **Precedence.** A touch that lands on a letter of the letters page while `swipeEnabled` is
+set is a candidate; the controller sets the flag at touch-down only, so a touch keeps the answer it
+was born with. A candidate becomes a swipe at the first move that has carried it more than one key
+pitch (q to w across) from where it landed, provided that move is within 0.36 s of touch-down
+(`accentHoldDelay`) and no accent row has opened. From then on its key never types, its pop-up is
+hidden, no accent row can open however long it dwells, and every move emits `swipeUpdate(path)`
+with the whole path so far. Any touch that stays within one pitch, or travels later than 0.36 s,
+is the old touch exactly: it types the key it landed on unless it slid more than
+`slideCommitDistance` (12 pt), then the key under the lift. `TypingEngineTests` is unchanged and
+`TypingEngineSwipeTests` compares the effects of one touch with the setting on and off. Shift,
+123, delete, space, return, emoji and globe never start a swipe, and neither does any page but
+letters. **Ending.** At the lift a path that comes back to its starting key and never went past
+1.6 pitches (`SwipeDecoder.isTap`) types that key as a tap, at the point where the finger landed.
+Anything else emits `swipeEnded(path, times:)` and types nothing itself. A second finger landing
+on a key ends the swipe first (`swipeEnded`, then the new finger's own effects, in one batch). A
+cancelled swipe emits `swipeUpdate([])`, which only clears the trail. **Decode.** While the finger
+moves the controller decodes off the main thread at most every `swipeLiveDecodeSeconds` (70 ms)
+and shows the best reading in the strip's centre cell (`swipePreview`); a result overtaken by a
+newer one or by the end of the swipe is dropped by a generation counter. At the lift it decodes
+once on the main thread, because the benchmark's 99th percentile is 0.81 ms in a release build
+on a Mac (2026-11-25; a phone is slower, unmeasured) and the word must be in the field before any
+later effect or key. **What
+is typed.** The word goes in after a space unless the text before the cursor is empty, ends in
+whitespace or ends in an opening mark (`SwipeInsertion.needsLeadingSpace`). A word typed just
+before it is finished first, as a space would finish it (autocorrect, a lone "i"), unless that word
+was itself swiped. Shift capitalises the first letter and is spent like a typed capital, caps lock
+uppercases all, and the sentence-start rule is judged on the text with the swipe's own space in.
+**The space after the word is owed, not typed** (`SwipeOffer`, the reverse of `PendingSpace`):
+the next swipe types it, a typed letter types it first, and the space key, `, . ! ? ; : ) ] } ' -
+/` and the rest sit against the word, so there is no space to take back. A delete right after a
+swipe removes the word and the space the swipe typed before it, once; a repeat deletes as usual.
+The strip then shows up to three other readings (best in the centre), and a tap swaps the word
+for one, offering the old word back. Any other edit, or a field that no longer ends with the word,
+drops the offer. A swipe resets the word-tap tracker and the undo offer. **Where it is off:** the
+setting `Settings.swipeTyping` (Settings tab, default on), VoiceOver running,
+`AutocorrectPolicy.allows(traits)` false (URL, email, number, phone, secure and no-autocorrect
+fields), a word model that has not loaded, and any page but letters. The trail is a `CAShapeLayer`
+in `KeyPlaneView` over the keys, the last 0.45 s of the path. `TypingDiagnostics` logs `swipe`
+(word, other readings, decode ms, path to 0.1 pt), `swipe-delete` and `swipe-alt`. **Nothing here
+is verified on a device:** the 0.36 s window and the one-pitch threshold against real thumbs, the
+trail's width and look, whether the lift-time decode is quick enough on a phone, how often the
+live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
+whether the owed-space rules feel right in Notes and Messages.
+
 **The talk key is Liquid Glass tinted brown.** The flat `DS.Color.hud` capsule blended into the
 keyboard's backdrop, so the key is now `glassEffect(.regular.tint(DS.Keyboard.talkGlassTint), in:
 .capsule)` in every state (idle, recording, finishing, failed). The tint is the HUD's brown, nearly

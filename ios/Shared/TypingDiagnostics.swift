@@ -13,7 +13,9 @@ import MurmurKit
 /// Events (`e`): `session` when the keyboard appears, `hit` when UIKit hit-tests the key plane
 /// for a touch-down, `began` / `ended` / `cancelled` from the plane, `insert` / `delete` from the
 /// typing effects, and `gesture` for a state change of a recognizer between the plane and its
-/// window. `t` is `systemUptime`, the clock `UITouch.timestamp` uses.
+/// window. `swipe` is one swiped word (the word, its other readings, the decode
+/// milliseconds and the path in points to 0.1), `swipe-delete` a delete that took the whole word and
+/// `swipe-alt` a tap on one of its other readings. `t` is `systemUptime`, the clock `UITouch.timestamp` uses.
 enum TypingDiagnostics {
     static let defaultsKey = "typingDiagnosticsUntil"
     static let duration: TimeInterval = 600
