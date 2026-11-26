@@ -25,6 +25,10 @@ struct EmojiPanel: View {
     @State private var tones = EmojiTonePreference(defaults: MurmurEnvironment.defaults)
     @State private var section = 0
     @State private var tonePopup: TonePopup?
+    /// While the finger that opened the row slides over it: whether it has been on the row, and
+    /// the tone under it now (nil off the row).
+    @State private var toneEntered = false
+    @State private var toneHover: String?
     @State private var grid = EmojiGridController()
     /// VoiceOver focus for the tone row, which opens over the grid and would otherwise leave the
     /// reader on the emoji underneath it.
@@ -48,6 +52,8 @@ struct EmojiPanel: View {
                         onSection: { section = $0 },
                         onSelect: { type($0) },
                         onTones: { emoji, isRecent, anchor in showTones(for: emoji, isRecent: isRecent, anchor: anchor) },
+                        onToneDrag: { toneDrag(to: $0, panel: geometry.size) },
+                        onToneRelease: { toneRelease(at: $0, panel: geometry.size) },
                         compact: isCompact
                     )
                     categoryBar
@@ -130,23 +136,75 @@ struct EmojiPanel: View {
 
     /// `anchor` is the pressed cell in the grid's coordinates; the grid starts below the search field.
     private func showTones(for emoji: String, isRecent: Bool, anchor: CGRect) {
-        let base = isRecent ? (EmojiCatalog.base(ofToned: emoji) ?? emoji) : emoji
+        // The grid shows the remembered toned form, so the base is looked up from it.
+        let base = EmojiCatalog.base(ofToned: emoji) ?? emoji
         let forms = EmojiCatalog.tones(for: base)
         guard !forms.isEmpty else { return }
         let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiSearchFieldHeight + DS.Keyboard.emojiBarSpacing)
         KeyFeedback.press()
+        toneEntered = false
+        toneHover = nil
         tonePopup = TonePopup(base: base, forms: [base] + forms, anchor: panelAnchor)
     }
 
+    /// Where the tone row sits and which tone is at a point; the drawing and the finger's hit test
+    /// both read it, so they cannot disagree.
+    private struct ToneRowLayout {
+        let origin: CGPoint
+        let size: CGSize
+        let count: Int
+
+        init(popup: TonePopup, panel: CGSize) {
+            count = popup.forms.count
+            let width = DS.Keyboard.emojiToneCellWidth * CGFloat(count) + DS.Keyboard.emojiToneInset * 2
+            let height = DS.Keyboard.emojiToneCellHeight + DS.Keyboard.emojiToneInset * 2
+            size = CGSize(width: width, height: height)
+            // Centred over the pressed emoji, kept inside the panel. Where there is no room above it
+            // inside the keyboard (the first row), the row goes below the pressed emoji instead.
+            let x = min(max(popup.anchor.midX - width / 2, 0), max(panel.width - width, 0))
+            let above = popup.anchor.minY - height
+            let y = above >= 0 ? above : min(popup.anchor.maxY, max(panel.height - height, 0))
+            origin = CGPoint(x: x, y: y)
+        }
+
+        /// The index of the tone cell under `point` (panel coordinates), or nil off the cells.
+        func index(at point: CGPoint) -> Int? {
+            guard point.y >= origin.y, point.y <= origin.y + size.height else { return nil }
+            let local = point.x - origin.x - DS.Keyboard.emojiToneInset
+            guard local >= 0 else { return nil }
+            let index = Int(local / DS.Keyboard.emojiToneCellWidth)
+            return index < count ? index : nil
+        }
+    }
+
+    private func toneDrag(to point: CGPoint, panel: CGSize) {
+        guard let popup = tonePopup else { return }
+        let form = ToneRowLayout(popup: popup, panel: panel).index(at: point).map { popup.forms[$0] }
+        // Until the finger reaches the row, the current tone stays lit and nothing changes.
+        if !toneEntered, form == nil { return }
+        let before = toneEntered ? toneHover : tones.preferred(for: popup.base)
+        toneEntered = true
+        toneHover = form
+        if let form, form != before { KeyFeedback.press() }
+    }
+
+    private func toneRelease(at point: CGPoint, panel: CGSize) {
+        guard let popup = tonePopup else { return }
+        let layout = ToneRowLayout(popup: popup, panel: panel)
+        if let index = layout.index(at: point) {
+            choose(popup.forms[index], for: popup.base)
+        } else if toneEntered {
+            // The finger slid onto the row and away again: close it and type nothing.
+            tonePopup = nil
+        }
+        // Never reached the row: it stays open for a tap.
+    }
+
     private func toneRow(_ popup: TonePopup, panel: CGSize) -> some View {
-        let width = DS.Keyboard.emojiToneCellWidth * CGFloat(popup.forms.count) + DS.Keyboard.emojiToneInset * 2
-        let height = DS.Keyboard.emojiToneCellHeight + DS.Keyboard.emojiToneInset * 2
-        // Centred over the pressed emoji, kept inside the panel. Where there is no room above it
-        // inside the keyboard (the first row), the row goes below the pressed emoji instead.
-        let x = min(max(popup.anchor.midX - width / 2, 0), max(panel.width - width, 0))
-        let above = popup.anchor.minY - height
-        let y = above >= 0 ? above : min(popup.anchor.maxY, max(panel.height - height, 0))
-        let current = tones.preferred(for: popup.base)
+        let layout = ToneRowLayout(popup: popup, panel: panel)
+        let x = layout.origin.x
+        let y = layout.origin.y
+        let lit: String? = toneEntered ? toneHover : tones.preferred(for: popup.base)
         return HStack(spacing: 0) {
             ForEach(popup.forms, id: \.self) { form in
                 Text(form)
@@ -154,7 +212,7 @@ struct EmojiPanel: View {
                     .frame(width: DS.Keyboard.emojiToneCellWidth, height: DS.Keyboard.emojiToneCellHeight)
                     .background(
                         RoundedRectangle(cornerRadius: DS.Keyboard.emojiToneRadius)
-                            .fill(form == current ? DS.Keyboard.functionKey : .clear)
+                            .fill(form == lit ? DS.Keyboard.functionKey : .clear)
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { choose(form, for: popup.base) }

@@ -292,7 +292,17 @@ Skin tones cover single-modifier forms only, so couples and two-tone handshakes 
 form with no variants. A long press shows the tone row; the choice is remembered per base emoji
 in the shared defaults (`EmojiTonePreference`), the grid shows that form, and Frequently Used
 records the typed form. The tone row cannot rise above the keyboard's top edge, so for the first
-row it opens below the pressed emoji instead (above it everywhere else).
+row it opens below the pressed emoji instead (above it everywhere else). **Press, hold and slide** (2026-11-26, unverified on a device): the grid's
+long-press recognizer keeps reporting after it opens the row, and forwards the finger's location
+in the panel's coordinates (`onToneDrag`) and its lift (`onToneRelease`). While it is down the
+grid's scrolling is switched off, and the row highlights the tone under the finger (the current
+tone's fill) with a `KeyFeedback` tick at each change. Lifting over a tone chooses it as a tap
+does; lifting after sliding onto the row and away closes it and types nothing; lifting without
+ever reaching the row leaves it open for a tap. `ToneRowLayout` in `EmojiPanel` is the one
+source of the row's position and cells for drawing and hit testing. **Changing a chosen tone**
+(fixed the same day): the grid shows the remembered toned form, so `showTones` always resolves
+the base with `EmojiCatalog.base(ofToned:)`; it had treated a non-Frequently-Used emoji as its
+own base, found no tones for a toned form and returned without opening the row.
 
 **The grid is UIKit, not SwiftUI.** `EmojiGrid` (`ios/Keyboard/EmojiGrid.swift`) is a horizontal
 `UICollectionView` with its own `EmojiGridLayout`: one section per category, each starting on a
@@ -1204,6 +1214,8 @@ make ios-project   # XcodeGen: ios/Murmur.xcodeproj and the two Info.plists
 make ios-build     # unsigned, generic/platform=iOS, both targets, no simulator
 make ios-install   # Release, signed with ios/Local.xcconfig, installed on the first physical iPhone
 ```
+
+**Right after an install the keyboard can come up stock or empty.** Traced on 2026-11-26 with a temporary lifecycle log: while the keyboard that was on screen during `make ios-install` stays up, choosing Murmur (globe or list) launches nothing (no `viewDidLoad`, no crash or jetsam report), so iOS shows the stock keyboard or leaves the space empty. Dismissing the keyboard and raising it again starts Murmur, which laid out at 393 x 257 and appeared 0.18 s after `viewDidLoad`. No Murmur code runs in that window, so nothing in the keyboard can fix it; after an install, dismiss and raise the keyboard once.
 
 `ios-build` (Debug) is the check an agent runs; `ios-install` builds Release and installs from
 `Release-iphoneos`. **Run `ios-install` only when the user asks.** It

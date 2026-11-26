@@ -28,6 +28,11 @@ struct EmojiGrid: UIViewRepresentable {
     /// long-press recognizer and no VoiceOver action (the search results, which show the
     /// remembered tone but do not offer a choice).
     let onTones: ((_ emoji: String, _ isRecent: Bool, _ anchor: CGRect) -> Void)?
+    /// While the finger that opened the tone row stays down: where it is, in the panel's
+    /// coordinates (the grid starts below the search field), on each move.
+    var onToneDrag: ((_ point: CGPoint) -> Void)?
+    /// The same finger lifted (or the touch was cancelled), at that point in the panel's coordinates.
+    var onToneRelease: ((_ point: CGPoint) -> Void)?
     /// Changes when `categories` holds different emoji (search results), which reloads the grid
     /// and returns it to the start. The panel's own grid never changes it: it is read once.
     var reloadToken = 0
@@ -268,10 +273,34 @@ struct EmojiGrid: UIViewRepresentable {
             UIAccessibility.post(notification: .layoutChanged, argument: cell)
         }
 
+        /// True from a long press that opened the tone row until that finger lifts.
+        private var pressOpenedTones = false
+
         @objc func pressed(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, let view = collectionView,
-                  let path = view.indexPathForItem(at: recognizer.location(in: view)) else { return }
-            requestTones(at: path)
+            guard let view = collectionView else { return }
+            // The grid's coordinates start below the search field in the panel's.
+            let location = recognizer.location(in: view)
+            let point = CGPoint(x: location.x, y: location.y + DS.Keyboard.emojiSearchFieldHeight + DS.Keyboard.emojiBarSpacing)
+            switch recognizer.state {
+            case .began:
+                guard let path = view.indexPathForItem(at: location) else { return }
+                tonesPath = nil
+                requestTones(at: path)
+                if tonesPath == path {
+                    pressOpenedTones = true
+                    // The finger now slides over the row, so the grid must not scroll under it.
+                    view.isScrollEnabled = false
+                }
+            case .changed:
+                if pressOpenedTones { parent.onToneDrag?(point) }
+            case .ended, .cancelled, .failed:
+                guard pressOpenedTones else { return }
+                pressOpenedTones = false
+                view.isScrollEnabled = true
+                parent.onToneRelease?(point)
+            default:
+                break
+            }
         }
 
         private func requestTones(at path: IndexPath) {
