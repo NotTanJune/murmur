@@ -7,6 +7,7 @@
 #   make build      SwiftPM compile only; CONFIG=debug gives a debug build
 #   make icon       regenerate Resources/AppIcon.icns
 #   make clean      remove all build output
+#   make emoji        regenerate the keyboard's emoji lists (see below)
 #   make ios-project  generate ios/Murmur.xcodeproj with XcodeGen
 #   make ios-build    compile the iPhone app and its keyboard, unsigned
 #   make ios-install  signed build, installed on the connected iPhone
@@ -37,7 +38,7 @@ find-identity = $(shell security find-identity -v -p codesigning 2>/dev/null \
                   | grep "$(1)" | head -1 | sed -E 's/.*"(.*)".*/\1/')
 SIGN_ID := $(or $(call find-identity,Developer ID Application),$(call find-identity,Apple Development),-)
 
-.PHONY: all build xcbuild test app run install clean icon bench ios-project ios-build ios-install
+.PHONY: all build xcbuild test app run install clean icon bench emoji ios-project ios-build ios-install
 
 all: app
 
@@ -110,6 +111,26 @@ install: app
 
 clean:
 	@rm -rf .build "$(STAGE)" "$(SCRATCH)" "$(XCODE_DD)"
+
+# The keyboard's emoji lists. The order is read from this Mac's emoji picker, so the Mac must be on
+# the same release as the phone; the names and the sequences come from Unicode and CLDR, fetched
+# into their own folder and read with python3 -I because they are untrusted data. After Apple
+# ships new emoji (usually an x.4 release of iOS and macOS together) and the Mac is updated, run
+# `make emoji UNICODE=<new> CLDR=<new>`; the generator stops if Unicode is behind Apple. The
+# Unicode path is Public/<version>.0/emoji/ for 16 and later.
+UNICODE ?= 17.0
+CLDR ?= 48
+EMOJI_DIR := $(HOME)/Library/Caches/MurmurBuild/emoji/$(UNICODE)-cldr$(CLDR)
+
+emoji:
+	mkdir -p "$(EMOJI_DIR)"
+	curl -fsSL -o "$(EMOJI_DIR)/emoji-test.txt" https://www.unicode.org/Public/$(UNICODE).0/emoji/emoji-test.txt
+	curl -fsSL -o "$(EMOJI_DIR)/annotations-en.xml" https://raw.githubusercontent.com/unicode-org/cldr/release-$(CLDR)/common/annotations/en.xml
+	curl -fsSL -o "$(EMOJI_DIR)/derived-en.xml" https://raw.githubusercontent.com/unicode-org/cldr/release-$(CLDR)/common/annotationsDerived/en.xml
+	swift Tools/apple_emoji_order.swift Tools/apple-emoji-order.txt
+	python3 -I Tools/gen_emoji.py Tools/apple-emoji-order.txt "$(EMOJI_DIR)/emoji-test.txt" \
+		"$(EMOJI_DIR)/annotations-en.xml" "$(EMOJI_DIR)/derived-en.xml" \
+		Sources/MurmurKit/Emoji/EmojiData.swift Sources/MurmurKit/Emoji/EmojiNames.swift
 
 # The iPhone app and its keyboard extension (ios/project.yml). Output stays under
 # ~/Library/Caches like the Mac build. ios-build is unsigned and builds both targets, because

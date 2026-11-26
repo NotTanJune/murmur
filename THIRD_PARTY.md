@@ -61,8 +61,8 @@ the script downloads them and checks their SHA-256.
 | `frequency_dictionary_en_82_765.txt` and `frequency_bigramdictionary_en_243_342.txt` | SymSpell by Wolf Garbe, `github.com/wolfgarbe/SymSpell` | MIT |
 | Word frequencies behind both lists | Google Books Ngram data, http://books.google.com/ngrams | CC BY 3.0 Unported |
 | English vocabulary the unigram list was filtered with | SCOWL (Spell Checker Oriented Word Lists), as the SymSpell README states, http://wordlist.aspell.net/ | Permissive, notice below |
-| Emoji names and keywords in `Sources/MurmurKit/Emoji/EmojiNames.swift`, from the English annotations of CLDR 46 (`common/annotations/en.xml`, `common/annotationsDerived/en.xml`), which the keyboard's emoji search reads | Unicode CLDR, `github.com/unicode-org/cldr` | Unicode License v3 |
-| Emoji list and order in `EmojiData.swift`, from `emoji-test.txt` 16.0 | Unicode Emoji, `unicode.org/Public/emoji/16.0/` | Unicode License v3 |
+| Emoji names and keywords in `Sources/MurmurKit/Emoji/EmojiNames.swift`, from the English annotations of CLDR 48 (`common/annotations/en.xml`, `common/annotationsDerived/en.xml`), which the keyboard's emoji search reads | Unicode CLDR, `github.com/unicode-org/cldr` | Unicode License v3 |
+| Emoji list and order in `EmojiData.swift`, from `emoji-test.txt` 17.0, ordered as this Mac's emoji picker orders them (`Tools/apple-emoji-order.txt`, a list of public Unicode sequences) | Unicode Emoji, `unicode.org/Public/17.0.0/emoji/` | Unicode License v3 |
 
 `training/typing-lm/eval-sentences.tsv`, which only the model evaluation reads and no build
 includes, holds 290 sentences from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each line

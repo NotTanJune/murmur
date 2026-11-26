@@ -194,6 +194,7 @@ final class KeyPlaneView: UIView {
         let label = resolved(DS.Keyboard.keyLabelUIColor)
         switch kind {
         case .character(let text):
+            if state.page == .numberPad, let pad = numberPadGlyph(text, size: size) { return pad }
             let shown = display(text)
             let isLowercase = shown.count == 1 && shown.first.map { $0.isLetter && $0.isLowercase } == true
             // A key that types a word (".com") is labelled like "123", not like a letter. Digits
@@ -226,6 +227,7 @@ final class KeyPlaneView: UIView {
             case .letters: "ABC"
             case .numbers: "123"
             case .symbols: "#+="
+            case .numberPad: ""
             }
             let font = page == .symbols ? DS.Keyboard.symbolsSwitchUIFont : DS.Keyboard.labelUIFont
             return textLayer(title, font: font, color: label, size: size)
@@ -234,6 +236,47 @@ final class KeyPlaneView: UIView {
         case .globe:
             return iconLayer("globe", color: label, size: size)
         }
+    }
+
+    /// The stock letters under each digit of the number pad.
+    private static let numberPadLetters: [String: String] = [
+        "2": "ABC", "3": "DEF", "4": "GHI", "5": "JKL", "6": "MNO", "7": "PQRS", "8": "TUV",
+        "9": "WXYZ",
+    ]
+
+    /// A pad key: the digit in the larger face with its letters under it, or the digit alone
+    /// (1, 0 and the decimal point) centred. Nil for a character the pad has no special look for.
+    private func numberPadGlyph(_ text: String, size: CGSize) -> CALayer? {
+        let rect = CGRect(origin: .zero, size: size)
+        let label = resolved(DS.Keyboard.keyLabelUIColor)
+        let digitFont = DS.Keyboard.numberPadDigitUIFont
+        guard let letters = Self.numberPadLetters[text] else {
+            return textLayer(text, font: digitFont, color: label, size: size)
+        }
+        let container = CALayer()
+        container.frame = rect
+        let digit = CATextLayer()
+        digit.contentsScale = displayScale
+        digit.alignmentMode = .center
+        digit.string = NSAttributedString(
+            string: text, attributes: [.font: digitFont, .foregroundColor: label])
+        digit.frame = textFrame(for: text, font: digitFont, in: rect)
+            .offsetBy(dx: 0, dy: -DS.Keyboard.numberPadDigitLift)
+        let lettersFont = DS.Keyboard.numberPadLettersUIFont
+        let under = CATextLayer()
+        under.contentsScale = displayScale
+        under.alignmentMode = .center
+        under.string = NSAttributedString(
+            string: letters,
+            attributes: [
+                .font: lettersFont, .foregroundColor: label,
+                .kern: DS.Keyboard.numberPadLettersTracking,
+            ])
+        under.frame = textFrame(for: letters, font: lettersFont, in: rect)
+            .offsetBy(dx: DS.Keyboard.numberPadLettersTracking / 2, dy: DS.Keyboard.numberPadLettersDrop)
+        container.addSublayer(digit)
+        container.addSublayer(under)
+        return container
     }
 
     /// A line of text centred in a key. `CATextLayer` does not centre vertically, so the layer
@@ -731,6 +774,7 @@ final class KeyPlaneView: UIView {
             case .letters: "Letters"
             case .numbers: "Numbers"
             case .symbols: "Symbols"
+            case .numberPad: "Number pad"
             }
         case .emoji: "Emoji"
         case .globe: "Next keyboard"

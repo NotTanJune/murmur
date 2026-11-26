@@ -260,76 +260,56 @@ public enum DS {
         /// Distance above the Dock.
         public static let dockOffset: CGFloat = 96
 
-        /// The trace's area in the capsule. It holds whole dots, so the grid is this over `traceDotPitch`.
+        /// The trace's area in the capsule.
         public static let waveformWidth: CGFloat = 124
         public static let waveformHeight: CGFloat = 31
         public static let waveformInterval: TimeInterval = 1.0 / 60.0
         /// With Reduce Motion on the trace redraws less often and its braid stops travelling.
         public static let waveformReducedInterval: TimeInterval = 1.0 / 15.0
 
-        // The voice trace (`VoiceTrace`): a dot matrix with a smooth, flowing liquid body, newest in
-        // the middle, older towards the edges. The keyboard's capsule sets its own pitch
-        // (`Keyboard.traceDotPitch`); the rest is shared.
-        /// Distance between dot centres, here on the Mac.
-        public static let traceDotPitch: CGFloat = 2.8
+        // The voice trace (`VoiceTrace`): one smooth liquid body filled as a single vector shape,
+        // newest in the middle, older towards the edges. The keyboard's capsule shares all of it.
+        // Lengths are in points, so the shape is the same on any width.
+        /// Distance between the outline's samples across the width.
+        public static let traceSampleSpacing: CGFloat = 1
         /// How much history each side shows, in seconds.
         public static let traceSeconds: TimeInterval = 1.0
-        /// The strands of the braid: long, slow ribbons. Each has its own wavelength (columns),
-        /// travel speed (a share of `traceCarrierSpeed`) and start phase, so they cross slowly and
-        /// never line up into a repeating pattern.
-        public static let traceStrandColumns: [Double] = [52, 70, 44]
+        /// The strands: long, slow ribbons. Each has its own wavelength (points), travel speed (a
+        /// share of `traceCarrierSpeed`) and start phase, so they cross slowly and never line up
+        /// into a repeating pattern.
+        public static let traceStrandWavelengths: [Double] = [146, 196, 123]
         public static let traceStrandSpeeds: [Double] = [1.0, 0.7, 1.25]
         public static let traceStrandPhases: [Double] = [0.0, 0.31, 0.64]
         /// The carrier's travel (left to right) in cycles a second, for a strand of speed 1.
         public static let traceCarrierSpeed: Double = 0.2
-        /// Share of the grid's half height a full-voice strand swings through, so the mass leaves
-        /// room for its own width.
+        /// Share of the room a full-voice strand swings through (the room is the half height less
+        /// the loud thickness), so the mass never leaves the view.
         public static let traceReach: Double = 0.9
-        /// How many columns wide the level is blurred across before it shapes the mass (a
-        /// gaussian's sigma), so a syllable is a rounded bulge and never a spike.
-        public static let traceSmoothColumns: Double = 3.5
-        /// A very slow swell along the trace (wavelength in columns, rate in cycles a second) that
-        /// changes each strand's swing and width by up to `traceWritheDepth`.
-        public static let traceWritheColumns: Double = 110
+        /// How far along the trace the level is blurred before it shapes the mass (a gaussian's
+        /// sigma, points), so a syllable is a rounded bulge and never a spike.
+        public static let traceSmoothLength: Double = 10
+        /// The same for the finished edges, which takes out the crease where two strands cross.
+        public static let traceEdgeSmoothLength: Double = 3
+        /// A very slow swell along the trace (wavelength in points, rate in cycles a second) that
+        /// changes each strand's swing and thickness by up to `traceWritheDepth`.
+        public static let traceWritheLength: Double = 308
         public static let traceWritheRate: Double = 0.08
         public static let traceWritheDepth: Double = 0.15
-        /// A strand's glow in rows (a gaussian's sigma) in silence and at full voice. Louder is fatter.
-        public static let traceStrandSigma: Double = 0.8
-        public static let traceLoudSigma: Double = 1.5
-        /// What one strand adds to the field at its centre.
-        public static let traceStrandWeight: Double = 0.5
+        /// A strand's half thickness in points in silence (a hairline of twice this) and at full
+        /// voice. Louder is fatter.
+        public static let traceThinHalf: Double = 0.75
+        public static let traceLoudHalf: Double = 7
         /// The body between the outer strands fills in as the level climbs from the first value to
         /// the second, so a speaking mass is solid. It reaches at least `traceBodyReach` of the
         /// swing either side of the strands' mean, so the strands crossing never pinches it.
         public static let traceBodyFrom: Double = 0.1
         public static let traceBodyTo: Double = 0.5
         public static let traceBodyReach: Double = 0.2
-        /// What the body adds once it is full.
-        public static let traceBodyWeight: Double = 1.0
-        /// The field (the sum of strands plus body) lights a dot from the first value to the second.
-        /// The wider the span, the softer the rim.
-        public static let traceFieldLow: Double = 0.5
-        public static let traceFieldHigh: Double = 1.4
-        /// Dot sizes as shares of the pitch: the dim base grid, a fully lit dot and its halo.
-        public static let traceBaseRadius: CGFloat = 0.24
-        public static let traceLitRadius: CGFloat = 0.45
-        public static let traceHaloRadius: CGFloat = 0.95
-        /// Opacity of an unlit dot, and of the halo on a dot at the mass's edge. A dot deep in the
-        /// mass has only `traceHaloInterior` of it, so the glow sits on the rim.
-        public static let traceBaseOpacity: Double = 0.14
-        public static let traceHaloOpacity: Double = 0.4
-        public static let traceHaloInterior: Double = 0.2
-        /// Brightness is drawn in this many steps, each one path, so a frame costs a few fills.
-        public static let traceLevels = 10
-        /// Brightness below this is not drawn as lit.
-        public static let traceLitThreshold: Double = 0.06
-        /// Brightness at the oldest column against 1 in the middle, and how fast it falls with age.
-        public static let traceEdgeOpacity: Double = 0.55
-        public static let traceFadeExponent: Double = 1.0
-        /// Share of each side, from the edge in, over which the strands close onto the middle row.
+        /// The soft rim: a copy of the shape this many points wider, at this opacity, under it.
+        public static let traceRimWidth: Double = 1.5
+        public static let traceRimOpacity: Double = 0.3
+        /// Share of each side, from the edge in, over which the body closes onto the middle line.
         public static let traceEdgeTaper: Double = 0.4
-        /// The middle row's opacity before audio, against the neutral tint it is drawn in.
-        public static let traceIdleRowOpacity: Double = 1.0
         public static let fadeDuration: TimeInterval = 0.16
     }
 
@@ -445,11 +425,16 @@ public enum DS {
         /// Where less height arrives than the panel asked for, rows are dropped so none is under
         /// `emojiMinCellHeight`, down to `emojiMinRows`; the title and the category bar keep
         /// their sizes.
-        public static let emojiMinCellHeight: CGFloat = 34
+        /// Unit D (keyboard polish): 40 so a 36 pt glyph (about 43 pt of line) is not clipped by its
+        /// cell; a 257 pt keyboard still fits four rows (165 pt for the grid, 165 / 40 = 4).
+        public static let emojiMinCellHeight: CGFloat = 40
         public static let emojiMinRows = 3
         /// Columns in view at once, so a cell is the panel's width over this.
         public static let emojiColumns = 8
-        public static let emojiGlyphSize: CGFloat = 30
+        /// Unit D: was 30; the reviewer calibrates this against a stock screenshot.
+        public static let emojiGlyphSize: CGFloat = 36
+        /// Landscape rows are about 37 pt, so the glyph is smaller there.
+        public static let emojiGlyphSizeCompact: CGFloat = 30
         /// Landscape (compact vertical size class): the key page is 202 pt, which leaves about
         /// 126 pt for the grid, so three rows of about 42 pt keep the glyph at its size where
         /// five would shrink it. The columns widen to match the wider screen.
@@ -485,7 +470,7 @@ public enum DS {
         /// The skin-tone row that floats above an emoji after a long press.
         public static let emojiToneCellWidth: CGFloat = 40
         public static let emojiToneCellHeight: CGFloat = 44
-        public static let emojiToneGlyphSize: CGFloat = 26
+        public static let emojiToneGlyphSize: CGFloat = 31 // Unit D: 26 scaled by 36 / 30
         public static let emojiToneRadius: CGFloat = 10
         public static let emojiToneInset: CGFloat = 4
         public static let emojiLongPress: TimeInterval = 0.4
@@ -517,9 +502,8 @@ public enum DS {
         /// The flat bars on the capsule before the hold has heard audio: soft and clearly visible
         /// on the dark ground, where `inkTertiary` (about 1.9:1 in dark) nearly vanishes. Keyboard only.
         public static let waveformFlat = onTalkKey.opacity(0.5)
-        /// The listening trace in the recording capsule: its dot pitch, and the room it leaves at
-        /// each end of the capsule's flat run (the trailing end meets the m).
-        public static let traceDotPitch: CGFloat = 3.0
+        /// The listening trace in the recording capsule: the room it leaves at each end of the
+        /// capsule's flat run (the trailing end meets the m).
         public static let traceInset: CGFloat = 14
         /// The failure's "Open Murmur" button: the wordmark orange with ink on it.
         public static let talkAction = wordmark
@@ -577,6 +561,13 @@ public enum DS {
         public static let undoChipSpacing: CGFloat = 4
         public static let undoChipIconFont = SwiftUI.Font.system(size: 13, weight: .semibold)
 
+        // Unit A (polish plan 002): the soft pill behind the centre suggestion that the space
+        // bar will apply, as on the stock keyboard.
+        public static let autocorrectPillRadius: CGFloat = 8
+        public static let autocorrectPillInset: CGFloat = 4
+        public static let autocorrectPillStartScale: CGFloat = 0.92
+        public static let autocorrectPillSpring = SwiftUI.Animation.spring(response: 0.28, dampingFraction: 0.86)
+
         // MARK: Pop-ups
         /// The key pop-up is the keycap widened by this factor, drawn above it.
         public static let popupWidthScale: CGFloat = 1.5
@@ -624,6 +615,15 @@ public enum DS {
         /// key's is about 6.7 pt (owner's screenshots, 2026-11-26); at this size its centre
         /// still lands on the key's centre.
         public static let bulletUIFont = UIFont.systemFont(ofSize: 40)
+        // Unit C (plans/002): the number pad's digits, and the letters under 2 to 9.
+        public static let numberPadDigitUIFont = UIFont.systemFont(ofSize: 28, weight: .regular)
+        public static let numberPadLettersUIFont = UIFont.systemFont(ofSize: 10, weight: .semibold)
+        /// Extra space after each letter under a digit, as the stock pad spaces them.
+        public static let numberPadLettersTracking: CGFloat = 1.5
+        /// How far a digit that has letters under it sits above the key's centre, and how far
+        /// below the centre the letters sit.
+        public static let numberPadDigitLift: CGFloat = 7
+        public static let numberPadLettersDrop: CGFloat = 12
         public static let iconPointSize: CGFloat = 19
         #endif
 
@@ -669,6 +669,12 @@ public enum DS {
         public static let touchBackingUIColor = UIColor(white: 0.5, alpha: 0.001)
         /// The hairline between two filled suggestion cells.
         public static let suggestionDivider = SwiftUI.Color(uiColor: .separator)
+        /// Unit A: the pill behind the centre suggestion that the space will apply. White at 16%
+        /// on dark, black at 7% on light.
+        public static let autocorrectPill = SwiftUI.Color(
+            uiColor: UIColor {
+                $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.16) : UIColor(white: 0, alpha: 0.07)
+            })
         /// The key plane's glyphs.
         public static let keyLabelUIColor = UIColor.label
         /// One layer of the swipe trail: the m's orange (`wordmark`), as the owner asked on

@@ -184,7 +184,7 @@ final class KeyboardViewController: UIInputViewController {
         requestSupplementaryLexicon { @Sendable [weak self] lexicon in
             nonisolated(unsafe) let lexicon = lexicon
             Task { @MainActor in
-                self?.typing.setSystemLexicon(lexicon.entries.map(\.documentText))
+                self?.typing.setSystemLexicon(lexicon.entries.map { (shortcut: $0.userInput, phrase: $0.documentText) })
             }
         }
     }

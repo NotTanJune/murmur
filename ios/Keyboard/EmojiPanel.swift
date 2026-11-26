@@ -47,7 +47,8 @@ struct EmojiPanel: View {
                         controller: grid,
                         onSection: { section = $0 },
                         onSelect: { type($0) },
-                        onTones: { emoji, isRecent, anchor in showTones(for: emoji, isRecent: isRecent, anchor: anchor) }
+                        onTones: { emoji, isRecent, anchor in showTones(for: emoji, isRecent: isRecent, anchor: anchor) },
+                        compact: isCompact
                     )
                     categoryBar
                 }

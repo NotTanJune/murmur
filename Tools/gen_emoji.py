@@ -1,54 +1,60 @@
 #!/usr/bin/env python3
 """Generate Sources/MurmurKit/Emoji/EmojiData.swift and EmojiNames.swift.
 
-Inputs, none downloaded by this script (pass the paths of copies you fetched):
-    emoji-test.txt, Unicode emoji 16.0:
-        https://www.unicode.org/Public/emoji/16.0/emoji-test.txt
-    CLDR 46 English annotations (emoji names and keywords), Unicode License v3:
-        https://raw.githubusercontent.com/unicode-org/cldr/release-46/common/annotations/en.xml
-        https://raw.githubusercontent.com/unicode-org/cldr/release-46/common/annotationsDerived/en.xml
+Run it through `make emoji`, which fetches the inputs into ~/Library/Caches/MurmurBuild/emoji/ and
+writes the order file first. Inputs, none downloaded by this script (pass the paths of copies):
+    apple-emoji-order.txt, from `swift Tools/apple_emoji_order.swift`: this Mac's emoji picker
+        order, one line per section (id, tab, emoji separated by spaces).
+    emoji-test.txt, Unicode emoji 17.0:
+        https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt
+    CLDR 48 English annotations (emoji names and keywords), Unicode License v3:
+        https://raw.githubusercontent.com/unicode-org/cldr/release-48/common/annotations/en.xml
+        https://raw.githubusercontent.com/unicode-org/cldr/release-48/common/annotationsDerived/en.xml
 
-    python3 -I Tools/gen_emoji.py <emoji-test.txt> <annotations/en.xml> <annotationsDerived/en.xml> \\
-        Sources/MurmurKit/Emoji/EmojiData.swift Sources/MurmurKit/Emoji/EmojiNames.swift
+    python3 -I Tools/gen_emoji.py Tools/apple-emoji-order.txt <emoji-test.txt> <annotations/en.xml> \\
+        <annotationsDerived/en.xml> Sources/MurmurKit/Emoji/EmojiData.swift Sources/MurmurKit/Emoji/EmojiNames.swift
 
 `EmojiNames.swift` holds, for each base emoji in catalogue order, its CLDR name (the `tts`
 annotation) and keywords, which the keyboard's emoji search reads. The XML is treated as untrusted
 data: it is parsed with the standard library only and a malformed file stops the script.
 
-Base emoji are the fully qualified sequences with no skin-tone modifier, grouped into Apple's
-eight sections. Every base that has single-modifier skin-tone forms (exactly one modifier from
-U+1F3FB to U+1F3FF) records those five forms, light to dark. Sequences that carry two modifiers
-(couples, hand-holding pairs, handshakes with two tones) are left out: their base form still
-appears, with no variants.
+Which emoji are in each section, and in what order, comes from the order file. Each of its
+entries is matched to its fully qualified `emoji-test` sequence (ignoring U+FE0F on both sides)
+and written in that form. An entry `emoji-test` lacks is an error: Apple is ahead of the Unicode
+version passed. `emoji-test` bases Apple does not list (hidden gendered families, for example)
+are left out and counted. Every base that has single-modifier skin-tone forms (exactly one
+modifier from U+1F3FB to U+1F3FF) records those five forms, light to dark. Sequences that carry
+two modifiers (couples, hand-holding pairs, handshakes with two tones) are left out: their base
+form still appears, with no variants.
 """
 import re
 import sys
 import xml.etree.ElementTree as ET
 
-if len(sys.argv) != 6:
-    sys.exit("usage: gen_emoji.py <emoji-test.txt> <annotations.xml> <annotationsDerived.xml> <EmojiData.swift> <EmojiNames.swift>")
-src, annotations_path, derived_path, out, names_out = sys.argv[1:6]
+if len(sys.argv) != 7:
+    sys.exit("usage: gen_emoji.py <apple-emoji-order.txt> <emoji-test.txt> <annotations.xml> <annotationsDerived.xml> <EmojiData.swift> <EmojiNames.swift>")
+order_path, src, annotations_path, derived_path, out, names_out = sys.argv[1:7]
+UNICODE_VERSION = None
 
 ORDER = [
-    ("smileys", "Smileys & People", "face.smiling", ["Smileys & Emotion", "People & Body"]),
-    ("nature", "Animals & Nature", "leaf", ["Animals & Nature"]),
-    ("food", "Food & Drink", "fork.knife", ["Food & Drink"]),
-    ("activity", "Activity", "soccerball", ["Activities"]),
-    ("travel", "Travel & Places", "car", ["Travel & Places"]),
-    ("objects", "Objects", "lightbulb", ["Objects"]),
-    ("symbols", "Symbols", "heart", ["Symbols"]),
-    ("flags", "Flags", "flag", ["Flags"]),
+    ("smileys", "Smileys & People", "face.smiling"),
+    ("nature", "Animals & Nature", "leaf"),
+    ("food", "Food & Drink", "fork.knife"),
+    ("activity", "Activity", "soccerball"),
+    ("travel", "Travel & Places", "car"),
+    ("objects", "Objects", "lightbulb"),
+    ("symbols", "Symbols", "heart"),
+    ("flags", "Flags", "flag"),
 ]
 MODIFIERS = list(range(0x1F3FB, 0x1F400))
 VS16 = 0xFE0F
 
-groups = {}
+bases_by_key = {}  # code points without VS16 -> fully qualified sequence, in file order
 toned = {}  # base key (no VS16) -> {modifier: sequence}
-group = None
 for line in open(src, encoding="utf-8"):
-    m = re.match(r"# group: (.+)", line)
+    m = re.match(r"# Version: (\S+)", line)
     if m:
-        group = m.group(1).strip()
+        UNICODE_VERSION = m.group(1)
         continue
     if not line.strip() or line.startswith("#"):
         continue
@@ -58,7 +64,7 @@ for line in open(src, encoding="utf-8"):
     cps = [int(c, 16) for c in codes.split()]
     used = [c for c in cps if c in MODIFIERS]
     if not used:
-        groups.setdefault(group, []).append(cps)
+        bases_by_key[tuple(c for c in cps if c != VS16)] = cps
     elif len(used) == 1:
         key = tuple(c for c in cps if c not in MODIFIERS and c != VS16)
         toned.setdefault(key, {})[used[0]] = "".join(chr(c) for c in cps)
@@ -69,8 +75,10 @@ def text(cps):
 
 
 lines = [
-    "// Generated by Tools/gen_emoji.py from Unicode emoji-test.txt 16.0",
-    "// (https://www.unicode.org/Public/emoji/16.0/emoji-test.txt). Regenerate; do not edit by hand.",
+    f"// Generated by Tools/gen_emoji.py from Unicode emoji-test.txt {UNICODE_VERSION}",
+    f"// (https://www.unicode.org/Public/{UNICODE_VERSION}.0/emoji/emoji-test.txt) in the order of this Mac's",
+    "// emoji picker (Tools/apple-emoji-order.txt, from Tools/apple_emoji_order.swift). Run `make emoji`;",
+    "// do not edit by hand.",
     "//",
     "// Base emoji are fully qualified and carry no skin tone. `tones` holds, for each base that has",
     "// single-modifier variants, its five toned forms from light to dark. Sequences that take two",
@@ -80,15 +88,33 @@ lines = [
     "enum EmojiData {",
     "    static let categories: [EmojiCatalog.Category] = [",
 ]
+order = {}
+for raw in open(order_path, encoding="utf-8"):
+    if raw.strip():
+        section, _, rest = raw.rstrip("\n").partition("\t")
+        order[section] = rest.split(" ")
+
 total = 0
 bases = {}
-for key, title, symbol, names in ORDER:
-    seqs = [s for n in names for s in groups.get(n, [])]
+listed = set()
+for key, title, symbol in ORDER:
+    seqs = []
+    for entry in order.get(key, []):
+        k = tuple(ord(ch) for ch in entry if ord(ch) != VS16)
+        cps = bases_by_key.get(k)
+        if cps is None:
+            sys.exit(f"Apple has newer emoji than emoji-test.txt; pass a newer Unicode version. Missing: {entry!r} (section {key})")
+        if k in listed:
+            sys.exit(f"{entry!r} appears twice in the order file")
+        listed.add(k)
+        seqs.append(cps)
     total += len(seqs)
-    for s in seqs:
-        bases[tuple(c for c in s if c != VS16)] = text(s)
-    joined = " ".join(text(s) for s in seqs)
+    for s_ in seqs:
+        bases[tuple(c for c in s_ if c != VS16)] = text(s_)
+    joined = " ".join(text(s_) for s_ in seqs)
     lines.append(f'        EmojiCatalog.Category(id: "{key}", title: "{title}", symbol: "{symbol}", emoji: "{joined}".split(separator: " ").map(String.init)),')
+omitted = [k for k in bases_by_key if k not in listed]
+print(f"Unicode {UNICODE_VERSION}: {len(bases_by_key)} emoji-test bases, {len(omitted)} not listed by Apple and left out")
 lines += ["    ]", ""]
 
 entries = []
@@ -148,7 +174,7 @@ for base in bases.values():
     named.append(f"{base}\t{clean(name)}\t{'|'.join(clean(w) for w in words)}")
 
 names_lines = [
-    "// Generated by Tools/gen_emoji.py from the CLDR 46 English annotations",
+    "// Generated by Tools/gen_emoji.py from the CLDR 48 English annotations",
     "// (common/annotations/en.xml and common/annotationsDerived/en.xml, Unicode License v3, see",
     "// THIRD_PARTY.md). Regenerate; do not edit by hand.",
     "",

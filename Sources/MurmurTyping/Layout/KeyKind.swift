@@ -6,6 +6,9 @@ public enum Page: Hashable, Sendable, CaseIterable {
     case letters
     case numbers
     case symbols
+    /// The stock 3 x 4 pad that number and decimal fields open on. No key switches to it or
+    /// away from it, so it is not in the `123` and `ABC` cycle.
+    case numberPad
 }
 
 /// What a key does. Layout and touch handling both speak in these, so the layout can be tested

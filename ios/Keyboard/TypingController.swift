@@ -55,6 +55,10 @@ final class TypingController {
     /// cell is the undo chip with this word. Nil when no offer is live.
     private(set) var undoChip: String?
 
+    /// The strip cell holding the word the space bar will apply (1, the centre), or nil when no
+    /// correction or text replacement is pending. Published with `suggestions`, so the two agree.
+    private(set) var autocorrectSlot: Int?
+
     /// The best reading of the swipe in progress, for the strip's centre cell. Nil when no swipe is
     /// under way or the decoder has no reading yet. While it is set the strip shows only this.
     private(set) var swipePreview: String?
@@ -121,14 +125,11 @@ final class TypingController {
     /// The taps of the word being typed. Emptied on a space or mark, a cursor move, anything typed
     /// by something other than a letter key, and whenever the field's word is not what was typed.
     @ObservationIgnored private var tracker = WordTapTracker()
-    /// The replacement the owner may take back, from the autocorrect until the next edit. The
-    /// strip shows the chip once the first delete has removed the space.
-    @ObservationIgnored private var undo: UndoOffer? {
-        didSet {
-            let chip = undo?.isShown == true ? undo?.original : nil
-            if chip != undoChip { undoChip = chip }
-        }
-    }
+    /// What autocorrect and text replacements changed lately. `refreshText` offers the original
+    /// again whenever the cursor sits at the end of a word that still reads as the replacement.
+    @ObservationIgnored private var history = CorrectionHistory()
+    /// The owner's Text Replacement entries, from the system lexicon.
+    @ObservationIgnored private var replacements = TextReplacements.empty
     /// The letters page's frames in the engine's coordinates, whatever page shows: the decoder
     /// measures every tap against these.
     @ObservationIgnored private var lettersFrames: [KeyFrame] = []
@@ -327,7 +328,8 @@ final class TypingController {
         refreshLexicon(force: true)
         readTraits()
         resetFieldState()
-        engine.setPage(traits.keyboardKind == .number ? .numbers : .letters)
+        engine.setPage(
+            traits.keyboardKind == .number || traits.keyboardKind == .decimal ? .numberPad : .letters)
         engine.setShift(.off)
         stateIsDirty = true
         refreshText()
@@ -337,7 +339,6 @@ final class TypingController {
     /// The keyboard went away: drop what belongs to the last field's typing.
     func keyboardDisappeared() {
         if searchSink != nil { onSearchAbandoned() }
-        undo = nil
         tracker.reset()
         cancelLiveSwipe()
         swipeOffer = nil
@@ -374,7 +375,6 @@ final class TypingController {
     /// into it (each is dropped here and cannot start while the sink is set).
     func beginSearch(_ sink: @escaping (SearchKey) -> Void) {
         searchSink = sink
-        undo = nil
         swipeOffer = nil
         tracker.reset()
         pending.disarm()
@@ -439,9 +439,9 @@ final class TypingController {
         pending.disarm()
         lastSpaceTime = nil
         autoShifted = false
-        // Taps and an undo offer belong to the text of the last field.
+        // Taps and the correction history belong to the text of the last field.
         tracker.reset()
-        undo = nil
+        history.clear()
         swipeOffer = nil
     }
 
@@ -482,7 +482,8 @@ final class TypingController {
         switch type {
         case .URL?: .url
         case .emailAddress?: .email
-        case .numberPad?, .decimalPad?, .asciiCapableNumberPad?: .number
+        case .numberPad?, .asciiCapableNumberPad?: .number
+        case .decimalPad?: .decimal
         case .phonePad?, .namePhonePad?: .phone
         case .webSearch?: .webSearch
         default: .default
@@ -546,23 +547,19 @@ final class TypingController {
                 typeInsert(text, tap: tap)
                 textChanged = true
             case .deleteBackward(let count):
-                // The one delete that follows a replacement keeps its offer (and shows it);
-                // anything else ends it. The taps of the word lose the letters deleted.
-                // A delete after a swipe takes one character, like any other delete: the owner
-                // asked for that over deleting the whole word (2026-11-25). It ends the offer.
+                // The taps of the word lose the letters deleted. A delete after a swipe takes
+                // one character, like any other delete: the owner asked for that over deleting
+                // the whole word (2026-11-25).
                 swipeOffer = nil
-                undo = undo?.afterDelete(count: count)
                 tracker.dropLast(count)
                 deleteBackward(count)
                 textChanged = true
             case .deleteWordBackward:
-                undo = nil
                 swipeOffer = nil
                 tracker.reset()
                 deleteWordBackward()
                 textChanged = true
             case .moveCursor(let offset):
-                undo = nil
                 swipeOffer = nil
                 tracker.reset()
                 proxy()?.adjustTextPosition(byCharacterOffset: offset)
@@ -625,10 +622,8 @@ final class TypingController {
 
     /// One typed string. A single character goes through the rules; anything longer (an accent
     /// the engine already cased, a double-space replacement) goes in as it is. `tap` is where a
-    /// letter key lifted: the word's taps, for autocorrect. Any key but a delete ends an undo
-    /// offer; the autocorrect this key may cause starts a new one.
+    /// letter key lifted: the word's taps, for autocorrect.
     private func typeInsert(_ text: String, tap: CGPoint?) {
-        undo = nil
         // A swiped word is the last thing typed until this key; it is owed a space, which a letter
         // claims below and anything else leaves alone.
         let owed = swipeOffer
@@ -728,6 +723,17 @@ final class TypingController {
             lastSpaceTime = nil
             return
         }
+        // A text replacement's shortcut ("addr") expands before autocorrect looks at the word,
+        // which never changes it: the shortcuts are system words.
+        if finishesWord, isProseField, !replacements.isEmpty,
+            proxy.documentContextAfterInput?.first?.isLetter != true,
+            let match = replacements.expansion(forTextBefore: before)
+        {
+            expand(match, textBefore: before, proxy: proxy)
+            proxy.insertText(" ")
+            lastSpaceTime = time
+            return
+        }
         if finishesWord {
             before = finishWord(before: before, terminator: " ")
             if textRulesApply, autoCapitals, let fix = TextRules.standaloneI(before: before, typed: " ") {
@@ -739,6 +745,17 @@ final class TypingController {
     }
 
     // MARK: - Autocorrect
+
+    /// Types a text replacement's phrase in place of its shortcut and remembers the pair, so the
+    /// strip offers the shortcut back like any corrected word.
+    private func expand(_ match: TextReplacements.Match, textBefore: String, proxy: UITextDocumentProxy) {
+        for _ in 0..<match.shortcut.count { proxy.deleteBackward() }
+        proxy.insertText(match.phrase)
+        history.record(
+            original: match.shortcut, replacement: match.phrase,
+            textBeforeWord: String(textBefore.dropLast(match.shortcut.count)))
+        tracker.reset()
+    }
 
     /// A space or closing mark is about to be typed: the word before the cursor ends. Decodes its
     /// taps, asks the policy, and on a replacement deletes the word and types the fix in its
@@ -756,16 +773,21 @@ final class TypingController {
             textBefore: String(before.suffix(Self.contextLimit)), tracker: tracker, field: traits)
         guard let result, let replacement = result.replacement else { return before }
 
-        var typed = smartApostrophes(replacement.text)
-        // "im" becomes "I'm" by the contraction rule; with auto-capitalisation off a word typed
-        // in lowercase keeps its lowercase start ("i'm").
-        if !autoCapitals, result.word.text == result.word.text.lowercased(), let first = typed.first, first.isUppercase {
-            typed = first.lowercased() + typed.dropFirst()
-        }
+        let typed = smartApostrophes(
+            Self.casedReplacement(replacement.text, typedWord: result.word.text, autoCapitals: autoCapitals))
         for _ in 0..<result.word.text.count { proxy.deleteBackward() }
         proxy.insertText(typed)
-        undo = UndoOffer(original: result.word.text, replacement: typed, terminator: terminator)
+        history.record(original: result.word.text, replacement: typed, textBeforeWord: result.word.textBeforeWord)
         return result.word.textBeforeWord + typed
+    }
+
+    /// "im" becomes "I'm" by the contraction rule; with auto-capitalisation off a word typed in
+    /// lowercase keeps its lowercase start ("i'm"). The space and the strip's pill both use it.
+    nonisolated static func casedReplacement(_ text: String, typedWord: String, autoCapitals: Bool) -> String {
+        guard !autoCapitals, typedWord == typedWord.lowercased(), let first = text.first, first.isUppercase else {
+            return text
+        }
+        return first.lowercased() + text.dropFirst()
     }
 
     /// The model stores a straight apostrophe; with smart quotes on the field gets the curly one.
@@ -776,15 +798,18 @@ final class TypingController {
     /// The strip's leading chip: puts the original word back in place of the replacement, with
     /// no space, and refuses that fix for the session (`RejectionSet.recordUndo`).
     func chooseUndo() {
-        guard let offer = undo, let proxy = proxy() else { return }
+        guard let proxy = proxy() else { return }
         KeyFeedback.press()
         let before = proxy.documentContextBeforeInput ?? ""
-        if offer.isConsistent(with: before) {
-            for _ in 0..<offer.restoreDeleteCount { proxy.deleteBackward() }
-            proxy.insertText(offer.original)
-            autocorrector?.recordUndo(offer)
+        let after = proxy.documentContextAfterInput?.first
+        // The field is read again: the entry stands only if it still offers at this cursor.
+        if let entry = history.offer(textBefore: before, nextCharacter: after) {
+            for _ in 0..<entry.replacement.count { proxy.deleteBackward() }
+            proxy.insertText(entry.original)
+            autocorrector?.recordUndo(
+                UndoOffer(original: entry.original, replacement: entry.replacement, terminator: ""))
+            history.remove(entry)
         }
-        undo = nil
         swipeOffer = nil
         tracker.reset()
         pending.disarm()
@@ -804,8 +829,17 @@ final class TypingController {
     }
 
     /// The system's supplementary lexicon (`requestSupplementaryLexicon`: contact names and text
-    /// replacements) arrived: its `documentText`s protect those words and pull near misses.
-    func setSystemLexicon(_ words: [String]) {
+    /// replacements) arrived as (`userInput`, `documentText`) pairs. A pair whose sides are the
+    /// same word is a contact's name: a system word. Any other pair is a text replacement: its
+    /// shortcut is a system word, so autocorrect never changes "addr" to "add", and its phrase is
+    /// not (a whole address is not a word).
+    func setSystemLexicon(_ pairs: [(shortcut: String, phrase: String)]) {
+        replacements = TextReplacements(pairs: pairs)
+        var words: [String] = []
+        for pair in pairs where UserLexicon.fold(pair.shortcut) == UserLexicon.fold(pair.phrase) {
+            words.append(pair.phrase)
+        }
+        words += replacements.shortcuts
         var seen = Set<String>()
         systemWords = words.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(Self.systemWordLimit).map { $0 }
         refreshLexicon(force: true)
@@ -905,7 +939,6 @@ final class TypingController {
     func insertExternal(_ text: String) {
         pending.disarm()
         lastSpaceTime = nil
-        undo = nil
         swipeOffer = nil
         tracker.reset()
         proxy()?.insertText(text)
@@ -914,7 +947,6 @@ final class TypingController {
     }
 
     func deleteExternal() {
-        undo = nil
         swipeOffer = nil
         tracker.reset()
         deleteBackward(1)
@@ -926,7 +958,6 @@ final class TypingController {
     func noteDictationInserted() {
         pending.disarm()
         lastSpaceTime = nil
-        undo = nil
         swipeOffer = nil
         tracker.reset()
         textChangedByKeys()
@@ -993,10 +1024,12 @@ final class TypingController {
         guard let proxy = proxy() else { return }
         let before = proxy.documentContextBeforeInput ?? ""
         let after = proxy.documentContextAfterInput
-        // The host (or anything else) may have changed the text behind our edits: taps and an
-        // undo offer survive only while the field still reads the way we left it.
+        // The host (or anything else) may have changed the text behind our edits: taps survive
+        // only while the field still reads the way we left it.
         if !tracker.isEmpty, !tracker.isConsistent(with: before) { tracker.reset() }
-        if let offer = undo, !offer.isConsistent(with: before) { undo = nil }
+        // The original of a replaced word is offered wherever the cursor sits at its end.
+        let entry = swipeOffer == nil ? history.offer(textBefore: before, nextCharacter: after?.first) : nil
+        if entry?.original != undoChip { undoChip = entry?.original }
         if let offer = swipeOffer, !offer.isConsistent(with: before) { swipeOffer = nil }
         recomputeAutoShift(before: before)
         if let model {
@@ -1083,10 +1116,12 @@ final class TypingController {
         if let offer = swipeOffer, !offer.alternatives.isEmpty {
             let cells = SwipeInsertion.stripCells(for: offer)
             if cells != suggestions { suggestions = cells }
+            if autocorrectSlot != nil { autocorrectSlot = nil }
             return
         }
         guard suggestionsAllowed, let model, after?.first?.isLetter != true else {
             if !suggestions.isEmpty { suggestions = [] }
+            if autocorrectSlot != nil { autocorrectSlot = nil }
             return
         }
         refreshLexicon()
@@ -1121,6 +1156,7 @@ final class TypingController {
         let latest = suggestionGeneration
         let prediction = self.prediction
         let capitalisesStarts = autoCapitals
+        let replacements = isProseField ? self.replacements : TextReplacements.empty
         suggestionQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard latest.withLock({ $0 }) == generation else { return }
             let answer = prediction.withLock { $0 }
@@ -1128,17 +1164,41 @@ final class TypingController {
                 before: tail, model: model, prediction: answer, capitalisesStarts: capitalisesStarts)
             // Mid-word, a confident correction takes the centre cell, the typed word stays on
             // the left in quotes, and one completion stays on the right. The evaluation is the
-            // one the word's end will make.
-            if next.first?.kind == .typed,
-                let fix = autocorrector?.evaluate(textBefore: tail, tracker: tracker, field: field)?.stripCorrection
+            // one the word's end will make, so whatever the space will type is the pending word:
+            // it is merged into the centre even when it only extends the typed letters, and the
+            // strip marks it with a pill. A text replacement's phrase is pending the same way.
+            var slot: Int?
+            if let match = replacements.expansion(forTextBefore: tail) {
+                // The shortcut may hold digits or marks the strip's word rules do not read, so
+                // the cells are built here: the shortcut as typed, its phrase in the centre.
+                next = [
+                    Suggestion(text: match.shortcut, kind: .typed), Suggestion(text: match.phrase, kind: .correction),
+                ]
+                slot = 1
+            } else if next.first?.kind == .typed,
+                let evaluation = autocorrector?.evaluate(textBefore: tail, tracker: tracker, field: field),
+                let fix = evaluation.replacement
             {
-                next = SuggestionEngine.merging(correction: fix, into: next)
+                let word = Self.casedReplacement(
+                    fix.text, typedWord: evaluation.word.text, autoCapitals: capitalisesStarts)
+                if next.count > 1, next[1].text.lowercased() == word.lowercased() {
+                    next[1] = Suggestion(text: word, kind: .correction)
+                    slot = 1
+                } else {
+                    let merged = SuggestionEngine.merging(correction: word, into: next)
+                    if merged != next {
+                        next = merged
+                        slot = 1
+                    }
+                }
             }
             let result = next
+            let pillSlot = slot
             Task { @MainActor [weak self] in
                 guard let self, self.suggestionGeneration.withLock({ $0 }) == generation else { return }
                 self.stripShownGeneration = generation
                 if result != self.suggestions { self.suggestions = result }
+                if pillSlot != self.autocorrectSlot { self.autocorrectSlot = pillSlot }
             }
         }
     }
@@ -1194,9 +1254,21 @@ final class TypingController {
         }
         swipeOffer = nil
         KeyFeedback.press()
-        undo = nil
         tracker.reset()
         let before = proxy.documentContextBeforeInput ?? ""
+        // A text replacement's phrase in the centre cell: the shortcut is swapped for it, which
+        // the generic edit cannot do (a shortcut may hold digits or marks).
+        if suggestion.kind == .correction, isProseField, let match = replacements.expansion(forTextBefore: before),
+            match.phrase == suggestion.text
+        {
+            expand(match, textBefore: before, proxy: proxy)
+            proxy.insertText(" ")
+            pending.noteSuggestionInserted(at: now)
+            lastSpaceTime = nil
+            textChangedByKeys()
+            flushState()
+            return
+        }
         if suggestion.kind == .typed, textRulesApply, autoCapitals,
             let fix = TextRules.standaloneI(before: before, typed: " ")
         {
@@ -1225,7 +1297,7 @@ final class TypingController {
             !traits.isSecure
         else { return false }
         switch traits.keyboardKind {
-        case .number, .phone: return false
+        case .number, .decimal, .phone: return false
         case .default, .webSearch, .url, .email: return true
         }
     }
@@ -1314,7 +1386,6 @@ final class TypingController {
     private func swipeEnded(path: [CGPoint], times: [TimeInterval]) -> Bool {
         plane?.setSwipePath([])
         cancelLiveSwipe()
-        undo = nil
         tracker.reset()
         guard let proxy = proxy(), let decoder = swipeDecoder, let model else { return false }
         refreshLexicon()
@@ -1357,7 +1428,6 @@ final class TypingController {
         }
         proxy.insertText((needsSpace ? " " : "") + readings[0])
         swipeOffer = SwipeOffer(readings: readings)
-        undo = nil
         pending.disarm()
         lastSpaceTime = nil
         if engine.spendShiftAfterSwipe() {
@@ -1381,7 +1451,6 @@ final class TypingController {
         for _ in 0..<offer.word.count { proxy.deleteBackward() }
         proxy.insertText(next.word)
         swipeOffer = next
-        undo = nil
         tracker.reset()
         pending.disarm()
         lastSpaceTime = nil

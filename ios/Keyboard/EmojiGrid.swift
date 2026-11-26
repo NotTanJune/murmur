@@ -31,6 +31,8 @@ struct EmojiGrid: UIViewRepresentable {
     /// Changes when `categories` holds different emoji (search results), which reloads the grid
     /// and returns it to the start. The panel's own grid never changes it: it is read once.
     var reloadToken = 0
+    /// The compact (landscape) layout, whose rows are shorter, so its glyphs are smaller.
+    var compact = false
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -231,6 +233,7 @@ struct EmojiGrid: UIViewRepresentable {
 
         private func configure(_ cell: EmojiCell, at path: IndexPath) {
             let emoji = shown(at: path)
+            cell.setGlyphSize(parent.compact ? DS.Keyboard.emojiGlyphSizeCompact : DS.Keyboard.emojiGlyphSize)
             cell.show(emoji)
             cell.onActivate = { [weak self] in self?.parent.onSelect(emoji) }
             if parent.onTones != nil, hasTones(at: path) {
@@ -329,6 +332,11 @@ private final class EmojiCell: UICollectionViewCell {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func setGlyphSize(_ size: CGFloat) {
+        guard label.font.pointSize != size else { return }
+        label.font = .systemFont(ofSize: size)
+    }
 
     func show(_ emoji: String) {
         guard label.text != emoji else { return }

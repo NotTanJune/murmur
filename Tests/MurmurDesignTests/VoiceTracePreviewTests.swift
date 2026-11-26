@@ -51,7 +51,6 @@ struct VoiceTracePreviewTests {
 
         struct Frame: View {
             let moment: Moment?
-            let pitch: CGFloat
             let areaWidth: CGFloat
             let areaHeight: CGFloat
             let capsuleWidth: CGFloat
@@ -60,14 +59,14 @@ struct VoiceTracePreviewTests {
             let idleTint: Color
 
             var body: some View {
-                let grid = VoiceTrace.Grid(size: CGSize(width: areaWidth, height: areaHeight), pitch: pitch)
-                Canvas { context, _ in
+                Canvas { context, size in
+                    let count = Int((size.width / 2 / DS.HUD.traceSampleSpacing).rounded(.up)) + 1
                     let amplitudes = moment.map {
-                        $0.source.amplitudes(count: grid.middleColumn + 1, seconds: DS.HUD.traceSeconds, at: $0.time)
+                        $0.source.amplitudes(count: count, seconds: DS.HUD.traceSeconds, at: $0.time)
                     } ?? []
                     VoiceTrace.draw(
                         amplitudes: amplitudes,
-                        grid: grid,
+                        size: size,
                         style: .init(tint: DS.Color.record, idleTint: idleTint, reduceMotion: false, time: moment?.time ?? 0),
                         in: &context
                     )
@@ -86,13 +85,13 @@ struct VoiceTracePreviewTests {
                 let phoneHeight: CGFloat = DS.Keyboard.recordingCapsuleHeight
                 HStack(spacing: DS.HUD.margin) {
                     Frame(
-                        moment: moment, pitch: DS.HUD.traceDotPitch,
+                        moment: moment,
                         areaWidth: DS.HUD.waveformWidth, areaHeight: DS.HUD.waveformHeight,
                         capsuleWidth: DS.HUD.width, capsuleHeight: DS.HUD.height,
                         background: DS.Color.hud, idleTint: DS.Color.record
                     )
                     Frame(
-                        moment: moment, pitch: DS.Keyboard.traceDotPitch,
+                        moment: moment,
                         areaWidth: phoneWidth - 2 * phoneInset, areaHeight: phoneHeight,
                         capsuleWidth: phoneWidth, capsuleHeight: phoneHeight,
                         background: Color(.sRGB, red: 0x4A / 255, green: 0x3A / 255, blue: 0x2E / 255), idleTint: DS.Keyboard.waveformFlat
@@ -121,6 +120,6 @@ struct VoiceTracePreviewTests {
         let tiff = try #require(image.tiffRepresentation)
         let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("voice-trace-dots.png"))
+        try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("voice-trace.png"))
     }
 }

@@ -27,6 +27,13 @@ public struct KeyboardLayout: Sendable {
                 [.pageSwitch(.symbols)] + characters(". , ? ! '") + [.delete],
                 bottomRow(switching: .letters, showsGlobe: showsGlobe),
             ]
+        case .numberPad:
+            return [
+                characters("1 2 3"),
+                characters("4 5 6"),
+                characters("7 8 9"),
+                numberPadBottomRow(showsGlobe: showsGlobe, field: field),
+            ]
         case .symbols:
             return [
                 characters("[ ] { } # % ^ * + ="),
@@ -35,6 +42,19 @@ public struct KeyboardLayout: Sendable {
                 bottomRow(switching: .letters, showsGlobe: showsGlobe),
             ]
         }
+    }
+
+    /// The pad's bottom row: `.` (decimal fields) or the globe on the left, then `0` and delete.
+    /// With neither, the left slot is empty, so the row holds two keys and `KeyboardMetrics`
+    /// seats them in the middle and right columns.
+    private static func numberPadBottomRow(showsGlobe: Bool, field: FieldKeyboardKind) -> [KeyKind] {
+        var row: [KeyKind] = []
+        if field == .decimal {
+            row.append(.character("."))
+        } else if showsGlobe {
+            row.append(.globe)
+        }
+        return row + [.character("0"), .delete]
     }
 
     /// Character keys from a space separated list, so the rows above read like the keyboard.
@@ -57,7 +77,7 @@ public struct KeyboardLayout: Sendable {
         case .email: row.append(contentsOf: [.space] + characters("@ ."))
         case .url: row.append(contentsOf: characters(". / .com"))
         case .webSearch: row.append(contentsOf: [.space] + characters("."))
-        case .default, .number, .phone: row.append(.space)
+        case .default, .number, .decimal, .phone: row.append(.space)
         }
         row.append(.return)
         return row

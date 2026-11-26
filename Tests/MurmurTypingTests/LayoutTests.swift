@@ -122,6 +122,7 @@ import Testing
                     case .pageSwitch(.letters): "ABC"
                     case .pageSwitch(.numbers): "123"
                     case .pageSwitch(.symbols): "#+="
+                    case .pageSwitch(.numberPad): "pad"
                     case .emoji: "emoji"
                     case .globe: "globe"
                     }

@@ -126,12 +126,28 @@ struct SuggestionStrip: View {
                     .padding(.horizontal, DS.Keyboard.suggestionInset)
                     .offset(y: DS.Keyboard.suggestionTextOffset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background { if slot == 1 { autocorrectPill } }
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
+    }
+
+    /// The soft pill behind the centre word that the space bar will apply. It animates on
+    /// appearing and leaving only; the text inside changes without animation, so a correction
+    /// that stays pending through more keystrokes does not pulse.
+    private var autocorrectPill: some View {
+        ZStack {
+            if typing.autocorrectSlot == 1 {
+                RoundedRectangle(cornerRadius: DS.Keyboard.autocorrectPillRadius, style: .continuous)
+                    .fill(DS.Keyboard.autocorrectPill)
+                    .padding(DS.Keyboard.autocorrectPillInset)
+                    .transition(.opacity.combined(with: .scale(scale: DS.Keyboard.autocorrectPillStartScale)))
+            }
+        }
+        .animation(DS.Keyboard.autocorrectPillSpring, value: typing.autocorrectSlot != nil)
     }
 
     /// The word the keyboard just replaced, in the left cell as on the stock keyboard, with an
@@ -322,13 +338,12 @@ private struct RecordControl: View {
     @ViewBuilder private var capsuleContent: some View {
         switch dictation.state {
         case .recording:
-            // A flat neutral row of dots until the hold has audio, then the red braided trace, so
+            // A flat neutral hairline until the hold has audio, then the red liquid trace, so
             // the trace never claims a microphone that is not yet hearing.
             VoiceTrace(
                 source: dictation.voiceTrace,
                 isActive: dictation.heardAudio,
-                idleTint: DS.Keyboard.waveformFlat,
-                pitch: DS.Keyboard.traceDotPitch
+                idleTint: DS.Keyboard.waveformFlat
             )
             .padding(.horizontal, DS.Keyboard.traceInset)
         case .finishing:

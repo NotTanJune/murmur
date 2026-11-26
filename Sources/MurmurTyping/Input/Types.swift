@@ -24,6 +24,8 @@ public enum FieldKeyboardKind: Hashable, Sendable {
     case url
     case email
     case number
+    /// A decimal pad: the number pad with a `.` where the globe would sit.
+    case decimal
     case phone
     case webSearch
 }

@@ -211,7 +211,7 @@ public enum AutocorrectPolicy {
         guard field.autocorrectionAllowed, field.spellCheckingAllowed, !field.isSecure else { return false }
         switch field.keyboardKind {
         case .default, .webSearch: return true
-        case .url, .email, .number, .phone: return false
+        case .url, .email, .number, .decimal, .phone: return false
         }
     }
 

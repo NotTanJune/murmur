@@ -116,7 +116,15 @@ public struct TypingEngine: Sendable {
 
     // MARK: - State
 
-    public private(set) var page: Page
+    public private(set) var page: Page {
+        // Any change of page, even to the same one, ends the "typed on this page" run that
+        // lets space go back to letters.
+        didSet { typedOnSymbolPage = false }
+    }
+
+    /// A character was typed since the numbers or symbols page appeared; the next space then
+    /// returns to letters, as on the stock keyboard. Space with nothing typed stays on the page.
+    private var typedOnSymbolPage = false
     public private(set) var shift: ShiftState
     /// The frames of the current page, as the view draws them.
     public private(set) var frames: [KeyFrame] = []
@@ -303,7 +311,9 @@ public struct TypingEngine: Sendable {
     }
 
     private mutating func recomputeFrames() {
-        frames = metrics.frames(for: KeyboardLayout.rows(for: page, showsGlobe: showsGlobe, field: field))
+        frames = metrics.frames(
+            for: KeyboardLayout.rows(for: page, showsGlobe: showsGlobe, field: field),
+            isNumberPad: page == .numberPad)
         if page == .letters { letterPitch = Self.pitch(of: frames) }
     }
 
@@ -359,13 +369,14 @@ public struct TypingEngine: Sendable {
         switch frame.kind {
         case .character:
             touch.role = .character
-            touch.popup = frame.kind
+            // The number pad's keys are big and have no pop-up.
+            touch.popup = page == .numberPad ? nil : frame.kind
             if swipeEnabled, page == .letters, letterPitch > 0 {
                 touch.swipeCandidate = true
                 touch.path = [point]
                 touch.times = [time]
             }
-            out.append(.showPopup(frame.kind, alternates: [], selected: nil))
+            if page != .numberPad { out.append(.showPopup(frame.kind, alternates: [], selected: nil)) }
         case .delete:
             touch.role = .delete
             out.append(.deleteBackward(count: 1))
@@ -507,7 +518,7 @@ public struct TypingEngine: Sendable {
         guard var touch = touches[id] else { return }
         switch touch.role {
         case .character:
-            if touch.accents == nil, !touch.isSwiping, let key = touch.currentKey,
+            if page != .numberPad, touch.accents == nil, !touch.isSwiping, let key = touch.currentKey,
                 case .character(let text) = key.kind,
                 time - touch.keyEnteredAt + Self.epsilon >= Self.accentHoldDelay
             {
@@ -592,7 +603,7 @@ public struct TypingEngine: Sendable {
         touch.currentKey = key
         if let key { touch.lastKey = key }
         touch.keyEnteredAt = time
-        if let key, case .character = key.kind {
+        if page != .numberPad, let key, case .character = key.kind {
             touch.popup = key.kind
             out.append(.showPopup(key.kind, alternates: [], selected: nil))
         } else if touch.popup != nil {
@@ -729,6 +740,7 @@ public struct TypingEngine: Sendable {
     ) {
         out.append(.insert(text, tap: tap))
         lastShiftTapDown = nil
+        if page == .numbers || page == .symbols { typedOnSymbolPage = true }
         if page == .letters, shift == .on, !touches.values.contains(where: { $0.role == .shift }) {
             shift = .off
             out.append(.setShift(.off))
@@ -738,6 +750,13 @@ public struct TypingEngine: Sendable {
     private mutating func typeSpace(into out: inout [TypingEffect]) {
         out.append(.insert(" ", tap: nil))
         lastShiftTapDown = nil
+        // A space after something typed on the numbers or symbols page goes back to letters in
+        // the same batch, so the plane has switched before the next touch.
+        if typedOnSymbolPage, page == .numbers || page == .symbols {
+            page = .letters
+            recomputeFrames()
+            out.append(.setPage(.letters))
+        }
     }
 
     private func casedForShift(_ text: String) -> String {

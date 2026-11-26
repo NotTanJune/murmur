@@ -154,17 +154,26 @@ public struct KeyboardMetrics: Sendable {
     /// The one overlap is the space bar, which reaches `spaceHitReach` up into the row above;
     /// `HitTester` gives the space bar the touch there, because the thumb that hits the
     /// bottom edge of the row above is far likelier to be aiming at the space bar below.
-    public func frames(for rows: [[KeyKind]]) -> [KeyFrame] {
+    ///
+    /// `isNumberPad` seats every row in three equal columns across the full width; a row with
+    /// fewer than three keys (the pad's bottom row without a globe or `.`) fills the right-hand
+    /// columns and leaves the left one empty. The rows, gaps and height are the other pages'.
+    public func frames(for rows: [[KeyKind]], isNumberPad: Bool = false) -> [KeyFrame] {
         var result: [KeyFrame] = []
         for (rowIndex, row) in rows.enumerated() {
-            let keycaps = keycapRects(for: row, top: keycapTop(row: rowIndex))
+            let keycaps = isNumberPad
+                ? numberPadRects(count: row.count, top: keycapTop(row: rowIndex))
+                : keycapRects(for: row, top: keycapTop(row: rowIndex))
             let isLast = rowIndex == rows.count - 1
             let top = rowIndex == 0 ? constants.stripHeight : keycapTop(row: rowIndex) - constants.rowGap / 2
             let bottom = isLast
                 ? keycapTop(row: rowIndex) + constants.keycapHeight + constants.bottomInset
                 : keycapTop(row: rowIndex) + constants.keycapHeight + constants.rowGap / 2
             for (index, keycap) in keycaps.enumerated() {
-                let left = index == 0 ? 0 : (keycaps[index - 1].maxX + keycap.minX) / 2
+                // The pad's empty bottom-left slot is not part of the first key's touch area.
+                let leadingEdge = isNumberPad && keycap.minX > constants.sideInset + 1
+                    ? keycap.minX - constants.keyGap / 2 : 0
+                let left = index == 0 ? leadingEdge : (keycaps[index - 1].maxX + keycap.minX) / 2
                 let right = index == keycaps.count - 1
                     ? width : (keycap.maxX + keycaps[index + 1].minX) / 2
                 var hitTop = top
@@ -180,6 +189,18 @@ public struct KeyboardMetrics: Sendable {
     }
 
     // MARK: - Row widths
+
+    /// The number pad's keycaps: three equal columns between the side insets. A row of fewer
+    /// than three keys takes the rightmost columns, so `0` and delete keep their places.
+    private func numberPadRects(count: Int, top: CGFloat) -> [CGRect] {
+        let columns: CGFloat = 3
+        let keyWidth = (width - 2 * constants.sideInset - (columns - 1) * constants.keyGap) / columns
+        let firstColumn = Int(columns) - count
+        return (0..<count).map { index in
+            let x = constants.sideInset + CGFloat(firstColumn + index) * (keyWidth + constants.keyGap)
+            return CGRect(x: x, y: top, width: keyWidth, height: constants.keycapHeight)
+        }
+    }
 
     /// The keycaps of one row, left to right. Three shapes of row exist, told apart by their
     /// content so the layout needs no per-page table: the bottom row (it ends with return),
