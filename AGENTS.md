@@ -553,10 +553,15 @@ is not downloaded, Apple's transcriber takes the hold, as `Utterance.standIn` do
 **The microphone is warm.** The first version opened capture at touch-down, which ran
 `getUserMedia`, a new `AudioContext`, `resume()` and the first 2048-frame block before anything
 was recorded, so the start of speech was lost while the key already showed red. It now does what
-the Mac does with `Settings.alwaysOpenMic` and `CaptureRouter`. With `alwaysOpenMic` on (Settings → Microphone → "Keep microphone ready"; **off by default on the
-phone since 2026-11-26**, because a microphone opened at each appearance stopped the owner's music:
-`PhoneEnvironment` registers false and turns a stored true off once, keyed `micReadyOffApplied`; the Mac's
-default stays on), `keyboardAppeared` calls
+the Mac does with `Settings.alwaysOpenMic` and `CaptureRouter`. With `alwaysOpenMic` on (Settings → Microphone → "Keep microphone ready", on by default; **it
+yields to other audio since 2026-11-26**: a microphone opened at each appearance stopped the owner's
+music, because WebKit's capture takes a play-and-record session that does not mix and the page cannot
+change that. So `keyboardAppeared` keeps it warm only while `AVAudioSession.isOtherAudioPlaying` is
+false, and a warm microphone that ends while other audio plays (music started over it) is not
+reopened: `yieldToOtherAudio` sets `micState` to `off` for the rest of that appearance, and the next
+press opens it cold. A build that day had turned the setting off instead; `PhoneEnvironment` turns
+it back on once, keyed `micReadyYieldsApplied`. Whether `isOtherAudioPlaying` reads correctly inside
+the extension is unverified on a device), `keyboardAppeared` calls
 `WebMicrophone.open()` and the page delivers samples until `close()`. Between holds they go into
 a `PreRollBuffer` (MurmurKit, 0.3 s, at the page's own rate; a rate change clears it), and a press
 drains it into the start of the hold's `pending` audio before any live block. The pre-roll is

@@ -54,7 +54,7 @@ struct SettingsView: View {
                     )
                     ToggleRow(
                         title: "Keep microphone ready",
-                        note: "Off, the microphone opens only when you press the m, so music keeps playing while you type. On, dictation starts at once, but the microphone opens whenever the keyboard appears, which pauses music, and stays open for 30 seconds after each dictation.",
+                        note: "On, the microphone opens when the keyboard appears so dictation starts at once, and closes 30 seconds after the last dictation. While music or other audio plays it waits for a press instead, so the music keeps playing. Off, it always waits for a press.",
                         isOn: $settings.alwaysOpenMic
                     )
                 }

@@ -236,7 +236,12 @@ final class KeyboardDictation {
         if case .failed = state { state = .idle }
         // The setting was just re-read above. On, the microphone opens now, ahead of the model
         // work below, so a press finds it already delivering audio; off, it opens at the press.
-        keepsMicrophoneWarm = Settings.shared.alwaysOpenMic
+        // A warm microphone takes WebKit's play-and-record session, which cannot mix with other
+        // audio, so it would pause the music that is playing: it then waits for a press.
+        keepsMicrophoneWarm = Settings.shared.alwaysOpenMic && !Self.otherAudioIsPlaying
+        if Settings.shared.alwaysOpenMic, !keepsMicrophoneWarm {
+            Self.log.info("other audio is playing; the microphone opens at the press")
+        }
         if keepsMicrophoneWarm {
             openMicrophone()
             scheduleIdleClose()
@@ -825,6 +830,9 @@ final class KeyboardDictation {
             return
         }
         Self.log.error("\(message, privacy: .public)")
+        // Music that started while the microphone was warm took the session; reopening would
+        // pause it again. The microphone waits for a press, with no failure caption.
+        if hadAudio, yieldToOtherAudio() { return }
         // A hold that is already released has its audio complete and `finish` is typing it, so
         // the microphone ending now must not abandon a dictation the user has finished.
         if hold == nil, !hadAudio {
@@ -832,6 +840,25 @@ final class KeyboardDictation {
             return
         }
         if hadAudio { scheduleReopen() }
+    }
+
+    /// Another app is playing audio. Read from the process's shared session without
+    /// activating it; the recording is in WebKit's own process, and the microphone is closed
+    /// whenever this is asked, so it does not count itself.
+    static var otherAudioIsPlaying: Bool { AVAudioSession.sharedInstance().isOtherAudioPlaying }
+
+    /// Stops keeping the microphone warm for this appearance while other audio plays, so
+    /// nothing reopens it over the music. Returns whether it did.
+    private func yieldToOtherAudio() -> Bool {
+        guard keepsMicrophoneWarm, hold == nil, Self.otherAudioIsPlaying else { return false }
+        keepsMicrophoneWarm = false
+        reopenTask?.cancel()
+        reopenTask = nil
+        idleCloseTask?.cancel()
+        idleCloseTask = nil
+        micState = .off
+        Self.log.info("other audio started; the microphone waits for a press")
+        return true
     }
 
     /// Reopens a warm microphone that stopped after working, once, a second later. At most
@@ -852,6 +879,7 @@ final class KeyboardDictation {
             try? await Task.sleep(for: Self.autoReopenDelay)
             guard !Task.isCancelled, let self else { return }
             guard self.isVisible, self.keepsMicrophoneWarm, self.micState == .failed else { return }
+            if self.yieldToOtherAudio() { return }
             Self.log.info("reopening the microphone")
             self.openMicrophone()
             // A reopen after the idle clock ran out has no clock behind it otherwise.
