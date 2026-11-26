@@ -22,6 +22,7 @@ Plan 001 is one plan in milestones. Rows track the milestones.
 | 001 / M9 | Transformer LM spike (gated, owner says go) | L | M5, M6, M7 | yes | TODO |
 | 001 / M10 | Documentation | S | M8 | no | TODO |
 | 002 | Keyboard polish batch: text replacement, emoji order/Unicode 17/size, smooth trace, number pad, space returns to letters, revert history, autocorrect pill | L | none | yes | WAITING ON DEVICE (69d6c88, installed) |
+| 003 | Hinglish word list (local, done) and fine-tune prep (Colab run waiting on owner) | M | none | yes | PART A DONE, PART B WAITING ON OWNER |
 
 Status values: TODO | IN PROGRESS | WAITING ON DEVICE | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale)

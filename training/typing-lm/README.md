@@ -33,6 +33,7 @@ embedding table is a 4-bit palette and every other weight a 6-bit palette (`emb4
 | `convert.py` | PyTorch to Core ML, and the weight formats |
 | `measure.swift` | load time, latency and footprint of a compiled model in a fresh process |
 | `bench_predict.swift` | the same for the keyboard's whole path (`NextWordPredictor.predict`), in a release build |
+| `hinglish_tokens.py` | how GPT-2's tokenizer splits the Hinglish words the word list gains (see "Hinglish") |
 | `make_bpe_vectors.py` | writes `Tests/MurmurTypingTests/bpe-vectors.json` from the reference tokenizer |
 
 The pair model's side of the evaluation is `Tests/MurmurTypingTests/TypingLMEvalTests.swift`,
@@ -256,6 +257,135 @@ great in your new job". The converted file's accuracy was not measured again aft
 Colab's proxy token lasts an hour, and `colab exec` after that fails with a 404 and drops the
 session from `~/.config/colab-cli/sessions.json` while the VM keeps running and billing. The
 assignment list still gives a fresh token for it; restore the entry from that, then stop it.
+
+## Hinglish
+
+The owner mixes Hindi written in Roman script into English ("kya hai yaar"). The word list side is
+done: `Tools/hinglish_words.py` counts L3Cube-HingCorpus (roman; 52,933,356 sentences, a 2.49 GB
+download that unpacks to a 4.88 GB training file and a 0.51 GB validation file), and
+`Tools/build_typing_model.py --hinglish <folder>` writes a word list with 8,000 more words to
+`ios/TypingLM/en.mtm`, which the keyboard prefers over the bundled one. The corpus is CC BY-NC-SA
+4.0, so none of that output, and no model trained on it, may enter the repository (`THIRD_PARTY.md`).
+This section is about the language model, which only offers words that are one token.
+
+### Token coverage (measured 2026-11-26, `hinglish_tokens.py`)
+
+The 8,000 added words, each written with its leading space (" hai") as the model sees a word after a
+space, against GPT-2's 50,257 tokens, weighted by corpus occurrences:
+
+| Tokens per word | Words | Share of words | Share of corpus occurrences |
+|---|---|---|---|
+| 1 | 190 | 2.4% | 22.2% |
+| 2 | 4,067 | 50.8% | 62.2% |
+| 3 or more | 3,743 | 46.8% | 15.6% |
+
+Fine-tuning cannot fix this: the strip takes a prediction only for a word that is one token
+(`NextWordPredictor`), so 77.8% of the Hinglish a user types would still never be offered as a
+next word, however well the model learned to expect it. The most frequent ones are the worst
+cases (the words that matter most are split in two). The multi-token occurrences are
+concentrated, which is what makes option (b) cheap: the 100 most frequent multi-token words hold
+49.4% of multi-token occurrences, the top 500 hold 73.7%, the top 1,000 82.8% and the top 2,000
+90.1%. Giving the top 2,000 their own tokens would make 92.3% of Hinglish occurrences one token
+(500: 79.5%, 1,000: 86.6%).
+
+### Proposal
+
+Do (b), not (a) alone. Not implemented.
+
+- **(a) Fine-tune only.** Cost: `finetune.py --hinglish` below and nothing else in code. Gain: the
+  model learns Hinglish word order, but it can be offered only for the 22.2% of occurrences that are
+  already one token, and the other words get their first piece predicted and then nothing. It would
+  mostly help the English words in mixed sentences.
+- **(b) Add the 2,000 most frequent multi-token Hinglish words as new tokens, then fine-tune.**
+  - Model: resize the embedding from 50,257 to 52,257 rows (the output layer is tied to it), each new
+    row the mean of the rows of the word's old pieces, so the model starts where it was. +1.5 M
+    parameters; in the 4-bit embedding palette about +0.8 MB on the 51.5 MB file, and the
+    output logits are 4% wider (a small cost per pass, unmeasured). The 2,000 words are chosen from
+    the corpus, so the list is a local file, never committed.
+  - `BPETokenizer` (Swift): before byte-pair merging, a pre-token (the regex's " hai" piece) found in
+    an added-token table is emitted as its id; any other pre-token goes through BPE as now. About a
+    dozen lines plus a loader for `added_tokens.json`, and new test vectors from the reference
+    tokenizer with the same table added (`make_bpe_vectors.py`).
+  - `NextWordPredictor`: the token-to-word table must include the added tokens (a word that is in
+    the word list and is now one token). The word list already holds them when built with
+    `--hinglish`; a model built with added tokens and a word list without them would simply never
+    surface them.
+  - `Tools/fetch_typing_lm.py` and `convert.py`: take `--added-tokens <file>` and the fine-tuned
+    weights, set the vocabulary size in the Core ML model, write `added_tokens.json` into
+    `ios/TypingLM`, and record the table's SHA-256 in `model.json`.
+  - `finetune.py`: load the tokenizer with the added tokens (`tokenizer.add_tokens`, then
+    `model.resize_token_embeddings` and the mean initialisation) before tokenising anything, so
+    that the held-out Hinglish line shows the gain. Its current Hinglish numbers count a multi-token
+    word as a miss, which is the keyboard's behaviour today.
+  - Risks: the added words are only the ones seen in tweets; the English evaluation must not drop
+    (it is in the same log); and the 1.5 M new rows learn from the first fine-tune only.
+
+### What `finetune.py --hinglish` does
+
+Training sentences are the existing English mix plus Hinglish lines, so that `--hinglish-share`
+(default 0.3) of all training sentences are Hinglish; the English part is unchanged (about 2.9 M
+examples, so 0.3 adds about 1.24 M). A Hinglish line is kept if it has 5 to 40 words, no URL,
+handle, tag or digit, and at least 90% of its characters are Roman letters or plain punctuation;
+duplicates by lowercased words are dropped. 2,000 kept lines are held out, written to
+`<out>/hinglish-heldout.txt`, and never trained on. The three variants (as written, lowercased,
+lowercased without punctuation) apply to Hinglish lines too. Before training and at each
+checkpoint the log prints the top-three next-word hit rate for the English evaluation sentences
+and for the held-out Hinglish lines (a token-level proxy: a one-token word among the three
+likeliest tokens, anything else a miss; the keyboard's own measure is still `evaluate.py`).
+
+### Colab run (not started; needs the owner's go on the exact run)
+
+The corpus is public research data and no private text goes up. First a sample of it, on the Mac
+(8% of the training file, about 3.9 M lines, 150 MB or so gzipped; nothing is written but the
+sample, and the corpus is read as a stream):
+
+```bash
+H=~/Library/Caches/MurmurBuild/hinglish
+tar -xzOf $H/raw/hingcorpus.download R11_final_data/concatenated_train_final_shuffled.txt \
+  | awk 'BEGIN{srand(20261126)} rand()<0.08' | gzip > $H/hinglish-sample.txt.gz
+```
+
+Then the session, from the repository's root. Upload the pinned scripts and data, start the job
+detached (a `colab exec` times out after 30 s), read the log, download, stop:
+
+```bash
+S=hinglish
+colab new -s $S --gpu L4
+colab exec -s $S -c "import os; os.makedirs('/content/in', exist_ok=True)"   # retry once if the first exec drops
+colab upload -s $S training/typing-lm/finetune.py /content/in/finetune.py 2>&1 | grep -v -i token
+colab upload -s $S training/typing-lm/eval-sentences.tsv /content/in/eval-sentences.tsv 2>&1 | grep -v -i token
+colab upload -s $S $H/hinglish-sample.txt.gz /content/in/hinglish-sample.txt.gz 2>&1 | grep -v -i token
+cat > /tmp/launch.py <<'PY'
+import subprocess
+subprocess.Popen(
+    "cd /content/in && python finetune.py --eval-sentences eval-sentences.tsv --out /content/ft "
+    "--hinglish hinglish-sample.txt.gz --hinglish-share 0.3 > /content/ft.log 2>&1",
+    shell=True, start_new_session=True)
+PY
+colab exec -s $S -f /tmp/launch.py
+# every few minutes (the proxy token lasts an hour; see the note under "Fine-tune" above):
+colab exec -s $S -c "print(open('/content/ft.log').read()[-1500:])"
+# when the log says DONE (the checkpoints are Hugging Face folders; zip them to download one file):
+colab exec -s $S -c "import shutil; shutil.make_archive('/content/ft', 'zip', '/content/ft')"
+colab download -s $S /content/ft.zip ~/Library/Caches/MurmurBuild/typing-lm-ft/hinglish.zip
+colab stop -s $S
+```
+
+`-c` for a one-line command is assumed from the CLI's help and the whole flow is unrun here; if
+`colab exec` has no `-c`, put the line in a file and use `-f`. Then evaluate each checkpoint with
+`evaluate.py` as above and build the keyboard's copy with
+`uv run Tools/fetch_typing_lm.py --fetch --weights <folder>` (into the git-ignored
+`ios/TypingLM`).
+
+**Estimate, L4.** The last English run took 33.5 minutes for its 2.9 M examples (all three
+checkpoints came out of that one run; the quarter checkpoint was at about 8 minutes). A
+Hinglish tweet is longer in tokens than an English sentence (two tokens a word, up to the 48-token
+cap), so time follows tokens and not examples. At share 0.3, 1.43 times the examples and roughly
+2 to 2.5 times the tokens: about 65 to 85 minutes of training, plus about 10 for setup, the
+Tatoeba and SODA downloads, tokenising and the held-out measurement; plan 90 minutes of L4 time.
+Quarter-epoch checkpoint at about 20 minutes. A cheaper trial: `--hinglish-share 0.15` (about 45 to
+55 minutes). Scaled, not measured; the L4's steps-per-second line in the first minutes of the log
+is the real number, and the run can be stopped there.
 
 ## What it does not say
 

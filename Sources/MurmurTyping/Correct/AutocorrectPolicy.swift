@@ -102,6 +102,9 @@ public enum KeepReason: Hashable, Sendable {
     case typedIsBest
     /// The best candidate is not sure enough.
     case belowThreshold
+    /// The fix would write a word the keyboard never volunteers
+    /// (`SuggestionEngine.neverVolunteered`) that the taps do not spell exactly.
+    case neverVolunteered
     /// The owner refused this fix.
     case rejected
 }
@@ -196,6 +199,13 @@ public enum AutocorrectPolicy {
             guard top.posterior >= thresholds.unknownPosterior,
                 top.posterior >= thresholds.unknownRatio * runnerUp
             else { return .keep(.belowThreshold) }
+        }
+        // Autocorrect never turns a typo into a word the strip would not volunteer, however near;
+        // only taps that spell it letter for letter (kind exact) can write one.
+        if top.kind != .exact,
+            top.text.lowercased().split(separator: " ").contains(where: { SuggestionEngine.neverVolunteered.contains(String($0)) })
+        {
+            return .keep(.neverVolunteered)
         }
         if rejections.isRejected(original: folded, replacement: top.text) { return .keep(.rejected) }
         return .replace(

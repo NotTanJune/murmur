@@ -324,13 +324,35 @@ final class TypingController {
 
     // MARK: - Appearance and field changes
 
+    /// The word model: `TypingLM/en.mtm` from the keyboard's bundle when the build has one (a local
+    /// build with Hinglish words, git-ignored, see `Tools/build_typing_model.py --hinglish`), and
+    /// otherwise, or when that file is refused, the module's own English model. One log line says
+    /// which loaded.
+    private static func loadWordModel() throws -> TypingModel {
+        if let folder = Bundle.main.url(forResource: NextWordPredictor.Files.folderName, withExtension: nil) {
+            let local = folder.appendingPathComponent("en.mtm")
+            if FileManager.default.fileExists(atPath: local.path) {
+                do {
+                    let model = try TypingModel(url: local)
+                    log.info("word model: local TypingLM/en.mtm, \(model.wordCount, privacy: .public) words")
+                    return model
+                } catch {
+                    log.error("local word model refused: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+        let model = try TypingModel.bundled()
+        log.info("word model: bundled en.mtm, \(model.wordCount, privacy: .public) words")
+        return model
+    }
+
     /// The keyboard came up: read the field, start on the right page, and reset what belongs to
     /// the last field (a pending space, the double-space clock).
     func keyboardAppeared() {
         if !modelLoaded {
             modelLoaded = true
             do {
-                let loaded = try TypingModel.bundled()
+                let loaded = try Self.loadWordModel()
                 model = loaded
                 autocorrector = Autocorrector(model: loaded, lettersFrames: lettersFrames)
                 rebuildSwipeDecoder()

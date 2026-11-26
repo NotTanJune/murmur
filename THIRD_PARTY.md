@@ -64,6 +64,13 @@ the script downloads them and checks their SHA-256.
 | Emoji names and keywords in `Sources/MurmurKit/Emoji/EmojiNames.swift`, from the English annotations of CLDR 48 (`common/annotations/en.xml`, `common/annotationsDerived/en.xml`), which the keyboard's emoji search reads | Unicode CLDR, `github.com/unicode-org/cldr` | Unicode License v3 |
 | Emoji list and order in `EmojiData.swift`, from `emoji-test.txt` 17.0, ordered as this Mac's emoji picker orders them (`Tools/apple-emoji-order.txt`, a list of public Unicode sequences) | Unicode Emoji, `unicode.org/Public/17.0.0/emoji/` | Unicode License v3 |
 
+The owner's own local builds of the keyboard can add Hindi words written in Roman script. They use
+L3Cube-HingCorpus (roman), 52.93M Hinglish tweets by L3Cube Pune (`github.com/l3cube-pune/code-mixed-nlp`),
+licensed CC BY-NC-SA 4.0, which is not compatible with this repository's GPL-3.0 licence. The corpus is
+downloaded and read only on the owner's machine (`Tools/hinglish_words.py`, `Tools/build_typing_model.py
+--hinglish`, `training/typing-lm/finetune.py --hinglish`); the word counts, the word model and any language
+model built from it are git-ignored (`ios/TypingLM`) and no part of any of them is in this repository.
+
 `training/typing-lm/eval-sentences.tsv`, which only the model evaluation reads and no build
 includes, holds 290 sentences from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each line
 carries its Tatoeba sentence id, which names its author at `tatoeba.org/sentences/show/<id>`.

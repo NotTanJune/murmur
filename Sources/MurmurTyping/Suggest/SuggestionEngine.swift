@@ -36,11 +36,21 @@ public enum SuggestionEngine {
     /// owner's screenshot, 2026-11-25). The words stay in the model: they still complete when
     /// typed, autocorrect leaves them alone and a swipe reads them. They are only never
     /// volunteered.
-    static let neverVolunteered: Set<String> = [
+    static let neverVolunteered: Set<String> = Set([
         "sex", "sexy", "sexual", "porn", "porno", "xxx", "nude", "naked", "erotic", "adult", "escort",
         "fuck", "fucking", "shit", "bitch", "pussy", "dick", "cock", "cum", "anal", "tits", "boobs",
         "milf", "hentai", "slut", "sluts", "whore", "rape", "incest", "bdsm", "fetish", "orgy",
         "blowjob", "gay", "lesbian", "teen", "teens", "viagra", "cialis", "casino", "poker", "gratis",
+    ]).union(hinglishAbuse)
+    /// Hindi and Urdu abuse and sexual slang in common roman spellings, a filter like the list above:
+    /// the Hinglish word list comes from Twitter, where these are frequent. Same rule, same use.
+    static let hinglishAbuse: Set<String> = [
+        "madarchod", "madarchodd", "madharchod", "madarchood", "maderchod", "madrchod", "behenchod",
+        "behnchod", "bhenchod", "bhenchodd", "benchod", "bahenchod", "bhosdike", "bhosdi", "bhosda",
+        "bhosadi", "bhosadike", "bhosdiwala", "chutiya", "chutiye", "chutia", "chutiyapa", "chutiyas",
+        "chut", "chudai", "chudna", "chodu", "gandu", "gaandu", "gaand", "gand", "lund", "laude", "lauda",
+        "lode", "lavde", "lavda", "randi", "raand", "randwa", "harami", "haramzada", "haramzade",
+        "haramzadi", "kamina", "mc", "bc", "bsdk", "mkc", "bkl", "bkc", "mdrchd", "bhosdk", "lodu",
     ]
     /// How far back a repeat is looked for, in words. A prediction that would repeat a pair of
     /// words already in that stretch ("same time" after "the same time to the") is dropped, which

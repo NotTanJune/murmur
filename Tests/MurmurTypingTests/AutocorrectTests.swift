@@ -12,11 +12,11 @@ struct TypingFixture {
     let frames: [KeyFrame]
     let decoder: TapDecoder
 
-    init(configuration: TapDecoder.Configuration = .tuned) throws {
-        model = try TypingModel.bundled()
+    init(configuration: TapDecoder.Configuration = .tuned, model: TypingModel? = nil) throws {
+        self.model = try model ?? TypingModel.bundled()
         let metrics = KeyboardMetrics(width: 393, isLandscape: false)
         frames = metrics.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false))
-        decoder = TapDecoder(model: model, frames: frames, configuration: configuration)
+        decoder = TapDecoder(model: self.model, frames: frames, configuration: configuration)
     }
 
     func frame(_ letter: Character) -> KeyFrame {

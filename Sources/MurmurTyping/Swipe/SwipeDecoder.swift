@@ -437,6 +437,13 @@ public struct SwipeDecoder: Sendable {
                     text: text, id: item.lexiconWord == nil ? item.id : nil, score: spatial + item.languageScore))
         }
         rescored.sort { $0.score > $1.score }
+        // A word the strip never volunteers (`SuggestionEngine.neverVolunteered`) is never the first
+        // reading unless it is the only one; it stays among the alternatives.
+        if let first = rescored.first, SuggestionEngine.neverVolunteered.contains(first.text.lowercased()),
+            let better = rescored.firstIndex(where: { !SuggestionEngine.neverVolunteered.contains($0.text.lowercased()) })
+        {
+            rescored.insert(rescored.remove(at: better), at: 0)
+        }
         return Array(rescored.prefix(limit))
     }
 
