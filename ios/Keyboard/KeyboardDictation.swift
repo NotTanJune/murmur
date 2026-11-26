@@ -156,6 +156,8 @@ final class KeyboardDictation {
         var heardAudio = false
         /// The start tone has played (or sounds are off) for this hold.
         var startTonePlayed = false
+        /// Another app was playing audio at the press, which the recording then paused.
+        var otherAudioWasPlaying = false
         var released: Date?
         var captureRate: Double?
         var target: AVAudioFormat?
@@ -259,10 +261,12 @@ final class KeyboardDictation {
         reopenTask?.cancel()
         idleCloseTask?.cancel()
         idleCloseTask = nil
+        let pausedOtherAudio = hold.map { $0.released == nil && $0.otherAudioWasPlaying } ?? false
         if hold != nil { abandonHold(reason: "keyboard closed") }
         gesture.reset()
         closeMicrophone()
         micState = .off
+        if pausedOtherAudio { resumeOtherAudio() }
         if case .failed = state {} else { state = .idle }
         // Going away normally means Bark did not kill this process, but only once it has loaded:
         // a keyboard that closes mid-load leaves the marker armed, since the load is the
@@ -583,6 +587,8 @@ final class KeyboardDictation {
         // Listen first; the engine catches up from `pending`. A warm microphone hands over its
         // pre-roll here, a cold one opens now.
         let micWasLive = micState == .live
+        // Read before the attach: the recording is what pauses the other audio.
+        hold.otherAudioWasPlaying = Self.otherAudioIsPlaying
         attachMicrophone(to: hold)
         // Wakes the Taptic Engine for the start tap; after the attach, so capture comes first.
         haptics.prepareStart()
@@ -660,6 +666,7 @@ final class KeyboardDictation {
         hold.limit?.cancel()
         isLocked = false
         releaseMicrophone()
+        if hold.otherAudioWasPlaying { resumeOtherAudio() }
         haptics.prepareOutcome()
         state = .finishing
         hold.finishWatchdog = Task { [weak self] in
@@ -846,6 +853,36 @@ final class KeyboardDictation {
     /// activating it; the recording is in WebKit's own process, and the microphone is closed
     /// whenever this is asked, so it does not count itself.
     static var otherAudioIsPlaying: Bool { AVAudioSession.sharedInstance().isOtherAudioPlaying }
+
+    /// Asks the app whose audio the recording paused to carry on, once the microphone is shut.
+    /// There is no public call to play another app's media, and WebKit's own session may stay
+    /// active after capture stops, so the keyboard takes a non-mixing playback session of its own
+    /// for a moment and gives it up with `notifyOthersOnDeactivation`: an interrupted app then
+    /// receives its interruption's end with `shouldResume`, and apps that honour it (Music, most
+    /// players) resume. Skipped when the other audio is already playing again, because taking
+    /// the session would pause it, and when a new hold has begun.
+    private func resumeOtherAudio() {
+        Task { [weak self] in
+            // The page stops capture asynchronously; give WebKit a moment to let go first.
+            try? await Task.sleep(for: Self.resumeOtherAudioDelay)
+            guard let self, self.hold == nil || self.hold?.released != nil else { return }
+            // A microphone still open (kept warm) would lose its session to this one.
+            guard self.micState == .off || self.micState == .failed, !Self.otherAudioIsPlaying else { return }
+            let session = AVAudioSession.sharedInstance()
+            let previous = session.category
+            do {
+                try session.setCategory(.playback)
+                try session.setActive(true)
+                try session.setActive(false, options: .notifyOthersOnDeactivation)
+                Self.log.info("asked the paused audio to resume")
+            } catch {
+                Self.log.error("could not hand the audio back: \(error.localizedDescription, privacy: .public)")
+            }
+            try? session.setCategory(previous)
+        }
+    }
+
+    static let resumeOtherAudioDelay: Duration = .milliseconds(300)
 
     /// Stops keeping the microphone warm for this appearance while other audio plays, so
     /// nothing reopens it over the music. Returns whether it did.

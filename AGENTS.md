@@ -561,7 +561,13 @@ false, and a warm microphone that ends while other audio plays (music started ov
 reopened: `yieldToOtherAudio` sets `micState` to `off` for the rest of that appearance, and the next
 press opens it cold. A build that day had turned the setting off instead; `PhoneEnvironment` turns
 it back on once, keyed `micReadyYieldsApplied`. Whether `isOtherAudioPlaying` reads correctly inside
-the extension is unverified on a device), `keyboardAppeared` calls
+the extension is unverified on a device. A hold notes whether other audio was playing at the press
+(`otherAudioWasPlaying`, read before the attach), and its release, or the keyboard closing under it,
+calls `resumeOtherAudio`: 0.3 s after the microphone shuts, if nothing plays again and the
+microphone is not warm, the keyboard activates a non-mixing `.playback` session of its own and
+deactivates it with `notifyOthersOnDeactivation`, so apps that honour `shouldResume` carry on. There
+is no public call to play another app's media. Whether the notice reaches an app that WebKit's
+session paused, and which apps (YouTube) resume, is unverified on a device), `keyboardAppeared` calls
 `WebMicrophone.open()` and the page delivers samples until `close()`. Between holds they go into
 a `PreRollBuffer` (MurmurKit, 0.3 s, at the page's own rate; a rate change clears it), and a press
 drains it into the start of the hold's `pending` audio before any live block. The pre-roll is
