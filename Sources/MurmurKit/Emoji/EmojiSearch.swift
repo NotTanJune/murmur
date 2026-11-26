@@ -1,76 +1,8 @@
 import Foundation
 
-#if canImport(Accelerate)
-import Accelerate
-#endif
-
-/// Gives a vector for a piece of text, for the semantic half of emoji search. A protocol so the
-/// tests inject a fake and the keyboard injects Apple's on-device sentence embedding
-/// (`NLEmbeddingEmojiEmbedder`).
-public protocol EmojiEmbedder: Sendable {
-    /// Names the model that makes the vectors. A cache of emoji vectors is only valid for the
-    /// revision it was built with.
-    var revision: String { get }
-    /// The length of every vector.
-    var dimension: Int { get }
-    /// A vector for `text`, or nil when the model has none for it. It need not be unit length.
-    func vector(for text: String) -> [Float]?
-}
-
-/// One vector per emoji of an `EmojiSearch`'s entries, each scaled to unit length so a dot product
-/// is a cosine. Holds a prefix when the build was not finished (`count` is then below the entry
-/// count) and the rows after it simply have no semantic score.
-public struct EmojiVectors: Sendable {
-    public let dimension: Int
-    /// `count` rows of `dimension` floats, back to back.
-    public let values: [Float]
-
-    public var count: Int { dimension > 0 ? values.count / dimension : 0 }
-
-    public init(dimension: Int, values: [Float]) {
-        self.dimension = dimension
-        self.values = values
-    }
-
-    /// Unit-length copy of `vector`; nil when it is empty or all zero.
-    public static func normalised(_ vector: [Float]) -> [Float]? {
-        var sum: Float = 0
-        for value in vector { sum += value * value }
-        guard sum > 0 else { return nil }
-        let scale = 1 / sum.squareRoot()
-        return vector.map { $0 * scale }
-    }
-
-    /// The cosine of each row with `query`, which must be unit length. Empty when the length
-    /// differs from this table's.
-    public func similarities(to query: [Float]) -> [Float] {
-        guard query.count == dimension, dimension > 0 else { return [] }
-        let rows = count
-        var result = [Float](repeating: 0, count: rows)
-        #if canImport(Accelerate)
-        // One matrix-vector product: (rows x dimension) times (dimension x 1).
-        vDSP_mmul(values, 1, query, 1, &result, 1, vDSP_Length(rows), 1, vDSP_Length(dimension))
-        return result
-        #else
-        values.withUnsafeBufferPointer { rowsPointer in
-            query.withUnsafeBufferPointer { queryPointer in
-                for row in 0..<rows {
-                    var sum: Float = 0
-                    let base = row * dimension
-                    for column in 0..<dimension { sum += rowsPointer[base + column] * queryPointer[column] }
-                    result[row] = sum
-                }
-            }
-        }
-        return result
-        #endif
-    }
-}
-
 /// Emoji search by description: the CLDR name and keywords of each emoji matched against the
-/// words typed (the lexical half, instant and always available), and when an embedder's vectors
-/// are present, their cosine with the query's vector (the semantic half), which fills and
-/// re-ranks. Pure; the keyboard supplies the embedder and does the slow parts off the main thread.
+/// words typed. Keyword only, with no model behind it, so it answers at once on the main thread.
+/// Pure.
 public struct EmojiSearch: Sendable {
     public struct Entry: Sendable, Equatable {
         public let emoji: String
@@ -113,30 +45,6 @@ public struct EmojiSearch: Sendable {
             let keywords = parts[2].split(separator: "|").map(String.init)
             return Entry(emoji: String(parts[0]), name: String(parts[1]), keywords: keywords)
         }
-    }
-
-    // MARK: Text for embedding
-
-    /// What an emoji's vector is made from: its name and its first three keywords. All of the
-    /// keywords did worse than three on the evaluation (`EmojiSearchEvaluationTests`): a long list
-    /// of loosely related words pulls every vector toward the same middle, and CLDR lists the
-    /// keywords alphabetically, so a longer list adds no more important ones.
-    public func embeddingText(at index: Int) -> String {
-        let entry = entries[index]
-        return ([entry.name] + entry.keywords.prefix(Self.embeddedKeywords)).joined(separator: ", ")
-    }
-
-    static let embeddedKeywords = 3
-
-    /// A fingerprint of everything the vectors are made from, for a cache key. FNV-1a, because
-    /// `Hasher` is seeded per process.
-    public var dataHash: String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for index in entries.indices {
-            for byte in entries[index].emoji.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
-            for byte in embeddingText(at: index).utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
-        }
-        return String(hash, radix: 16)
     }
 
     // MARK: Words
@@ -250,7 +158,7 @@ public struct EmojiSearch: Sendable {
         popular.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
 
     /// The most a lexical score can be for `wordCount` query words: scores are divided by it, so a
-    /// lexical score of 1 is a perfect match and blends against a cosine.
+    /// score of 1 is a perfect match.
     private static func ceiling(wordCount: Int) -> Double {
         Match.nameExact * Double(wordCount) + Match.wholeName + Match.allWords
     }
@@ -312,71 +220,10 @@ public struct EmojiSearch: Sendable {
         return max(total, 0.01)
     }
 
-    // MARK: Blend
+    // MARK: Search
 
-    /// How the semantic half joins the lexical one. The cosine is read against the other emoji's
-    /// for the same query, because a sentence embedding's raw cosines sit in a narrow band that
-    /// differs from query to query: `sem` below is 0 at `floorDeviations` standard deviations
-    /// above the query's mean cosine and 1 at the nearest emoji.
-    ///
-    /// Apple's embedding is a weak judge of single emoji (measured, `EmojiSearchEvaluationTests`:
-    /// alone it puts an accepted emoji first for 27% of the queries), so it never outranks a
-    /// lexical match: it brings in emoji the words missed at `fillWeight * sem`, which puts the
-    /// nearest of them level with a prefix match and the rest below the words' own matches.
-    /// `rerankWeight` adds `rerankWeight * sem` to an emoji the words did match, which only
-    /// separates close lexical scores; at 0.05 it cost one first place in 51 and gained nothing
-    /// held out, so it is off.
-    public struct Blend: Sendable, Equatable {
-        public var rerankWeight = 0.0
-        public var fillWeight = 0.1
-        public var floorDeviations = 2.0
-        /// How many of the nearest by meaning can join the candidates.
-        public var semanticCandidates = 40
-
-        public init() {}
-    }
-
-    /// The best `limit` emoji for `query`. With no `queryVector` (no embedder, no vectors yet, or
-    /// not worked out yet) it is lexical only. `queryVector` must be unit length and made by the
-    /// embedder `vectors` came from.
-    public func search(
-        _ query: String, queryVector: [Float]? = nil, vectors: EmojiVectors? = nil,
-        blend: Blend = Blend(), limit: Int = 40
-    ) -> [String] {
-        let lexical = lexicalHits(query)
-        guard let queryVector, let vectors, vectors.count > 0 else {
-            return lexical.prefix(limit).map { entries[$0.index].emoji }
-        }
-        let cosines = vectors.similarities(to: queryVector)
-        guard !cosines.isEmpty else { return lexical.prefix(limit).map { entries[$0.index].emoji } }
-
-        // The query's own cosine distribution, which sets what counts as near.
-        var sum: Float = 0
-        var top: Float = -1
-        for value in cosines {
-            sum += value
-            top = max(top, value)
-        }
-        let mean = sum / Float(cosines.count)
-        var variance: Float = 0
-        for value in cosines { variance += (value - mean) * (value - mean) }
-        let deviation = max((variance / Float(cosines.count)).squareRoot(), 1e-6)
-        let floor = mean + Float(blend.floorDeviations) * deviation
-        let span = max(top - floor, 1e-6)
-        func semantic(_ index: Int) -> Double {
-            Double(max(cosines[index] - floor, 0) / span)
-        }
-
-        var scores: [Int: Double] = [:]
-        for hit in lexical { scores[hit.index] = hit.score + blend.rerankWeight * semantic(hit.index) }
-        // The nearest by meaning that the words missed. Only cosines above the floor are sorted.
-        let near = cosines.indices.filter { cosines[$0] > floor && scores[$0] == nil }
-            .sorted { cosines[$0] > cosines[$1] }
-            .prefix(blend.semanticCandidates)
-        for index in near { scores[index] = blend.fillWeight * semantic(index) }
-        return scores
-            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
-            .prefix(limit)
-            .map { entries[$0.key].emoji }
+    /// The best `limit` emoji for `query`, best first.
+    public func search(_ query: String, limit: Int = 40) -> [String] {
+        lexicalHits(query).prefix(limit).map { entries[$0.index].emoji }
     }
 }

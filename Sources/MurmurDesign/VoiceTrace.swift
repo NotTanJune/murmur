@@ -30,25 +30,28 @@ public final class VoiceTraceSource {
         model.ingest(rms: rms, at: time)
     }
 
-    func trace(points: Int, at time: TimeInterval) -> [Float] {
-        model.trace(points: points, at: time)
+    /// `count` values from the newest (age 0) to `seconds` old, evenly spaced, one per column of
+    /// a trace's half.
+    func amplitudes(count: Int, seconds: TimeInterval, at time: TimeInterval) -> [Float] {
+        model.trace(points: max(1, count - 1), seconds: seconds, at: time)
     }
-
-    var historySeconds: TimeInterval { model.parameters.historySeconds }
 }
 
-/// The listening trace: one red line across the capsule. The middle is now and older sound
-/// drifts out towards both edges, fading, so a pause still shows the last words leaving.
-/// Its height is the level between the room's floor and the speech peak (`VoiceTraceModel`),
-/// and a sine carrier running along the line makes it read as a live trace.
+/// The listening trace: a dot matrix with three strands braided through it. The middle column is
+/// now and older sound drifts out towards both edges, fading, so a pause still shows the last words
+/// leaving. A strand's height at a column is the level (`VoiceTraceModel`) at that column's age times
+/// half the grid's height, so silence closes the braid onto the bright middle row and speech swells
+/// it. Dots near a strand are brighter and a little larger, with a halo; every dot is faintly drawn.
 ///
-/// Inactive, it is a flat line in `idleTint` and the clock is paused. Red means recording, so
-/// the keyboard passes a neutral `idleTint` for the time before the hold has heard audio.
+/// Inactive, it is the dim grid with a flat middle row in `idleTint` and the clock is paused. Red
+/// means recording, so the keyboard passes a neutral `idleTint` for the time before the hold has
+/// heard audio.
 public struct VoiceTrace: View {
     let source: VoiceTraceSource
     let isActive: Bool
     let tint: Color
     let idleTint: Color
+    let pitch: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -56,35 +59,42 @@ public struct VoiceTrace: View {
         source: VoiceTraceSource,
         isActive: Bool,
         tint: Color = DS.Color.record,
-        idleTint: Color = DS.Color.record
+        idleTint: Color = DS.Color.record,
+        pitch: CGFloat = DS.HUD.traceDotPitch
     ) {
         self.source = source
         self.isActive = isActive
         self.tint = tint
         self.idleTint = idleTint
+        self.pitch = pitch
     }
 
     public var body: some View {
-        TimelineView(
-            .animation(
-                minimumInterval: reduceMotion ? DS.HUD.waveformReducedInterval : DS.HUD.waveformInterval,
-                paused: !isActive
-            )
-        ) { timeline in
-            // The model is read here, in the view's body, and the canvas gets plain values, so
-            // the draw closure touches no state.
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let values = isActive ? source.trace(points: DS.HUD.traceSegmentsPerSide, at: time) : []
-            let style = Style(
-                tint: isActive ? tint : idleTint,
-                reduceMotion: reduceMotion,
-                time: time
-            )
-            Canvas { context, size in
-                Self.draw(values: values, style: style, in: &context, size: size)
+        // The grid depends on the room the view is given, so the model is read here, below the
+        // geometry, and the canvas gets plain values: its draw closure touches no state.
+        GeometryReader { proxy in
+            let grid = Grid(size: proxy.size, pitch: pitch)
+            TimelineView(
+                .animation(
+                    minimumInterval: reduceMotion ? DS.HUD.waveformReducedInterval : DS.HUD.waveformInterval,
+                    paused: !isActive
+                )
+            ) { timeline in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                let amplitudes = isActive
+                    ? source.amplitudes(count: grid.middleColumn + 1, seconds: DS.HUD.traceSeconds, at: time)
+                    : []
+                let style = Style(
+                    tint: tint,
+                    idleTint: idleTint,
+                    reduceMotion: reduceMotion,
+                    time: time
+                )
+                Canvas { context, _ in
+                    Self.draw(amplitudes: amplitudes, grid: grid, style: style, in: &context)
+                }
             }
         }
-        .frame(width: DS.HUD.waveformWidth, height: DS.HUD.waveformHeight)
         .accessibilityHidden(true)
     }
 
@@ -92,93 +102,151 @@ public struct VoiceTrace: View {
 
     struct Style: Sendable {
         let tint: Color
+        let idleTint: Color
         let reduceMotion: Bool
         let time: TimeInterval
     }
 
-    /// Opacity at `index` of `count` steps from the middle: 1 for the newest, fading to the edge value.
-    static func opacity(index: Int, of count: Int) -> Double {
-        guard count > 0 else { return 1 }
-        let age = Double(index) / Double(count)
-        return DS.HUD.traceEdgeOpacity + (1 - DS.HUD.traceEdgeOpacity) * pow(1 - age, DS.HUD.traceFadeExponent)
-    }
+    /// Whole dots in the room given: an odd number of columns and rows, so there is a middle
+    /// of each, centred in the space.
+    struct Grid: Equatable, Sendable {
+        let columns: Int
+        let rows: Int
+        let pitch: CGFloat
+        let origin: CGPoint
 
-    /// The carrier at distance `x` along the line, in -1...1: a sine that travels with time, plus
-    /// a faster, fainter one, so the line is not a pure tone.
-    static func carrier(x: CGFloat, time: TimeInterval, reduceMotion: Bool) -> CGFloat {
-        let travel = reduceMotion ? 0 : time * DS.HUD.traceCarrierSpeed
-        let cycles = Double(x / DS.HUD.traceCarrierWavelength)
-        let base = sin(2 * .pi * (cycles - travel))
-        let harmonic = sin(2 * .pi * (cycles * DS.HUD.traceHarmonicRatio + travel * DS.HUD.traceHarmonicDrift + DS.HUD.traceHarmonicPhase))
-        let share = DS.HUD.traceHarmonicShare
-        return CGFloat((1 - share) * base + share * harmonic)
-    }
-
-    /// Draws the line, then a blurred copy behind it. `values` runs from the middle (the newest)
-    /// to an edge; empty draws a flat line. Internal so a test can render it.
-    static func draw(values: [Float], style: Style, in context: inout GraphicsContext, size: CGSize) {
-        let steps = values.count - 1
-        let middle = size.height / 2
-        let amplitude = middle - DS.HUD.traceLineWidth
-        let half = size.width / 2
-
-        guard steps > 0 else {
-            var flat = Path()
-            flat.move(to: CGPoint(x: 0, y: middle))
-            flat.addLine(to: CGPoint(x: size.width, y: middle))
-            context.stroke(
-                flat,
-                with: .color(style.tint),
-                style: StrokeStyle(lineWidth: DS.HUD.traceLineWidth, lineCap: .round)
+        init(size: CGSize, pitch: CGFloat) {
+            func odd(_ length: CGFloat) -> Int {
+                let count = max(1, Int((max(0, length) / pitch).rounded(.down)))
+                return count % 2 == 0 ? max(1, count - 1) : count
+            }
+            self.pitch = pitch
+            columns = odd(size.width)
+            rows = odd(size.height)
+            origin = CGPoint(
+                x: (size.width - CGFloat(columns) * pitch) / 2,
+                y: (size.height - CGFloat(rows) * pitch) / 2
             )
+        }
+
+        var middleColumn: Int { columns / 2 }
+        var middleRow: Int { rows / 2 }
+
+        func center(column: Int, row: Int) -> CGPoint {
+            CGPoint(
+                x: origin.x + (CGFloat(column) + 0.5) * pitch,
+                y: origin.y + (CGFloat(row) + 0.5) * pitch
+            )
+        }
+    }
+
+    /// Hermite smoothstep from 0 at `edge0` to 1 at `edge1`.
+    static func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
+        let t = min(1, max(0, (x - edge0) / (edge1 - edge0)))
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Brightness 0...1 of every dot, row-major (`row * columns + column`), for the level
+    /// `amplitudes[d]` at `d` columns from the middle (0...1, newest first) and a time for the
+    /// carrier. Pure, so a test can read it.
+    static func brightness(amplitudes: [Float], grid: Grid, time: TimeInterval, reduceMotion: Bool) -> [Float] {
+        var result = [Float](repeating: 0, count: grid.columns * grid.rows)
+        let middle = grid.middleColumn
+        guard middle > 0, !amplitudes.isEmpty else { return result }
+        let halfRows = Double(grid.rows - 1) / 2
+        let travel = reduceMotion ? 0 : time * DS.HUD.traceCarrierSpeed
+        let strands = max(1, DS.HUD.traceStrands)
+        let twoSigmaSquared = 2 * DS.HUD.traceStrandSigma * DS.HUD.traceStrandSigma
+        var heights = [Double](repeating: 0, count: strands)
+
+        for column in 0..<grid.columns {
+            let distance = abs(column - middle)
+            let age = Double(distance) / Double(middle)
+            let level = Double(amplitudes[min(distance, amplitudes.count - 1)])
+            // The strands close onto the middle row at the edges, as the old line did.
+            let close = 1 - smoothstep(1 - DS.HUD.traceEdgeTaper, 1, age)
+            let amplitude = level * halfRows * close
+            let fade = DS.HUD.traceEdgeOpacity
+                + (1 - DS.HUD.traceEdgeOpacity) * pow(1 - age, DS.HUD.traceFadeExponent)
+            // Signed from the middle, so the two halves are not mirrors of each other.
+            let phase = Double(column - middle) / DS.HUD.traceCarrierColumns - travel
+            for strand in 0..<strands {
+                heights[strand] = amplitude * sin(2 * .pi * (phase + Double(strand) / Double(strands)))
+            }
+            for row in 0..<grid.rows {
+                let y = Double(grid.middleRow - row)
+                var lit = 0.0
+                for height in heights {
+                    let offset = y - height
+                    lit = max(lit, exp(-offset * offset / twoSigmaSquared))
+                }
+                result[row * grid.columns + column] = Float(lit * fade)
+            }
+        }
+        return result
+    }
+
+    /// Draws the grid, then the lit dots by brightness. `amplitudes` runs from the middle (the
+    /// newest) to an edge; empty draws the idle state. Internal so a test can render it.
+    static func draw(amplitudes: [Float], grid: Grid, style: Style, in context: inout GraphicsContext) {
+        let pitch = grid.pitch
+        let active = !amplitudes.isEmpty
+        let base = active ? style.tint : style.idleTint
+
+        // The dim grid: every dot, one path, one fill.
+        var dim = Path()
+        let baseRadius = pitch * DS.HUD.traceBaseRadius
+        for row in 0..<grid.rows {
+            for column in 0..<grid.columns {
+                dim.addEllipse(in: dot(at: grid.center(column: column, row: row), radius: baseRadius))
+            }
+        }
+        context.fill(dim, with: .color(base.opacity(DS.HUD.traceBaseOpacity)))
+
+        guard active else {
+            // No audio yet: a flat middle row and nothing that moves.
+            var row = Path()
+            let litRadius = pitch * DS.HUD.traceLitRadius
+            for column in 0..<grid.columns {
+                row.addEllipse(in: dot(at: grid.center(column: column, row: grid.middleRow), radius: litRadius))
+            }
+            context.fill(row, with: .color(base.opacity(DS.HUD.traceIdleRowOpacity)))
             return
         }
 
-        // One point per slot from the left edge to the right edge; the age index counts out from the middle.
-        let points: [(point: CGPoint, index: Int)] = (-steps...steps).map { offset in
-            let index = abs(offset)
-            let x = half + CGFloat(offset) / CGFloat(steps) * half
-            let y = middle - CGFloat(values[index]) * amplitude
-                * carrier(x: x, time: style.time, reduceMotion: style.reduceMotion)
-            return (CGPoint(x: x, y: y), index)
+        let lit = brightness(amplitudes: amplitudes, grid: grid, time: style.time, reduceMotion: style.reduceMotion)
+        let levels = max(1, DS.HUD.traceLevels)
+        var centres = [[CGPoint]](repeating: [], count: levels)
+        for row in 0..<grid.rows {
+            for column in 0..<grid.columns {
+                let value = Double(lit[row * grid.columns + column])
+                guard value >= DS.HUD.traceLitThreshold else { continue }
+                let level = min(levels - 1, Int((value * Double(levels)).rounded(.up)) - 1)
+                centres[max(0, level)].append(grid.center(column: column, row: row))
+            }
         }
 
-        // Runs of `traceFadeRun` segments share an opacity and are stroked as one path, so a
-        // round cap never doubles a translucent joint into a bead. The fade is in those steps.
-        func stroke(into layer: inout GraphicsContext, width: CGFloat, scale: Double) {
-            var run = Path()
-            var runKey = -1
-            var runAge = 0
-            func flush(_ layer: inout GraphicsContext) {
-                guard runKey >= 0 else { return }
-                layer.stroke(
-                    run,
-                    with: .color(style.tint.opacity(opacity(index: runAge, of: steps) * scale)),
-                    style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
-                )
-                run = Path()
-            }
-            for pair in zip(points, points.dropFirst()) {
-                // The segment takes the age of its older end, so the line never brightens outward.
-                let age = max(pair.0.index, pair.1.index)
-                let key = age / DS.HUD.traceFadeRun
-                if key != runKey {
-                    flush(&layer)
-                    runKey = key
-                    runAge = key * DS.HUD.traceFadeRun
-                    run.move(to: pair.0.point)
-                }
-                run.addLine(to: pair.1.point)
-            }
-            flush(&layer)
+        // Halos first, so a bright neighbour's glow never lies over a dot.
+        for level in 0..<levels {
+            let value = Double(level + 1) / Double(levels)
+            guard !centres[level].isEmpty else { continue }
+            let radius = pitch * (DS.HUD.traceLitRadius + (DS.HUD.traceHaloRadius - DS.HUD.traceLitRadius) * CGFloat(value))
+            var halos = Path()
+            for centre in centres[level] { halos.addEllipse(in: dot(at: centre, radius: radius)) }
+            context.fill(halos, with: .color(style.tint.opacity(DS.HUD.traceHaloOpacity * value * value)))
         }
+        for level in 0..<levels {
+            let value = Double(level + 1) / Double(levels)
+            guard !centres[level].isEmpty else { continue }
+            let radius = pitch * (DS.HUD.traceBaseRadius + (DS.HUD.traceLitRadius - DS.HUD.traceBaseRadius) * CGFloat(value))
+            var dots = Path()
+            for centre in centres[level] { dots.addEllipse(in: dot(at: centre, radius: radius)) }
+            let opacity = DS.HUD.traceBaseOpacity + (1 - DS.HUD.traceBaseOpacity) * value
+            context.fill(dots, with: .color(style.tint.opacity(opacity)))
+        }
+    }
 
-        if !style.reduceMotion {
-            context.drawLayer { layer in
-                layer.addFilter(.blur(radius: DS.HUD.traceGlowBlur))
-                stroke(into: &layer, width: DS.HUD.traceGlowWidth, scale: DS.HUD.traceGlowOpacity)
-            }
-        }
-        stroke(into: &context, width: DS.HUD.traceLineWidth, scale: 1)
+    private static func dot(at centre: CGPoint, radius: CGFloat) -> CGRect {
+        CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)
     }
 }

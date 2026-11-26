@@ -109,17 +109,29 @@ struct VoiceTraceModelTests {
         #expect(feeder.model.current < 0.05)
     }
 
-    @Test("Attack takes one frame")
-    func attackIsInstant() {
-        var feeder = Feeder()
+    @Test("A step up reaches 90% in about 35 ms")
+    func attackTakesAboutThirtyFiveMilliseconds() {
+        var parameters = VoiceTraceModel.Parameters()
+        parameters.onsetRise = 5
+        var feeder = Feeder(model: VoiceTraceModel(parameters: parameters))
         feeder.hold(-75, seconds: 1, wobble: 1.5)
-        feeder.hold(-20, seconds: 0.01)
-        #expect(feeder.model.current > 0.75)
+        let target = Float(parameters.bodyCeiling)
+        var elapsed = 0.0
+        var reached: Double?
+        while elapsed < 0.3, reached == nil {
+            feeder.hold(-20, seconds: 0.01)
+            elapsed += 0.01
+            if feeder.model.current >= target * 0.9 { reached = elapsed }
+        }
+        let time = reached ?? 9
+        #expect(time >= 0.03 && time <= 0.045)
     }
 
-    @Test("Release takes a few hundred milliseconds, not a frame and not a second")
-    func releaseIsSlow() {
-        var feeder = Feeder()
+    @Test("A step down falls 90% in about 95 ms")
+    func releaseTakesAboutNinetyFiveMilliseconds() {
+        var parameters = VoiceTraceModel.Parameters()
+        parameters.onsetRise = 5
+        var feeder = Feeder(model: VoiceTraceModel(parameters: parameters))
         feeder.hold(-75, seconds: 1, wobble: 1.5)
         feeder.hold(-20, seconds: 1)
         let start = feeder.model.current
@@ -127,20 +139,56 @@ struct VoiceTraceModelTests {
         var elapsed = 0.0
         var halved: Double?
         var tenth: Double?
-        while elapsed < 1.5 {
+        while elapsed < 0.5 {
             feeder.hold(-75, seconds: 0.01)
             elapsed += 0.01
             if halved == nil, feeder.model.current < start * 0.5 { halved = elapsed }
             if tenth == nil, feeder.model.current < start * 0.1 { tenth = elapsed; break }
         }
-        let half = try? #require(halved)
-        let ten = try? #require(tenth)
-        #expect((half ?? 0) > 0.05 && (half ?? 9) < 0.2)
-        #expect((ten ?? 0) > 0.2 && (ten ?? 9) < 0.35)
+        let half = halved ?? 9
+        let ten = tenth ?? 9
+        #expect(half >= 0.02 && half <= 0.045)
+        #expect(ten >= 0.08 && ten <= 0.115)
     }
 
-    @Test("A word after a dip adds a bump above the steady level")
-    func onsetAddsBump() {
+    @Test("An onset springs past the steady level, dips under it, and settles within 0.4 s")
+    func onsetSpringOvershootsAndSettles() {
+        var feeder = Feeder()
+        feeder.hold(-75, seconds: 0.6, wobble: 1.5)
+        let steady = Float(feeder.model.parameters.bodyCeiling)
+        var series: [Float] = []
+        for _ in 0..<60 {
+            feeder.hold(-20, seconds: feeder.model.parameters.frameSeconds)
+            series.append(feeder.model.current)
+        }
+        let top = series.max() ?? 0
+        let peakIndex = series.firstIndex(of: top) ?? 0
+        #expect(top > steady + 0.08, "overshoot")
+        #expect(top <= 1)
+        // After the peak it goes under the steady level, then rings back up and settles.
+        let afterPeak = series[peakIndex...]
+        #expect((afterPeak.min() ?? 1) < steady - 0.03, "undershoot")
+        let tail = series[40...]
+        #expect(tail.allSatisfy { abs($0 - steady) < 0.02 }, "settled by 0.4 s")
+        // Its first peak is about as soon as the envelope's own rise, not seconds later.
+        #expect(peakIndex <= 8)
+    }
+
+    @Test("Two words a little apart each get their own kick")
+    func eachWordKicksTheSpring() {
+        var feeder = Feeder()
+        feeder.hold(-75, seconds: 0.6, wobble: 1.5)
+        var peaks: [Float] = []
+        for _ in 0..<2 {
+            peaks.append(feeder.peak(of: -20, seconds: 0.3))
+            feeder.hold(-75, seconds: 0.4, wobble: 1.5)
+        }
+        let steady = Float(feeder.model.parameters.bodyCeiling)
+        #expect(peaks.allSatisfy { $0 > steady + 0.08 })
+    }
+
+    @Test("A word after a dip adds an overshoot above the steady level")
+    func onsetAddsOvershoot() {
         func highest(onsets: Bool) -> Float {
             var parameters = VoiceTraceModel.Parameters()
             if !onsets { parameters.onsetRise = 5 }
@@ -157,8 +205,8 @@ struct VoiceTraceModelTests {
         #expect(with <= 1)
     }
 
-    @Test("A sustained sound makes one bump, not a stream of them")
-    func sustainedSoundDoesNotBumpAgain() {
+    @Test("A sustained sound kicks once, not a stream of times")
+    func sustainedSoundDoesNotKickAgain() {
         var feeder = Feeder()
         feeder.hold(-75, seconds: 0.6, wobble: 1.5)
         feeder.hold(-20, seconds: 0.2)

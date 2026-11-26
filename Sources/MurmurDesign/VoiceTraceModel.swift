@@ -14,10 +14,11 @@ import Foundation
 ///    never shrinks below `minimumRangeDB`, and the floor never goes below `floorLimitDB`, so a
 ///    silent room is not amplified into motion (the same idea as the anticipation rule in
 ///    `OverlapWindowRecognizer`, which wants a tenfold range before it trusts the audio).
-/// 3. **Envelope.** It jumps to a louder frame at once and eases down over `releaseSeconds`.
-/// 4. **Onsets.** A frame that rises sharply out of a dip in the last 150 ms adds a short bump,
-///    so each word or syllable shows as its own peak. The body of the trace is scaled to leave
-///    headroom for it.
+/// 3. **Envelope.** It rises towards a louder frame in about `riseSeconds` and falls towards a
+///    quieter one in about `fallSeconds` (each the time to cover 90% of a step).
+/// 4. **Onsets.** A frame that rises sharply out of a dip in the last 150 ms kicks a damped
+///    spring, so each word or syllable overshoots, rings once or twice and settles. The spring
+///    adds to the envelope, which is scaled to leave headroom for it.
 /// 5. **History.** Each frame's value goes into a ring of `historySeconds`. The view reads it by
 ///    age, newest in the middle and older values towards both edges.
 public struct VoiceTraceModel: Sendable {
@@ -40,10 +41,11 @@ public struct VoiceTraceModel: Sendable {
         public var minimumPeakDB = -55.0
         /// A frame this far over the floor starts to count, so the room's own fluctuation is zero.
         public var gateDB = 4.0
-        /// The envelope's time constant going down; going up it is instant. About 90% of a
-        /// fall is done after 2.3 times this.
-        public var releaseSeconds = 0.12
-        /// Share of the height the steady level can reach. The rest is for an onset's bump.
+        /// Time for the envelope to cover 90% of a step up, and of a step down. From the
+        /// reference's motion: 35 ms to rise and 95 ms to fall.
+        public var riseSeconds = 0.035
+        public var fallSeconds = 0.095
+        /// Share of the height the steady level can reach. The rest is for an onset's overshoot.
         public var bodyCeiling = 0.8
         /// Look back this far for the dip an onset rises out of.
         public var onsetWindowSeconds = 0.15
@@ -56,8 +58,10 @@ public struct VoiceTraceModel: Sendable {
         /// How long the newest frame stands in for time that has no frame yet, such as the wait
         /// for the next block of a phone's microphone, before it starts to die away.
         public var staleSeconds = 0.1
-        /// How fast a bump dies away.
-        public var bumpDecaySeconds = 0.07
+        /// The onset spring: its natural frequency, and its damping ratio (1 is critical). At 5 Hz
+        /// and 0.32 it overshoots, undershoots by about a third of that and settles in about 0.3 s.
+        public var springHertz = 5.0
+        public var springDamping = 0.32
 
         public init() {}
     }
@@ -70,7 +74,9 @@ public struct VoiceTraceModel: Sendable {
     private var calibrated = false
     // Envelope and onsets.
     private var envelope = 0.0
-    private var bump = 0.0
+    private var springX = 0.0
+    private var springV = 0.0
+    private var kickApplied = 0.0
     private var recent: [Double] = []
     private var recentHead = 0
     private var sinceOnset = Double.infinity
@@ -86,8 +92,23 @@ public struct VoiceTraceModel: Sendable {
     public private(set) var lastDecibels = -100.0
     /// The last frame's raw 0...1 position between floor and peak, before the envelope.
     public private(set) var lastNormalised = 0.0
-    /// The envelope and bump of the last frame: what the centre of the trace shows.
+    /// The envelope plus spring of the last frame: what the centre of the trace shows.
     public var current: Float { values[head] }
+
+    /// Time constants: 90% of a step is done after `ln 10` of them.
+    private var riseTau: Double { parameters.riseSeconds / log(10.0) }
+    private var fallTau: Double { parameters.fallSeconds / log(10.0) }
+
+    /// The tallest the spring's displacement gets for a unit of starting speed: the first peak of
+    /// `e^(-sigma t) sin(wd t) / wd`. An onset's speed is its wanted height over this.
+    private var springPeakPerSpeed: Double {
+        let w = 2 * Double.pi * parameters.springHertz
+        let z = min(0.999, max(0.01, parameters.springDamping))
+        let sigma = z * w
+        let wd = w * (1 - z * z).squareRoot()
+        let t = atan2(wd, sigma) / wd
+        return exp(-sigma * t) * sin(wd * t) / wd
+    }
 
     public init(parameters: Parameters = Parameters()) {
         self.parameters = parameters
@@ -148,7 +169,7 @@ public struct VoiceTraceModel: Sendable {
             // Nothing newer has arrived for this part of the middle. The newest frame stands in
             // for a moment, then dies away with the envelope, so a stalled feed does not hold a level.
             let late = max(0, elapsed - parameters.staleSeconds)
-            return slot(0) * Float(exp(-late / parameters.releaseSeconds))
+            return slot(0) * Float(exp(-late / fallTau))
         }
         let position = (max(0, age) - elapsed) / parameters.frameSeconds
         guard position < Double(stored) else { return 0 }
@@ -159,11 +180,13 @@ public struct VoiceTraceModel: Sendable {
         return a + (slot(lower + 1) - a) * fraction
     }
 
-    /// `points + 1` values from age 0 to `historySeconds`, evenly spaced, for drawing.
-    public func trace(points: Int, at time: TimeInterval) -> [Float] {
+    /// `points + 1` values from age 0 to `seconds` (the whole history when nil), evenly spaced,
+    /// for drawing.
+    public func trace(points: Int, seconds: TimeInterval? = nil, at time: TimeInterval) -> [Float] {
         let count = max(1, points)
+        let span = min(seconds ?? parameters.historySeconds, parameters.historySeconds)
         return (0...count).map { index in
-            value(age: parameters.historySeconds * Double(index) / Double(count), at: time)
+            value(age: span * Double(index) / Double(count), at: time)
         }
     }
 
@@ -197,23 +220,32 @@ public struct VoiceTraceModel: Sendable {
         let normalised = min(1, max(0, (db - gate) / (effectivePeak - gate)))
         lastNormalised = normalised
 
-        // Instant up, eased down.
-        if normalised >= envelope {
-            envelope = normalised
-        } else {
-            envelope += (normalised - envelope) * (1 - exp(-dt / p.releaseSeconds))
-        }
+        // Eased up and eased down, each at its own rate.
+        let tau = normalised >= envelope ? riseTau : fallTau
+        envelope += (normalised - envelope) * (1 - exp(-dt / tau))
+
+        // The spring, semi-implicit so it stays stable at any frame length the model is given.
+        let omega = 2 * Double.pi * p.springHertz
+        springV += (-omega * omega * springX - 2 * p.springDamping * omega * springV) * dt
+        springX += springV * dt
 
         // Onsets.
-        bump *= exp(-dt / p.bumpDecaySeconds)
         sinceOnset += dt
         let dip = recent.min() ?? 0
         let rise = normalised - dip
         if frameCount > 0, normalised >= p.onsetLevel, rise >= p.onsetRise {
             let fresh = sinceOnset >= p.onsetRefractorySeconds
             if fresh || sinceOnset < p.onsetGrowSeconds {
-                if fresh { sinceOnset = 0 }
-                bump = max(bump, (1 - p.bodyCeiling) * min(1, rise))
+                if fresh {
+                    sinceOnset = 0
+                    kickApplied = 0
+                }
+                // A rise that keeps growing adds only what the spring has not been given yet.
+                let wanted = (1 - p.bodyCeiling) * min(1, rise)
+                if wanted > kickApplied {
+                    springV += (wanted - kickApplied) / springPeakPerSpeed
+                    kickApplied = wanted
+                }
             }
         }
         recent[recentHead] = normalised
@@ -221,7 +253,7 @@ public struct VoiceTraceModel: Sendable {
 
         // History.
         head = (head + 1) % values.count
-        values[head] = Float(min(1, p.bodyCeiling * envelope + bump))
+        values[head] = Float(min(1, max(0, p.bodyCeiling * envelope + springX)))
         stored = min(values.count, stored + 1)
         frameCount += 1
     }

@@ -71,7 +71,6 @@ struct KeyboardView: View {
     private func show(_ next: Panel) {
         if panel == .search, next != .search {
             typing.endSearch()
-            search.close()
         }
         if next == .search, panel != .search {
             search.open()
@@ -79,8 +78,6 @@ struct KeyboardView: View {
         }
         panel = next
         typing.setPlaneVisible(next == .keys || next == .search)
-        // The embedding is only wanted while the emoji panel is up.
-        if next != .emoji, next != .search { EmojiSemantic.shared.release() }
     }
 
     /// Search mode: the field and one row of results fill what the keyboard has above the plane

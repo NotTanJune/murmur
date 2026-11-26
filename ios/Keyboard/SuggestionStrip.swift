@@ -322,13 +322,15 @@ private struct RecordControl: View {
     @ViewBuilder private var capsuleContent: some View {
         switch dictation.state {
         case .recording:
-            // A flat neutral line until the hold has audio, then the red voice trace, so the
-            // trace never claims a microphone that is not yet hearing.
+            // A flat neutral row of dots until the hold has audio, then the red braided trace, so
+            // the trace never claims a microphone that is not yet hearing.
             VoiceTrace(
                 source: dictation.voiceTrace,
                 isActive: dictation.heardAudio,
-                idleTint: DS.Keyboard.waveformFlat
+                idleTint: DS.Keyboard.waveformFlat,
+                pitch: DS.Keyboard.traceDotPitch
             )
+            .padding(.horizontal, DS.Keyboard.traceInset)
         case .finishing:
             ProgressView().tint(DS.Keyboard.wordmark)
         case .idle, .failed:

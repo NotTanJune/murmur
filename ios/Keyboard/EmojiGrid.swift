@@ -12,7 +12,8 @@ import UIKit
 /// category tap stops whatever is moving and goes straight to its section.
 ///
 /// SwiftUI hears about the grid in three ways only: the section in view changed, an emoji was
-/// chosen, or a long press (or the VoiceOver action) asked for skin tones.
+/// chosen, or a long press (or the VoiceOver action) asked for skin tones. A grid made without
+/// `onTones` (the search results) has no long press and no tone action.
 struct EmojiGrid: UIViewRepresentable {
     let categories: [EmojiCatalog.Category]
     let rows: Int
@@ -23,8 +24,10 @@ struct EmojiGrid: UIViewRepresentable {
     /// An emoji was tapped; the form to type.
     let onSelect: (String) -> Void
     /// Skin tones were asked for: the emoji as shown, whether it is a Frequently Used form, and
-    /// its cell in the grid's own coordinates.
-    let onTones: (_ emoji: String, _ isRecent: Bool, _ anchor: CGRect) -> Void
+    /// its cell in the grid's own coordinates. Nil leaves tones out of the grid altogether: no
+    /// long-press recognizer and no VoiceOver action (the search results, which show the
+    /// remembered tone but do not offer a choice).
+    let onTones: ((_ emoji: String, _ isRecent: Bool, _ anchor: CGRect) -> Void)?
     /// Changes when `categories` holds different emoji (search results), which reloads the grid
     /// and returns it to the start. The panel's own grid never changes it: it is read once.
     var reloadToken = 0
@@ -53,9 +56,11 @@ struct EmojiGrid: UIViewRepresentable {
         view.register(EmojiCell.self, forCellWithReuseIdentifier: EmojiCell.reuseIdentifier)
         view.dataSource = coordinator
         view.delegate = coordinator
-        let press = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.pressed(_:)))
-        press.minimumPressDuration = DS.Keyboard.emojiLongPress
-        view.addGestureRecognizer(press)
+        if onTones != nil {
+            let press = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.pressed(_:)))
+            press.minimumPressDuration = DS.Keyboard.emojiLongPress
+            view.addGestureRecognizer(press)
+        }
         coordinator.collectionView = view
         controller.coordinator = coordinator
         return view
@@ -228,7 +233,7 @@ struct EmojiGrid: UIViewRepresentable {
             let emoji = shown(at: path)
             cell.show(emoji)
             cell.onActivate = { [weak self] in self?.parent.onSelect(emoji) }
-            if hasTones(at: path) {
+            if parent.onTones != nil, hasTones(at: path) {
                 cell.accessibilityCustomActions = [
                     UIAccessibilityCustomAction(name: "Skin tones") { [weak self] _ in
                         self?.requestTones(at: path)
@@ -267,11 +272,11 @@ struct EmojiGrid: UIViewRepresentable {
         }
 
         private func requestTones(at path: IndexPath) {
-            guard let view = collectionView, hasTones(at: path),
+            guard let onTones = parent.onTones, let view = collectionView, hasTones(at: path),
                   let frame = layout.layoutAttributesForItem(at: path)?.frame else { return }
             let anchor = frame.offsetBy(dx: -view.contentOffset.x, dy: -view.contentOffset.y)
             tonesPath = path
-            parent.onTones(shown(at: path), categories[path.section].id == "recents", anchor)
+            onTones(shown(at: path), categories[path.section].id == "recents", anchor)
         }
     }
 }

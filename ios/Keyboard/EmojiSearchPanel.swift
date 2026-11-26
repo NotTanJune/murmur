@@ -128,8 +128,9 @@ struct EmojiSearchPanel: View {
                 controller: grid,
                 onSection: { _ in },
                 onSelect: { type($0) },
-                // Skin tones are chosen in the picker's grid; a result shows the remembered one.
-                onTones: { _, _, _ in },
+                // Skin tones are chosen in the picker's grid; a result shows the remembered one
+                // and offers no choice (no long press, no VoiceOver tone action).
+                onTones: nil,
                 reloadToken: model.version)
             if !model.query.trimmingCharacters(in: .whitespaces).isEmpty, model.results.isEmpty {
                 Text("No emoji found")

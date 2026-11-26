@@ -260,35 +260,45 @@ public enum DS {
         /// Distance above the Dock.
         public static let dockOffset: CGFloat = 96
 
-        public static let waveformWidth: CGFloat = 112
-        public static let waveformHeight: CGFloat = 24
-        public static let waveformInterval: TimeInterval = 1.0 / 30.0
-        /// With Reduce Motion on the trace redraws less often and drops its glow and its moving carrier.
+        /// The trace's area in the capsule. It holds whole dots, so the grid is this over `traceDotPitch`.
+        public static let waveformWidth: CGFloat = 124
+        public static let waveformHeight: CGFloat = 31
+        public static let waveformInterval: TimeInterval = 1.0 / 60.0
+        /// With Reduce Motion on the trace redraws less often and its braid stops travelling.
         public static let waveformReducedInterval: TimeInterval = 1.0 / 15.0
 
-        // The voice trace (`VoiceTrace`): one line, newest in the middle, older towards the edges.
-        /// Points on each side of the middle; the line has twice this plus one.
-        public static let traceSegmentsPerSide = 40
-        public static let traceLineWidth: CGFloat = 1.6
-        /// The soft glow behind the line: the same red, wider, blurred and fainter.
-        public static let traceGlowWidth: CGFloat = 5
-        public static let traceGlowBlur: CGFloat = 3
-        public static let traceGlowOpacity: Double = 0.45
-        /// Opacity at the edges, where the oldest history is, against 1 in the middle.
-        public static let traceEdgeOpacity: Double = 0.12
-        /// How quickly opacity falls with age; above 1 keeps the middle bright for longer.
-        public static let traceFadeExponent: Double = 1.5
-        /// Segments that share one opacity. The line is stroked in these runs, so the fade moves in small steps.
-        public static let traceFadeRun = 3
-        /// The carrier that makes the line read as a live trace: distance of one cycle in
-        /// points, its travel in cycles a second, and the second, faster harmonic's share.
-        public static let traceCarrierWavelength: CGFloat = 15
-        public static let traceCarrierSpeed: Double = 1.1
-        public static let traceHarmonicRatio: Double = 1.7
-        public static let traceHarmonicShare: Double = 0.25
-        /// The harmonic travels at this share of the carrier's speed, from this starting phase.
-        public static let traceHarmonicDrift: Double = 0.6
-        public static let traceHarmonicPhase: Double = 0.3
+        // The voice trace (`VoiceTrace`): a dot matrix with strands braided through it, newest in
+        // the middle, older towards the edges. The keyboard's capsule sets its own pitch
+        // (`Keyboard.traceDotPitch`); the rest is shared.
+        /// Distance between dot centres, here on the Mac.
+        public static let traceDotPitch: CGFloat = 2.8
+        /// How much history each side shows, in seconds.
+        public static let traceSeconds: TimeInterval = 1.0
+        /// Strands in the braid, evenly spaced in phase, and how far a dot may be from one (in
+        /// rows, as a gaussian's sigma) and still light.
+        public static let traceStrands = 3
+        public static let traceStrandSigma: Double = 0.7
+        /// The carrier's wavelength in columns and its travel (left to right) in cycles a second.
+        public static let traceCarrierColumns: Double = 24
+        public static let traceCarrierSpeed: Double = 0.45
+        /// Dot sizes as shares of the pitch: the dim base grid, a fully lit dot and its halo.
+        public static let traceBaseRadius: CGFloat = 0.24
+        public static let traceLitRadius: CGFloat = 0.45
+        public static let traceHaloRadius: CGFloat = 0.95
+        /// Opacity of an unlit dot, and of the halo round a fully lit one.
+        public static let traceBaseOpacity: Double = 0.14
+        public static let traceHaloOpacity: Double = 0.4
+        /// Brightness is drawn in this many steps, each one path, so a frame costs a few fills.
+        public static let traceLevels = 8
+        /// Brightness below this is not drawn as lit.
+        public static let traceLitThreshold: Double = 0.06
+        /// Brightness at the oldest column against 1 in the middle, and how fast it falls with age.
+        public static let traceEdgeOpacity: Double = 0.55
+        public static let traceFadeExponent: Double = 1.0
+        /// Share of each side, from the edge in, over which the strands close onto the middle row.
+        public static let traceEdgeTaper: Double = 0.3
+        /// The middle row's opacity before audio, against the neutral tint it is drawn in.
+        public static let traceIdleRowOpacity: Double = 1.0
         public static let fadeDuration: TimeInterval = 0.16
     }
 
@@ -441,9 +451,6 @@ public enum DS {
         public static let emojiSearchCaretWidth: CGFloat = 2
         public static let emojiSearchCaretHeight: CGFloat = 20
         public static let emojiSearchCaretBlink: TimeInterval = 0.53
-        /// Results update this long after the last key, off the main thread (the words match at
-        /// once; this is for the embedding's part).
-        public static let emojiSearchDebounce: Duration = .milliseconds(100)
         /// The skin-tone row that floats above an emoji after a long press.
         public static let emojiToneCellWidth: CGFloat = 40
         public static let emojiToneCellHeight: CGFloat = 44
@@ -479,6 +486,10 @@ public enum DS {
         /// The flat bars on the capsule before the hold has heard audio: soft and clearly visible
         /// on the dark ground, where `inkTertiary` (about 1.9:1 in dark) nearly vanishes. Keyboard only.
         public static let waveformFlat = onTalkKey.opacity(0.5)
+        /// The listening trace in the recording capsule: its dot pitch, and the room it leaves at
+        /// each end of the capsule's flat run (the trailing end meets the m).
+        public static let traceDotPitch: CGFloat = 3.0
+        public static let traceInset: CGFloat = 14
         /// The failure's "Open Murmur" button: the wordmark orange with ink on it.
         public static let talkAction = wordmark
         public static let onTalkAction = SwiftUI.Color(hex: 0x1C1917)

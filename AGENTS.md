@@ -174,6 +174,15 @@ It is tuned for podcast sound, not recognition, and keeps babble because babble 
 Its licence (Desert Ant Labs Source-Available 1.0) is not GPL-compatible and its SDK checks
 in with `events.desertant.com` on every model load. Everything was deleted.
 
+**Apple's sentence embedding for emoji search** (`NLEmbedding.sentenceEmbedding(for: .english)`,
+blended under the keyword ranker, with a cached table of one vector per emoji). Measured on
+2026-11-26 on the Mac: over 51 in-sample queries the first five held an accepted emoji 94% of the
+time with keywords alone and 96% blended; over 20 held-out queries 15 against 14. Embedding the
+1,906 emoji took about 6 s. It added nothing held out, and it was the only memory risk in the
+keyboard besides Bark, so the owner chose keyword-only search and the code, its cache file and
+its tests were deleted. A retry would need a model that beats keywords on the held-out set
+before it is worth a load in the extension.
+
 ## Benchmarking models
 
 `bench/` (see its README) runs candidate models against the current setup, which it reads
@@ -308,30 +317,20 @@ in one row (`EmojiSearchPanel.compact`), where Cancel is missing and the emoji k
 back. **The engine** is `EmojiSearch` (`Sources/MurmurKit/Emoji`, pure and tested), over
 `EmojiNames.swift`, which `Tools/gen_emoji.py` generates from the CLDR 46 English annotations
 (`common/annotations/en.xml` and `annotationsDerived/en.xml`, Unicode License v3, in
-`THIRD_PARTY.md`): each base emoji's name and keywords. The lexical half tokenises and stems
-the query ("crying", "cries" and "cry" agree), drops filler words, and scores a whole-name match
-above a name word, a keyword and prefixes of each (only the last query word may be a prefix, as
-it is being typed), rewards matching more of the query's words, and breaks ties by a short
-hand-written list of the most common emoji and by fewer words in the entry. It is synchronous
-and runs at each key. The semantic half is Apple's on-device
-`NLEmbedding.sentenceEmbedding(for: .english)` (nothing is bundled), behind the `EmojiEmbedder`
-protocol so tests inject a fake. `EmojiVectorStore` embeds each emoji's name and first three
-keywords once, off the main thread, on the first search of a process
-(`EmojiSemantic`, ios/Keyboard), and keeps them as Float32 in `emoji-vectors.bin` in the App
-Group, keyed by the embedder's revision and a hash of the text, with checkpoints every 480
-emoji so a keyboard killed mid-build resumes. A query's own vector is made on a background queue
-100 ms after the last key and the blend replaces the lexical list only if it differs and the
-query has not moved. Until the table is complete, when the extension has under 80 MB left
-(`EmojiSemantic.memoryNeededMB`, a guess) or when the device has no embedding, search is lexical
-only; the embedding and table are dropped when the emoji panel closes. **Measured on the Mac**
+`THIRD_PARTY.md`): each base emoji's name and keywords. Search is keyword only, with no model.
+It tokenises and stems the query ("crying", "cries" and "cry" agree), drops filler words, and
+scores a whole-name match above a name word, a keyword and prefixes of each (only the last query
+word may be a prefix, as it is being typed), rewards matching more of the query's words, and
+breaks ties by a short hand-written list of the most common emoji and by fewer words in the
+entry. It is synchronous and runs on the main actor at each key, with no debounce: a query took
+a median 2.5 ms and at most 5.6 ms in a debug build on the Mac (`EmojiSearchModel`). Results
+show the remembered skin tone, and the results row has no long press and no tone action
+(`EmojiGrid` is made without `onTones` there). **Measured on the Mac**
 (`MURMUR_EMOJI_EVAL=1 swift test --filter EmojiSearchEvaluation`, 51 queries plus 20 held-out
-descriptive ones): the embedding is a weak judge of single emoji (alone, an accepted emoji first
-for 27% of queries), so the blend never outranks a lexical match; it only fills in emoji the
-words missed, and the measured gain over lexical alone is one query in 51 in the first five and
-none held out. It cost 3.2 ms an emoji to embed on an M2 (6 s for all 1,906) and 1.5 ms a
-query. The lexical ranker was tuned on the 51 queries, so its numbers are in-sample. Unverified
-on a device: the embedding's memory and load time in the extension, the build time on a phone,
-whether the cache survives in the App Group, and everything about the taller keyboard and the
+descriptive ones): an accepted emoji is first for 45 of 51 and in the first five for 48 of 51
+(94%); held out, first for 12 and in the first five for 15 of 20. The ranker was tuned on the
+51 queries, so those numbers are in-sample. Vague wording ("take care", "my bad", "sounds
+great") is where it misses. Unverified on a device: everything about the taller keyboard and the
 look of the field.
 
 **The history list is UIKit too.** `HistoryList` (`ios/Keyboard/HistoryList.swift`) is a
@@ -895,8 +894,9 @@ would have ruled out. It now carries the two states only, which is enough to see
 model loaded.
 
 **The listening trace.** Added 2026-11-26, replacing the `Waveform` bars (phase-offset sines scaled
-by a level), which moved whether or not anyone spoke. `VoiceTrace` (`Sources/MurmurDesign`) is one
-red line across the capsule, written from a public description of the idea and none of anyone's code.
+by a level), which moved whether or not anyone spoke. It was one red line first; the owner found
+that jagged and asked for the reference video's braided dot matrix (2026-11-26). `VoiceTrace`
+(`Sources/MurmurDesign`) is written from a public description of the idea and none of anyone's code.
 The signal is `VoiceTraceModel`, a pure type with its own tests (`MurmurDesignTests`).
 Audio is cut into 10 ms frames of RMS in dB (the phone's 2048-sample block, about 23 a second,
 becomes 4 to 13 frames; the Mac passes one RMS per capture buffer, about 30 a second, repeated
@@ -905,27 +905,42 @@ and creeps up 1 dB a second; a speech peak jumps up and decays 6 dB a second; a 
 them to 0...1 after a 4 dB gate over the floor, so a whisper and a shout both fill the height. The
 range never counts as under 20 dB (a tenfold amplitude, as the anticipation rule demands), the
 floor never goes below -70 dBFS and the peak never counts as under -55 dBFS, so a silent room, even
-digital silence, is not amplified into motion. The envelope jumps at once and eases down with a
-0.12 s time constant (about 90% in 0.28 s). A frame that climbs 0.3 out of a dip in the last 150 ms
-to at least 0.35 adds a bump that dies in 70 ms, so each word shows; the steady level reaches 0.8 of
-the height and the bump has the rest. Each frame goes into a 1.8 s ring. The view reads it by age:
-now in the middle, older values pushed out to both edges, so a pause shows the last words leaving.
-Time since the newest frame also pushes values outward, and the middle holds the newest frame for
-0.1 s and then dies away, so a stalled feed holds no level. The line is displaced by that value
-times a sine carrier that travels along it (plus a fainter harmonic), stroked in runs whose opacity
-falls with age, with a blurred wider stroke of the same red behind it. The view takes plain values
-into its `Canvas`, so nothing mutates state in the draw (see above); the model lives in a
-`VoiceTraceSource`, fed from where the audio arrives (`KeyboardDictation.received` and the pre-roll,
-`DictationController`'s capture callback). The pre-roll goes in so the room is calibrated before
-the press. The Mac's `AudioCapture` now reports linear RMS and the controller maps it to the meter's
-old -50...0 dBFS window, so the meter is unchanged. Reduce Motion drops the glow, the carrier's
-travel and half the frame rate. `MURMUR_TRACE_PREVIEW=<folder> swift test --filter VoiceTracePreview`
-draws a sentence's trace over the HUD colour. **Unverified on a device or in the HUD:** how the
-constants feel with a real microphone (the numbers above are guesses checked against synthetic
-levels), whether the keyboard's `TimelineView` at 30 Hz with a blurred layer is cheap enough in the
-extension, what the web microphone's echo cancellation does to the floor, and the faint beads where
-a translucent run of the fade meets the next. Reading the first real holds' dB values off the phone
-is how to tune it.
+digital silence, is not amplified into motion. The envelope is a pair of first-order filters: 90% of
+a step up in 35 ms and 90% of a step down in 95 ms (`riseSeconds`, `fallSeconds`, the reference's
+numbers). A frame that climbs 0.3 out of a dip in the last 150 ms to at least 0.35 kicks a damped
+spring (5 Hz, damping 0.32), so each word overshoots, dips under the steady level by about a third
+of that and settles in about 0.3 s; the kick is sized so the first peak is `1 - bodyCeiling` (0.2)
+of the height at most, and the steady level reaches 0.8. Each frame goes into a 1.8 s ring, read by
+age with the frames interpolated: now in the middle, older values pushed out to both edges, so a
+pause shows the last words leaving. Time since the newest frame also pushes values outward, and the
+middle holds the newest frame for 0.1 s and then dies away, so a stalled feed holds no level.
+The view draws a grid of round dots, `DS.HUD.traceDotPitch` apart (2.8 pt on the Mac,
+`DS.Keyboard.traceDotPitch` 3 pt on the phone), whose counts come from the room the view is given
+(`VoiceTrace.Grid`: odd numbers, so there is a middle column and a middle row; the phone's capsule
+gives it about 70 columns by 11 rows, the HUD 43 by 11). Every dot is drawn dim. Three strands, a
+third of a cycle apart, run along it as a sine carrier (24 columns a wavelength, travelling
+0.45 cycles a second, signed from the middle so the halves are not mirrors); a strand's height at a
+column is the model's level at that column's age (1 s each side) times half the grid's height, and
+closes onto the middle row over the outer 30% of each side. A dot's brightness is the largest
+gaussian falloff (sigma 0.7 rows) of its distance to a strand, times a fade by age (1 in the middle,
+0.55 at the edges). Brightness is drawn in 8 steps, each one path, as a larger dot in `record` at
+more opacity plus a larger, faint halo circle (no blur, no gradient), so a frame is about 20 fills,
+not one per dot. The brightness is `VoiceTrace.brightness`, a pure function, so it is tested; the
+view reads the model under a `GeometryReader` and hands the `Canvas` plain arrays, so nothing
+mutates state in the draw (see above). The timeline runs at 60 Hz while active and is paused
+otherwise. Before the phone's hold has audio (`heardAudio` false) it is the dim grid with a flat
+middle row of dots in `DS.Keyboard.waveformFlat`. Reduce Motion stops the carrier's travel and
+redraws at 15 Hz. The model lives in a `VoiceTraceSource`, fed from where the audio arrives
+(`KeyboardDictation.received` and the pre-roll, `DictationController`'s capture callback). The
+pre-roll goes in so the room is calibrated before the press. The Mac's `AudioCapture` reports
+linear RMS and the controller maps it to the meter's old -50...0 dBFS window, so the meter is
+unchanged. `MURMUR_TRACE_PREVIEW=<folder> swift test --filter VoiceTracePreview` writes
+`voice-trace-dots.png`: the Mac HUD and a 236 pt phone capsule at six moments of a synthetic
+sentence. **Unverified on a device or in the HUD:** how the motion looks (the preview is stills),
+whether the spring and the 35 and 95 ms numbers feel right with a real microphone, the cost of the
+Canvas at 60 Hz in the keyboard extension (a Release build on the phone has not run it), the
+phone capsule's real width (the preview assumes 236 pt) and whether the red grid reads as muddy on
+the brown glass. Reading the first real holds' dB values off the phone is how to tune the model.
 
 **The number and symbol pages follow the stock keys** (owner's screenshots, 2026-11-26).
 Digits and symbols use `capitalLetterUIFont`, the stock capital height; at the lowercase size they
