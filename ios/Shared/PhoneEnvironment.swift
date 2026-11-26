@@ -23,7 +23,14 @@ enum PhoneEnvironment {
         let defaults = UserDefaults(suiteName: groupID) ?? .standard
         // The phone defaults to Bark Clean; the Mac's default stays Apple. A stored choice
         // wins over a registered default. The key is `Settings`'s own "engine".
-        defaults.register(defaults: ["engine": "barkClean"])
+        defaults.register(defaults: ["engine": "barkClean", "alwaysOpenMic": false])
+        // The owner asked on 2026-11-26 for the microphone to open only at a press: a warm
+        // microphone opened at each appearance and stopped music. A value stored before then
+        // is turned off once; the Settings switch still turns it back on.
+        if !defaults.bool(forKey: "micReadyOffApplied") {
+            defaults.set(false, forKey: "alwaysOpenMic")
+            defaults.set(true, forKey: "micReadyOffApplied")
+        }
 
         let files = FileManager.default
         let root: URL

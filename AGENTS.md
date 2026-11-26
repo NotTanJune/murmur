@@ -553,8 +553,10 @@ is not downloaded, Apple's transcriber takes the hold, as `Utterance.standIn` do
 **The microphone is warm.** The first version opened capture at touch-down, which ran
 `getUserMedia`, a new `AudioContext`, `resume()` and the first 2048-frame block before anything
 was recorded, so the start of speech was lost while the key already showed red. It now does what
-the Mac does with `Settings.alwaysOpenMic` and `CaptureRouter`. With `alwaysOpenMic` on (the
-default; Settings → Microphone → "Keep microphone ready"), `keyboardAppeared` calls
+the Mac does with `Settings.alwaysOpenMic` and `CaptureRouter`. With `alwaysOpenMic` on (Settings → Microphone → "Keep microphone ready"; **off by default on the
+phone since 2026-11-26**, because a microphone opened at each appearance stopped the owner's music:
+`PhoneEnvironment` registers false and turns a stored true off once, keyed `micReadyOffApplied`; the Mac's
+default stays on), `keyboardAppeared` calls
 `WebMicrophone.open()` and the page delivers samples until `close()`. Between holds they go into
 a `PreRollBuffer` (MurmurKit, 0.3 s, at the page's own rate; a rate change clears it), and a press
 drains it into the start of the hold's `pending` audio before any live block. The pre-roll is

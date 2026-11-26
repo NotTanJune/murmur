@@ -54,7 +54,7 @@ struct SettingsView: View {
                     )
                     ToggleRow(
                         title: "Keep microphone ready",
-                        note: "Dictation starts at once. The microphone stays open for 30 seconds after each dictation, and Bluetooth headphones may switch to their call microphone meanwhile.",
+                        note: "Off, the microphone opens only when you press the m, so music keeps playing while you type. On, dictation starts at once, but the microphone opens whenever the keyboard appears, which pauses music, and stays open for 30 seconds after each dictation.",
                         isOn: $settings.alwaysOpenMic
                     )
                 }
