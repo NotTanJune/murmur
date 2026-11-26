@@ -80,6 +80,11 @@ private struct LabField: UIViewRepresentable {
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         field.addTarget(context.coordinator, action: #selector(Coordinator.began(_:)), for: .editingDidBegin)
         context.coordinator.watch(field)
+        // Temporary, with `PredictionSelfTest`: the Mac launches the app with this argument to
+        // bring the Murmur keyboard up without a tap, then reads what it reported.
+        if name == "Murmur", ProcessInfo.processInfo.arguments.contains(PredictionSelfTest.focusArgument) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak field] in field?.becomeFirstResponder() }
+        }
         return field
     }
 

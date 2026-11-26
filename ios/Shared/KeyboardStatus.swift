@@ -94,17 +94,18 @@ struct KeyboardStatus: Codable, Equatable {
 
 extension CrashMarker {
     /// The language model's marker (`typing-lm-loading`), armed by the keyboard before it loads
-    /// the model and disarmed after the model's first prediction. Still armed at the next launch,
-    /// it means the keyboard died in between, and the keyboard leaves the model alone until the
-    /// app's Smart predictions switch is turned on again, which clears it. Bark's own marker is
-    /// a different file and is not touched.
+    /// the model and disarmed when the load's first prediction has answered. Still armed at the
+    /// next launch, it means the keyboard ended in between (`SmartPredictions` says what
+    /// follows). Bark's own marker is a different file and is not touched.
     static var typingModel: CrashMarker {
         CrashMarker(directory: AppStorage.directory, name: "typing-lm-loading")
     }
 
     /// Armed when a keyboard finds `typingModel` left armed by the process before it, and tries
     /// the load once more. Both armed means two processes in a row ended while loading the
-    /// model, which is when the keyboard stops trying. The first prediction disarms it.
+    /// model: the keyboard stops trying for `SmartPredictions.lockSeconds`, measured from this
+    /// marker's date. A load that answers disarms it; so do Setup's "Try again" and the Smart
+    /// predictions switch.
     static var typingModelStrike: CrashMarker {
         CrashMarker(directory: AppStorage.directory, name: "typing-lm-strike")
     }

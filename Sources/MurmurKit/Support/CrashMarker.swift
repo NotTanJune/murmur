@@ -26,6 +26,12 @@ public struct CrashMarker: Sendable {
         FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// When the marker was last armed, or nil when it is not armed. The language model's lock
+    /// reads this so that it lifts by itself after a while.
+    public var armedAt: Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
     public func arm() {
         try? Data().write(to: url, options: .atomic)
     }

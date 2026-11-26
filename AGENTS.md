@@ -780,16 +780,24 @@ points worse. How it works:
   made for the text's own word boundary, and applies every rule it had: `neverVolunteered`, no
   repeated pair, casing, the likeliest in the centre, a correction's place mid-word. The pair
   model fills any cell the prediction leaves empty and is the whole answer when there is none.
-- **`SmartPredictions` (`ios/Keyboard`) owns the load.** Nothing loads until a key or a strip
-  cell has been touched, so a keyboard used only to dictate never pays. A load needs
-  `Settings.smartPredictions` (Settings tab, default on), the model in the bundle, 60 MB left
-  before the extension's limit (`os_proc_available_memory`), and no armed `typing-lm-loading`
-  marker: the marker is armed before the load and disarmed after the first prediction, as
-  Bark's is. A marker found armed at launch means the last keyboard ended there; once is not
-  proof of a memory death (an install leaves the same marker), so the first time only a second
-  marker (`typing-lm-strike`) is armed and the load is tried again, and with both armed nothing
-  loads until the app's switch is turned off and on. One prediction runs at a time on a
-  background queue and only the newest waiting request is kept. **It is one per process
+- **`SmartPredictions` (`ios/Keyboard`) owns the load, and the model loads before Bark.**
+  `TypingController.keyboardAppeared` calls `prepare` at every appearance, and Bark's
+  preparation waits in `SmartPredictions.waitForLoad` (at most
+  `KeyboardDictation.predictionsFirstSeconds`, 8 s) before it loads. **Do not let Bark start
+  first, and do not move the model's load back to the first key** (see the paragraph on the
+  105 s load below). A load needs `Settings.smartPredictions` (Settings tab, default on), the
+  model in the bundle and 60 MB left before the extension's limit
+  (`os_proc_available_memory`). It ends with one prediction on the background queue, and only
+  then is the state `ready`: Setup's Predictions row shows its check mark for a model that has
+  answered in the keyboard's process, and the status file is written at every change of state.
+  The `typing-lm-loading` marker is armed before the load and disarmed after that prediction,
+  about a second. A marker found armed at launch means the last keyboard ended there; once is
+  not proof of a memory death (an install leaves the same marker), so the first time only a
+  second marker (`typing-lm-strike`) is armed and the load is tried again. With both armed
+  nothing loads for `lockSeconds` (30 minutes) or until the app clears them (Setup's "Try
+  again", or the switch turned on); the lock lifts by itself because a model that silently
+  never returns is worse than one more try. One prediction runs at a time on a background
+  queue and only the newest waiting request is kept. **It is one per process
   (`SmartPredictions.shared`), never the controller's:** iOS makes a new input view controller
   at many appearances (a screenshot does it), and a controller-owned model lost its load and
   left the marker armed, which locked every later keyboard out.
@@ -804,8 +812,10 @@ points worse. How it works:
 
 Known limits: it never offers a contraction as a next word ("I'm" is two tokens), it has GPT-2's
 web taste ("please enable javascript to view the comments"), and everything on the phone is
-unverified: memory, speed, load time, and whether Core ML keeps its 174 MiB compile cache in the
-extension's container. Setup shows "Predictions: ready · loaded in N s · last N ms · +N MB".
+unverified: whether Core ML keeps its 174 MiB compile cache in the extension's container. On the
+owner's phone the load with its first prediction takes 0.80 s and adds 8.5 MB, and a prediction
+takes 5 to 22 ms (2026-11-26). Setup has a Predictions row with a check mark when the model is
+`ready`, and a note under it with the load time and the last prediction.
 **A fine-tune exists and is not in git** (2026-11-26). `training/typing-lm/finetune.py` trained
 the model for a quarter of an epoch on Tatoeba's sentences and SODA's dialogue turns, most of
 them lowercased, on a Colab L4. On Murmur's own 229 sentences the next word is among the three
@@ -813,18 +823,30 @@ offered 54.5% of the time (stock 45.1%), and centre taps read like messages ("pl
 about it I know you will do great in your new job"). The weights are on the owner's Mac only
 (`~/Library/Caches/MurmurBuild/typing-lm-ft/quarter`, SHA-256 `952ef2d8...`), built with
 `Tools/fetch_typing_lm.py --weights <folder>`; `training/typing-lm/README.md` has the numbers.
-The fallbacks beyond that are in `plans/001-keyboard-v2.md`, Milestone 9. **The pair model's words kept coming back on the phone, and why** (found 2026-11-26). The
-owner saw "my dog breeds of the same time to the first to be a new window" with the model
-installed. The phone's shared folder held `typing-lm-loading` armed from the minute of the test,
-and the status file came from a controller that had asked the model nothing (`waiting`, 0 taps).
-The model belonged to `TypingController`; the controller was replaced during the load (the
-load is slow right after an install, while Bark compiles), the load was thrown away with it,
-and the marker it had armed made every later keyboard report `stoppedLastTime` at its first
-request. The fix is the bullet above: one model per process and two strikes before the lock.
-Whether the strip now shows the model's words on the phone is unverified until the owner types.
-Setup's Predictions line still shows temporary counters (answers for the whole process, stale,
-strip passes with an answer, memory left); remove them and `PredictionSelfTest` once the owner
-confirms.
+The fallbacks beyond that are in `plans/001-keyboard-v2.md`, Milestone 9. **The pair model's words kept coming back on the phone: two causes** (2026-11-26). The owner
+saw "my dog breeds of the same time to the first to be a new window" with the model installed,
+on three builds in a row. First cause: the model belonged to `TypingController`, the controller
+was replaced during the load, the load was thrown away and the marker it had armed made every
+later keyboard report `stoppedLastTime`. Fixed by one model per process and two strikes before
+the lock; the owner's next test still showed the pair model's words. Second cause, read off
+`keyboard-status.json` after that test: the model was `ready`, but its load had taken 104.75 s
+and Bark's 105.83 s in the same process, the first keyboard after an install. Alone on the same
+phone the model loads in 0.64 s (`PredictionSelfTest` in the app). The model's first load in a
+container, which compiles it, started at the first key while Bark was compiling for the Neural
+Engine, and waited for the whole of it; the owner's test fell inside those two minutes each
+time, because each build was tried right after its install. That the load waits behind Bark's
+compile is read off those times, not traced inside Core ML. The fix is the order: the model
+loads at the keyboard's appearance and Bark waits for it. Verified from the Mac on the phone
+the same day, with no typing: launched with `--typing-lab-focus` right after an install, the
+keyboard reported the model `ready` 3 s later, loaded and answered in 0.80 s, with Bark still
+`loading` (it then compiled in 83.7 s); and `--typing-lm-bark-race` in the app showed a model
+that loaded first answering 160 times in a row through an 84.1 s Bark compile, median 5.8 ms
+and slowest 12.1 ms. Not seen by eye yet: the strip's words on the phone with this build.
+**When debugging the keyboard, read `keyboard-status.json` off the phone before changing
+code**: two rounds were spent on a theory the file would have ruled out. Setup's Predictions
+note still shows temporary counters (answers for the whole process, stale, strip passes with
+an answer, memory left); remove them, `PredictionSelfTest` and the lab's focus argument once
+the owner confirms.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured

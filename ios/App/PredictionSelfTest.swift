@@ -1,6 +1,8 @@
 import CoreML
 import Foundation
 import MurmurKit
+import UIKit
+import os
 
 /// Temporary (2026-11-25): runs the keyboard's language model inside the app on the phone and
 /// writes what it returned to `typing-lm-selftest.json` in the App Group, so the Mac can read it
@@ -18,6 +20,11 @@ import MurmurKit
 enum PredictionSelfTest {
     static let argument = "--typing-lm-selftest"
     static let resultName = "typing-lm-selftest.json"
+    /// Runs `race` instead: the language model beside a Bark load, in this process.
+    static let raceArgument = "--typing-lm-bark-race"
+    static let raceResultName = "typing-lm-bark-race.json"
+    /// Read by the typing lab: focus its Murmur field at launch, so the keyboard comes up.
+    static let focusArgument = "--typing-lab-focus"
 
     /// Token ids from the reference tokenizer (`bpe-vectors.json`), with the start token in front.
     private static let questions: [(name: String, ids: [Int32])] = [
@@ -32,6 +39,10 @@ enum PredictionSelfTest {
 
     static func runIfAsked() {
         let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains(raceArgument) {
+            Task.detached(priority: .userInitiated) { await race() }
+            return
+        }
         guard let at = arguments.firstIndex(of: argument) else { return }
         let folder = at + 1 < arguments.count ? arguments[at + 1] : nil
         DispatchQueue.global(qos: .userInitiated).async { run(folder: folder) }
@@ -109,5 +120,106 @@ enum PredictionSelfTest {
             write(done: false)
         }
         write(done: true)
+    }
+
+    // MARK: - The model beside a Bark load
+
+    /// Temporary (2026-11-26). In the keyboard the model's load took 104.75 s, ending with
+    /// Bark's 105.83 s Neural Engine compile, and 0.64 s here with nothing else loading. This
+    /// reproduces the two together in the app, where no typing is needed, and asks the two
+    /// questions the keyboard's fix rests on: does a model load that starts during Bark's load
+    /// wait for it (`secondLoad`), and does a model that loaded first keep answering while Bark
+    /// loads (`samples`, one prediction every half second)? Bark compiles for the Neural Engine
+    /// only when this process's cache is cold, so `barkSeconds` says whether the run tested
+    /// that: a load of a second or two tested nothing.
+    ///
+    /// The one run (2026-11-26, iPhone 15 Pro): Bark took 84.1 s, the model answered all 160
+    /// times, median 5.8 ms and slowest 12.1 ms, and the second load returned in 1 ms. That
+    /// second load was of a model this process had already compiled and loaded, so it says
+    /// nothing about a first load, which is the one that waited in the keyboard.
+    private static func race() async {
+        let model = Bundle.main.builtInPlugInsURL?
+            .appendingPathComponent("MurmurKeyboard.appex/TypingLM/NextWord.mlmodelc")
+        let target = AppStorage.directory.appendingPathComponent(raceResultName)
+        var report: [String: Any] = ["done": false]
+        func write() {
+            let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+            try? data?.write(to: target, options: .atomic)
+        }
+        guard let model, FileManager.default.fileExists(atPath: model.path), BarkModelStore.isDownloaded else {
+            report["error"] = "the model or Bark is not on this phone"
+            report["done"] = true
+            write()
+            return
+        }
+        write()
+        await MainActor.run { UIApplication.shared.isIdleTimerDisabled = true }
+        do {
+            let configuration = MLModelConfiguration()
+            configuration.computeUnits = .cpuOnly
+            var clock = ContinuousClock.now
+            let first = try MLModel(contentsOf: model, configuration: configuration)
+            report["firstLoadSeconds"] = (ContinuousClock.now - clock) / .seconds(1)
+            let window = first.modelDescription.inputDescriptionsByName["input_ids"]?
+                .multiArrayConstraint?.shape.last?.intValue ?? 32
+            let question = questions[0].ids
+            let ids = try MLMultiArray(shape: [1, NSNumber(value: window)], dataType: .int32)
+            for index in 0..<window { ids[index] = NSNumber(value: index < question.count ? question[index] : 0) }
+            let last = try MLMultiArray(shape: [1], dataType: .int32)
+            last[0] = NSNumber(value: Int32(question.count - 1))
+            let input = try MLDictionaryFeatureProvider(dictionary: ["input_ids": ids, "last": last])
+            // A function that is not async, so the call is the blocking prediction the keyboard
+            // makes and not `MLModel`'s async one.
+            func ask() throws { _ = try first.prediction(from: input) }
+            clock = ContinuousClock.now
+            try ask()
+            report["firstPredictionMs"] = (ContinuousClock.now - clock) / .milliseconds(1)
+            write()
+
+            let started = ContinuousClock.now
+            let barkDone = OSAllocatedUnfairLock(initialState: false)
+            async let bark: (seconds: Double, error: String?) = {
+                var failure: String?
+                do { _ = try await ParakeetModels.barkClean.loadedModels() } catch { failure = String(describing: error) }
+                barkDone.withLock { $0 = true }
+                return ((ContinuousClock.now - started) / .seconds(1), failure)
+            }()
+            async let second: (at: Double, seconds: Double, error: String?) = {
+                try? await Task.sleep(for: .seconds(2))
+                let at = (ContinuousClock.now - started) / .seconds(1)
+                let began = ContinuousClock.now
+                var failure: String?
+                let configuration = MLModelConfiguration()
+                configuration.computeUnits = .cpuOnly
+                do { _ = try MLModel(contentsOf: model, configuration: configuration) } catch {
+                    failure = String(describing: error)
+                }
+                return (at, (ContinuousClock.now - began) / .seconds(1), failure)
+            }()
+
+            var samples: [[Double]] = []
+            while !barkDone.withLock({ $0 }), samples.count < 600 {
+                let at = (ContinuousClock.now - started) / .seconds(1)
+                clock = ContinuousClock.now
+                try ask()
+                samples.append([at, (ContinuousClock.now - clock) / .milliseconds(1)])
+                if samples.count % 10 == 0 {
+                    report["samples"] = samples
+                    write()
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            let barkResult = await bark
+            let secondLoad = await second
+            report["samples"] = samples
+            report["barkSeconds"] = barkResult.seconds
+            if let error = barkResult.error { report["barkError"] = error }
+            report["secondLoad"] = ["startedAt": secondLoad.at, "seconds": secondLoad.seconds, "error": secondLoad.error ?? ""]
+        } catch {
+            report["error"] = String(describing: error)
+        }
+        await MainActor.run { UIApplication.shared.isIdleTimerDisabled = false }
+        report["done"] = true
+        write()
     }
 }

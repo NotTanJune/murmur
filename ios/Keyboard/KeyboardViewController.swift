@@ -190,7 +190,15 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         hasDictationKey = true
-        // Typing first: it resets the counters that the dictation's status write reports.
+        // The model is the process's and this controller may be a new one: its changes of state
+        // go to the status file through whichever controller is on screen.
+        // A turn later, because the first change comes from inside `typing.keyboardAppeared()`,
+        // before the dictation side has read this appearance.
+        SmartPredictions.shared.onChange = { [weak self] in
+            Task { @MainActor in self?.dictation.typingStatusChanged() }
+        }
+        // Typing first: it resets the counters that the dictation's status write reports, and
+        // starts the language model's load ahead of Bark's.
         typing.keyboardAppeared()
         dictation.keyboardAppeared(hasFullAccess: hasFullAccess)
         // Contact names and the owner's text replacements: words autocorrect must not undo. The

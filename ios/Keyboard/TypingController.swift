@@ -172,9 +172,6 @@ final class TypingController {
     @ObservationIgnored private let prediction = OSAllocatedUnfairLock<WordPrediction?>(initialState: nil)
     /// The boundary last sent to the model, so one word asks once however many letters follow.
     @ObservationIgnored private var requestedBoundary: String?
-    /// A key has been touched in this process. The model is not asked before that, so a
-    /// keyboard that is only dictated into never loads it.
-    @ObservationIgnored private var keysTouched = false
     /// The text the newest strip pass was scheduled for, and the generation of the last pass
     /// that reached the strip: a prediction that arrives after its pass redoes that pass.
     @ObservationIgnored private var stripText: String?
@@ -344,6 +341,7 @@ final class TypingController {
                 Self.log.error("word model did not load: \(String(describing: error), privacy: .public)")
             }
         }
+        preparePredictions()
         refreshLexicon(force: true)
         readTraits()
         resetFieldState()
@@ -512,7 +510,6 @@ final class TypingController {
         switch event {
         case .began(_, _, let time):
             counters.touchDowns += 1
-            keysTouched = true
             noteDelivery(uptime - time)
         case .moved(_, _, let time), .ended(_, _, let time):
             noteDelivery(uptime - time)
@@ -1219,6 +1216,17 @@ final class TypingController {
         }
     }
 
+    /// Loads the language model as the keyboard appears, so it is ready before the first word
+    /// and ahead of Bark (`SmartPredictions` says why the order matters). Called before the
+    /// dictation's own `keyboardAppeared`, which is where Bark's load starts.
+    private func preparePredictions() {
+        guard Settings.shared.smartPredictions, let model else {
+            smart.turnOff()
+            return
+        }
+        smart.prepare(words: model)
+    }
+
     /// Sends a word boundary to the language model, once. The pass starts at the keystroke that
     /// made the boundary (the space) and not after the strip's quiet time, so on a fast phone the
     /// answer is there before the strip is first drawn and the pair model's words never flash;
@@ -1232,7 +1240,7 @@ final class TypingController {
             }
             return
         }
-        guard keysTouched, boundary != requestedBoundary else { return }
+        guard boundary != requestedBoundary else { return }
         requestedBoundary = boundary
         smart.request(boundary, words: model) { [weak self] in self?.predictionArrived($0) }
     }
@@ -1262,7 +1270,6 @@ final class TypingController {
             return
         }
         swipeOffer = nil
-        keysTouched = true
         KeyFeedback.press()
         undo = nil
         tracker.reset()

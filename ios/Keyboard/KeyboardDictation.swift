@@ -392,6 +392,12 @@ final class KeyboardDictation {
     /// How long the warm-up decode may run before Bark is given up on for this process.
     nonisolated static let warmupTimeoutSeconds: Double = 15
 
+    /// How long Bark's load waits for the strip's language model to finish loading first. The
+    /// model loads in under a second when nothing else is loading and took 105 s when it started
+    /// during Bark's Neural Engine compile (`SmartPredictions`), so Bark goes second. The limit
+    /// is for a model load that hangs: Bark must not wait on it for long.
+    nonisolated static let predictionsFirstSeconds: Double = 8
+
     /// The process-wide preparation, created once. `ParakeetModels.isLoaded` turns true as soon
     /// as the load returns, before the warm-up ends, so a second controller cannot use it as the
     /// sign that Bark is ready; it waits on this task instead. Only this task arms the crash
@@ -402,6 +408,7 @@ final class KeyboardDictation {
     private static func barkPreparationTask() -> Task<BarkPreparation, Error> {
         if let barkPreparation { return barkPreparation }
         let task = Task { () throws -> BarkPreparation in
+            await SmartPredictions.shared.waitForLoad(timeout: predictionsFirstSeconds)
             marker.arm()
             armedByThisProcess = true
             let loadStarted = ContinuousClock.now
@@ -587,6 +594,12 @@ final class KeyboardDictation {
 
     private func sampleMemory() {
         recordMemory()
+        writeStatus()
+    }
+
+    /// The typing side's report changed in a way the Setup tab should see now and not at the
+    /// next memory sample: the language model started loading, became ready or stopped.
+    func typingStatusChanged() {
         writeStatus()
     }
 

@@ -210,6 +210,18 @@ struct SetupView: View {
                 if let line = typingLine {
                     Note(text: line)
                 }
+                SetupRow(
+                    title: "Predictions",
+                    detail: predictionDetail,
+                    isDone: status.predictionState == "ready"
+                ) {
+                    if status.predictionState == "stoppedLastTime" {
+                        Button("Try again") {
+                            CrashMarker.typingModel.disarm()
+                            CrashMarker.typingModelStrike.disarm()
+                        }
+                    }
+                }
                 if let line = predictionLine {
                     Note(text: line)
                 }
@@ -345,35 +357,38 @@ struct SetupView: View {
         return line
     }
 
-    /// "Predictions: ready · loaded in 0.41 s · last 6 ms · +12 MB", the strip's language model
-    /// in the keyboard process: its state, this process's load, the last prediction's forward
-    /// pass and what the model added to the footprint. The other states say why it is not
-    /// running.
+    /// "Predictions: loaded in 0.41 s · last 6 ms · +12 MB", the strip's language model in the
+    /// keyboard process: this process's load, the last prediction's forward pass and what the
+    /// model added to the footprint. The row above it says whether it is running.
     private var predictionLine: String? {
-        guard let state = status.predictionState else { return nil }
-        var line: String
-        switch state {
-        case "ready": line = "Predictions: ready"
-        case "loading": line = "Predictions: loading"
-        case "waiting": line = "Predictions: starts at the first key"
-        case "off": line = "Predictions: off"
-        case "missing": line = "Predictions: model not in this build"
-        case "lowMemory": line = "Predictions: not enough memory, using the word-pair model"
-        case "stoppedLastTime":
-            line = "Predictions: stopped the keyboard last time. Turn Smart predictions off and on in Settings to try again."
-        default: line = "Predictions: failed, using the word-pair model"
-        }
-        if let load = status.predictionLoadSeconds { line += " · loaded in \(String(format: "%.2f", load)) s" }
-        if let last = status.predictionLastMs { line += " · last \(Int(last.rounded())) ms" }
-        if let added = status.predictionFootprintMB { line += " · +\(Int(added.rounded())) MB" }
+        guard status.predictionState != nil else { return nil }
+        var parts: [String] = []
+        if let load = status.predictionLoadSeconds { parts.append("loaded in \(String(format: "%.2f", load)) s") }
+        if let last = status.predictionLastMs { parts.append("last \(Int(last.rounded())) ms") }
+        if let added = status.predictionFootprintMB { parts.append("+\(Int(added.rounded())) MB") }
         // Temporary, with the counters in `KeyboardStatus`: read out by the owner when the Mac
         // cannot reach the phone.
         if let answers = status.predictionAnswers, let passes = status.stripPasses {
-            line += " · answers \(answers), stale \(status.predictionStale ?? 0)"
-            line += " · strip \(status.stripPassesWithPrediction ?? 0) of \(passes)"
+            parts.append("answers \(answers), stale \(status.predictionStale ?? 0)")
+            parts.append("strip \(status.stripPassesWithPrediction ?? 0) of \(passes)")
         }
-        if let free = status.predictionFreeMB { line += " · \(Int(free.rounded())) MB free" }
-        return line
+        if let free = status.predictionFreeMB { parts.append("\(Int(free.rounded())) MB free") }
+        return parts.isEmpty ? nil : "Predictions: " + parts.joined(separator: " · ")
+    }
+
+    /// Why the Predictions row has no check mark. Nil when it has one: the model loaded and
+    /// answered in the keyboard's process (`SmartPredictions.State.ready`).
+    private var predictionDetail: String? {
+        switch status.predictionState {
+        case "ready": nil
+        case "loading": "Loading…"
+        case "waiting", nil: "Loads when the Murmur keyboard opens."
+        case "off": "Off in Settings."
+        case "missing": "This build has no model."
+        case "lowMemory": "Not enough memory just now. It tries again by itself."
+        case "stoppedLastTime": "Stopped while loading, twice. It tries again by itself in half an hour."
+        default: "Did not load."
+        }
     }
 
     private var fullAccessDetail: String? {
