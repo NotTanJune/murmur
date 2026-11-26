@@ -22,9 +22,11 @@ struct KeyboardView: View {
     let typing: TypingController
     let actions: KeyboardActions
 
-    private enum Panel { case keys, emoji, history }
+    private enum Panel { case keys, emoji, search, history }
 
     @State private var panel: Panel = .keys
+    /// The query and results of emoji search; the panel is `.search` while it is open.
+    @State private var search = EmojiSearchModel()
 
     var body: some View {
         Group {
@@ -32,12 +34,18 @@ struct KeyboardView: View {
             case .keys:
                 keys
             case .emoji:
-                EmojiPanel(actions: actions, close: {
-                    // The stock emoji keyboard's ABC returns to letters, whatever page it left.
-                    typing.showLetters()
-                    show(.keys)
-                })
+                EmojiPanel(
+                    actions: actions,
+                    close: {
+                        // The stock emoji keyboard's ABC returns to letters, whatever page it left.
+                        typing.showLetters()
+                        show(.keys)
+                    },
+                    openSearch: { show(.search) }
+                )
                 .padding(DS.Keyboard.padding)
+            case .search:
+                searching
             case .history:
                 HistoryPanel(actions: actions, close: { show(.keys) })
                     .padding(DS.Keyboard.padding)
@@ -45,15 +53,46 @@ struct KeyboardView: View {
         }
         // The height the keyboard actually has, never one asked for: the panels fit what
         // arrives (`EmojiPanel` drops rows to make room). They are exactly as tall as the key
-        // page, because iOS ignores a keyboard that grows after it first appears.
+        // page, because iOS ignores a keyboard that grows after it first appears. Search is the
+        // one panel that asks for more (`TypingController.beginSearch`), and it too lays out in
+        // whatever arrives (`EmojiSearchPanel` goes to one row).
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { typing.onShowEmoji = { show(.emoji) } }
+        .onAppear {
+            typing.onShowEmoji = { show(.emoji) }
+            // Return in the search, or the keyboard going away mid-search, goes back to the grid.
+            search.onSubmit = { show(.emoji) }
+            typing.onSearchAbandoned = { show(.emoji) }
+        }
     }
 
-    /// The plane is shown for the keys and hidden under a panel, so it takes no touches there.
+    /// The plane is shown for the keys and for search (which types on it) and hidden under the
+    /// other panels, so it takes no touches there. Opening search routes the keys into the query
+    /// and makes the keyboard taller; leaving it undoes both.
     private func show(_ next: Panel) {
+        if panel == .search, next != .search {
+            typing.endSearch()
+            search.close()
+        }
+        if next == .search, panel != .search {
+            search.open()
+            typing.beginSearch { search.handle($0) }
+        }
         panel = next
-        typing.setPlaneVisible(next == .keys)
+        typing.setPlaneVisible(next == .keys || next == .search)
+        // The embedding is only wanted while the emoji panel is up.
+        if next != .emoji, next != .search { EmojiSemantic.shared.release() }
+    }
+
+    /// Search mode: the field and one row of results fill what the keyboard has above the plane
+    /// (the strip's place, and the extra height search asks for), over clear space exactly as
+    /// tall as the plane, as `keys` does.
+    private var searching: some View {
+        VStack(spacing: 0) {
+            EmojiSearchPanel(model: search, actions: actions, close: { show(.emoji) })
+            Color.clear.frame(height: typing.planeSpace)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .ignoresSafeArea()
     }
 
     /// The strip directly above clear space exactly as tall as the plane, which the view

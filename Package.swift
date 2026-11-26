@@ -74,6 +74,12 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "MurmurDesignTests",
+            dependencies: ["MurmurDesign"],
+            path: "Tests/MurmurDesignTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
             name: "MurmurKitTests",
             dependencies: ["MurmurKit", .product(name: "FluidAudio", package: "FluidAudio")],
             path: "Tests/MurmurKitTests",

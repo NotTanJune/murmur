@@ -1,4 +1,5 @@
 import AVFoundation
+import MurmurDesign
 import MurmurKit
 import Observation
 import OSLog
@@ -49,6 +50,10 @@ final class KeyboardDictation {
     /// The current hold has received its first samples (the pre-roll counts), so the key can
     /// tell "listening" from "pressed, but nothing heard yet".
     private(set) var heardAudio = false
+    /// The key's voice trace. Each block of samples a hold receives, and the pre-roll it starts
+    /// with, goes in here; it learns the room from the hold's own first moments. Not observed:
+    /// the trace's `TimelineView` reads it on its own clock.
+    @ObservationIgnored let voiceTrace = VoiceTraceSource()
     /// A short line for the talk key: which engine the next press uses and why. Empty when Bark
     /// is ready or not in use.
     private(set) var engineNote = ""
@@ -565,6 +570,7 @@ final class KeyboardDictation {
         self.hold = hold
         isLocked = false
         heardAudio = false
+        voiceTrace.reset()
         state = .recording(level: 0)
         // A hold is in progress: the idle clock starts again when it is over.
         idleCloseTask?.cancel()
@@ -680,6 +686,8 @@ final class KeyboardDictation {
             return
         }
         state = .recording(level: level)
+        // Frames of about 10 ms from the block's RMS; the block's own `level` is the page's.
+        voiceTrace.ingest(samples: samples, rate: rate)
         if let converter = hold.converter {
             if let buffer = converter.convert(samples) { hold.send(buffer) }
         } else {
@@ -715,6 +723,8 @@ final class KeyboardDictation {
             Self.log.info("attached to a \(self.micState == .live ? "live" : "warming", privacy: .public) microphone with \(preRollSeconds, format: .fixed(precision: 3)) s of pre-roll")
             if !samples.isEmpty, let rate {
                 hold.captureRate = rate
+                // The room just before the press: calibration, and the first words if they began early.
+                voiceTrace.ingest(samples: samples, rate: rate)
                 hold.pending.append(samples)
                 noteHeard(hold, fromPreRoll: true)
             }

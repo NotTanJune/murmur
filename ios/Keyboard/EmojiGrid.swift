@@ -25,6 +25,9 @@ struct EmojiGrid: UIViewRepresentable {
     /// Skin tones were asked for: the emoji as shown, whether it is a Frequently Used form, and
     /// its cell in the grid's own coordinates.
     let onTones: (_ emoji: String, _ isRecent: Bool, _ anchor: CGRect) -> Void
+    /// Changes when `categories` holds different emoji (search results), which reloads the grid
+    /// and returns it to the start. The panel's own grid never changes it: it is read once.
+    var reloadToken = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -61,6 +64,7 @@ struct EmojiGrid: UIViewRepresentable {
     func updateUIView(_ view: UICollectionView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        coordinator.applyContent(token: reloadToken, in: view)
         coordinator.applyShape(rows: rows, columns: columns, in: view)
     }
 
@@ -90,11 +94,34 @@ struct EmojiGrid: UIViewRepresentable {
         /// Where the scroll that set `lockedSection` is going, to tell its end from an older one's.
         private var lockedTargetX: CGFloat = 0
 
-        init(_ parent: EmojiGrid) { self.parent = parent }
+        /// The `reloadToken` the cells were last loaded for.
+        private var loadedToken: Int
 
-        /// The categories are fixed for the life of the panel (Frequently Used is read once when
-        /// it opens), so the data source reads them live and is never reloaded.
+        init(_ parent: EmojiGrid) {
+            self.parent = parent
+            loadedToken = parent.reloadToken
+        }
+
+        /// The panel's categories are fixed for its life (Frequently Used is read once when it
+        /// opens), so the data source reads them live and is reloaded only when `reloadToken`
+        /// changes (the search's results).
         private var categories: [EmojiCatalog.Category] { parent.categories }
+
+        // MARK: Content
+
+        /// New categories under the same grid (the search's results): reload, forget the tones read
+        /// so far, and start from the first column.
+        func applyContent(token: Int, in view: UICollectionView) {
+            guard token != loadedToken else { return }
+            loadedToken = token
+            layout.configure(counts: categories.map(\.emoji.count), rows: layout.rows, columns: layout.columns)
+            toneCache.removeAll()
+            lockedSection = nil
+            published = 0
+            view.reloadData()
+            view.layoutIfNeeded()
+            view.setContentOffset(.zero, animated: false)
+        }
 
         // MARK: Shape
 

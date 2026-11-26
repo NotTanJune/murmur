@@ -4,17 +4,20 @@ import SwiftUI
 import UIKit
 
 /// Murmur's own emoji picker. A keyboard extension has no way to show Apple's, so this follows
-/// it instead: a section title at the top, a grid of five rows that scrolls sideways, a
-/// category bar at the bottom, and a long press for skin tones. It lays out in the height it is
-/// given, never a taller one: the title and the bar keep their sizes and the grid takes the
-/// rest, with fewer rows (never under `emojiMinRows`) where five would be under
-/// `emojiMinCellHeight` each. Each section starts on a fresh
-/// column, so scrolling to a category lands on its first emoji and the title can be read from
-/// the scroll offset alone. The grid is UIKit (`EmojiGrid`); this view holds the title, the
-/// category bar and the tone row, and hears from the grid only when the section in view changes.
+/// iOS 26's instead: a "Describe an Emoji" search field at the top (a tap opens search mode,
+/// `EmojiSearchPanel`), a grid that scrolls sideways, a category bar at the bottom, and a long
+/// press for skin tones. There is no section title: the selected category in the bar names the
+/// section. It lays out in the height it is given, never a taller one: the field and the bar keep
+/// their sizes and the grid takes the rest, with fewer rows (never under `emojiMinRows`) where
+/// five would be under `emojiMinCellHeight` each (the field costs the fifth row of a 253 pt
+/// panel, as it does in iOS 26). Each section starts on a fresh column, so scrolling to a
+/// category lands on its first emoji. The grid is UIKit (`EmojiGrid`); this view holds the
+/// field, the category bar and the tone row, and hears from the grid only when the section in view
+/// changes.
 struct EmojiPanel: View {
     let actions: KeyboardActions
     let close: () -> Void
+    let openSearch: () -> Void
 
     /// Frequently Used is read once, when the panel opens: typing an emoji must not reshuffle
     /// the grid under the finger, and closing the panel discards this view and its state.
@@ -36,7 +39,7 @@ struct EmojiPanel: View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 VStack(spacing: DS.Keyboard.emojiBarSpacing) {
-                    title
+                    searchField
                     EmojiGrid(
                         categories: categories,
                         rows: Self.rows(fitting: geometry.size.height, preferred: preferredRows),
@@ -66,11 +69,11 @@ struct EmojiPanel: View {
     }
 
     /// The rows that fit the grid's share of a panel `height` tall, at least
-    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 253 pt keyboard
-    /// (241 pt inside its padding) leaves 177 pt for the grid: five rows of 35.4 pt. Turned,
-    /// 202 pt leaves 126 pt: three rows of 42 pt.
+    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 257 pt keyboard
+    /// (245 pt inside its padding) leaves 165 pt for the grid under the 36 pt field: four rows of
+    /// 41 pt. Turned, 202 pt (190 inside) leaves 110 pt: three rows of 37 pt.
     private static func rows(fitting height: CGFloat, preferred: Int) -> Int {
-        let grid = height - DS.Keyboard.emojiTitleHeight - DS.Keyboard.emojiBarHeight - DS.Keyboard.emojiBarSpacing * 2
+        let grid = height - DS.Keyboard.emojiSearchFieldHeight - DS.Keyboard.emojiBarHeight - DS.Keyboard.emojiBarSpacing * 2
         let fitting = Int((max(grid, 0) / DS.Keyboard.emojiMinCellHeight).rounded(.down))
         return max(DS.Keyboard.emojiMinRows, min(preferred, fitting))
     }
@@ -88,19 +91,31 @@ struct EmojiPanel: View {
         EmojiRecents.record(emoji)
     }
 
-    // MARK: Title
+    // MARK: Search field
 
-    private var title: some View {
-        HStack {
-            Text(categories[min(section, categories.count - 1)].title)
-                .textCase(.uppercase)
-                .font(DS.Keyboard.emojiTitleFont)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+    /// Looks like iOS 26's field and opens search mode when tapped. It is a button: typing into
+    /// it is done by the key plane in search mode, not here.
+    private var searchField: some View {
+        Button(action: openSearch) {
+            HStack(spacing: DS.Keyboard.emojiSearchFieldSpacing) {
+                Image(systemName: "magnifyingglass")
+                    .font(DS.Keyboard.emojiSearchIconFont)
+                Text("Describe an Emoji")
+                    .font(DS.Keyboard.emojiSearchFieldFont)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, DS.Keyboard.emojiSearchFieldInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Capsule().fill(DS.Keyboard.key))
+            .contentShape(Capsule())
         }
-        .padding(.horizontal, DS.Keyboard.emojiTitleInset)
-        .frame(height: DS.Keyboard.emojiTitleHeight)
-        .accessibilityAddTraits(.isHeader)
+        .buttonStyle(PlainKeyStyle())
+        .frame(height: DS.Keyboard.emojiSearchFieldHeight)
+        .accessibilityLabel("Describe an Emoji")
+        .accessibilityHint("Search emoji by description")
+        .accessibilityAddTraits(.isSearchField)
     }
 
     // MARK: Skin tones
@@ -112,12 +127,12 @@ struct EmojiPanel: View {
         let anchor: CGRect
     }
 
-    /// `anchor` is the pressed cell in the grid's coordinates; the grid starts below the title.
+    /// `anchor` is the pressed cell in the grid's coordinates; the grid starts below the search field.
     private func showTones(for emoji: String, isRecent: Bool, anchor: CGRect) {
         let base = isRecent ? (EmojiCatalog.base(ofToned: emoji) ?? emoji) : emoji
         let forms = EmojiCatalog.tones(for: base)
         guard !forms.isEmpty else { return }
-        let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiTitleHeight + DS.Keyboard.emojiBarSpacing)
+        let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiSearchFieldHeight + DS.Keyboard.emojiBarSpacing)
         KeyFeedback.press()
         tonePopup = TonePopup(base: base, forms: [base] + forms, anchor: panelAnchor)
     }

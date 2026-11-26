@@ -250,7 +250,7 @@ public enum DS {
 
     // MARK: - HUD
 
-    /// The listening capsule: a dark pill with a soft shadow and red bars. It only shows
+    /// The listening capsule: a dark pill with a soft shadow and a red trace. It only shows
     /// while a hold is live, and red means recording.
     public enum HUD {
         public static let width: CGFloat = 148
@@ -262,19 +262,33 @@ public enum DS {
 
         public static let waveformWidth: CGFloat = 112
         public static let waveformHeight: CGFloat = 24
-        public static let waveformBarCount = 16
-        public static let waveformBarWidth: CGFloat = 3
-        public static let waveformBarSpacing: CGFloat = 3
-        public static let waveformBarRadius: CGFloat = 1.5
-        public static let waveformFloorHeight: CGFloat = 2
-        public static let waveformAmplitude: CGFloat = 22
-        public static let waveformMinimumLevel: Float = 0.04
         public static let waveformInterval: TimeInterval = 1.0 / 30.0
-        public static let waveformFrequency: Double = 6.0
-        public static let waveformEnvelopeFloor: Double = 0.35
-        public static let waveformEnvelopeRange: Double = 0.65
-        public static let waveformLevelFloor: Double = 0.55
-        public static let waveformLevelRange: Double = 0.45
+        /// With Reduce Motion on the trace redraws less often and drops its glow and its moving carrier.
+        public static let waveformReducedInterval: TimeInterval = 1.0 / 15.0
+
+        // The voice trace (`VoiceTrace`): one line, newest in the middle, older towards the edges.
+        /// Points on each side of the middle; the line has twice this plus one.
+        public static let traceSegmentsPerSide = 40
+        public static let traceLineWidth: CGFloat = 1.6
+        /// The soft glow behind the line: the same red, wider, blurred and fainter.
+        public static let traceGlowWidth: CGFloat = 5
+        public static let traceGlowBlur: CGFloat = 3
+        public static let traceGlowOpacity: Double = 0.45
+        /// Opacity at the edges, where the oldest history is, against 1 in the middle.
+        public static let traceEdgeOpacity: Double = 0.12
+        /// How quickly opacity falls with age; above 1 keeps the middle bright for longer.
+        public static let traceFadeExponent: Double = 1.5
+        /// Segments that share one opacity. The line is stroked in these runs, so the fade moves in small steps.
+        public static let traceFadeRun = 3
+        /// The carrier that makes the line read as a live trace: distance of one cycle in
+        /// points, its travel in cycles a second, and the second, faster harmonic's share.
+        public static let traceCarrierWavelength: CGFloat = 15
+        public static let traceCarrierSpeed: Double = 1.1
+        public static let traceHarmonicRatio: Double = 1.7
+        public static let traceHarmonicShare: Double = 0.25
+        /// The harmonic travels at this share of the carrier's speed, from this starting phase.
+        public static let traceHarmonicDrift: Double = 0.6
+        public static let traceHarmonicPhase: Double = 0.3
         public static let fadeDuration: TimeInterval = 0.16
     }
 
@@ -402,10 +416,34 @@ public enum DS {
         public static let emojiColumnsCompact = 14
         public static let emojiBarHeight: CGFloat = 36
         public static let emojiBarSpacing: CGFloat = 4
-        /// The small caps label naming the section in view.
-        public static let emojiTitleHeight: CGFloat = 20
-        public static let emojiTitleInset: CGFloat = 6
+        /// The small caps label of the history panel's header (the emoji panel's section is shown by
+        /// its category bar, and its header is the search field below).
         public static let emojiTitleFont = SwiftUI.Font.system(size: 12, weight: .semibold)
+        /// The "Describe an Emoji" field above the grid, as in iOS 26's picker: a capsule with a
+        /// magnifying glass, `emojiSearchFieldHeight` tall. It takes the place of the section
+        /// title, so a 253 pt panel fits four rows of the grid and not five.
+        public static let emojiSearchFieldHeight: CGFloat = 36
+        public static let emojiSearchFieldInset: CGFloat = 10
+        public static let emojiSearchFieldSpacing: CGFloat = 6
+        public static let emojiSearchFieldFont = SwiftUI.Font.system(size: 17)
+        public static let emojiSearchIconFont = SwiftUI.Font.system(size: 15, weight: .medium)
+        /// Search mode: the field, then one row of results, above the key plane. The keyboard is
+        /// taller by `emojiSearchRegionHeight` less the strip's height while it shows, and the
+        /// region is laid out in whatever height arrives: below `emojiSearchRegionHeight` the
+        /// field and the results share one row (`emojiSearchCompactFieldFraction` of its width
+        /// for the field).
+        public static let emojiSearchTopInset: CGFloat = 4
+        public static let emojiSearchResultsHeight: CGFloat = 40
+        public static let emojiSearchRegionHeight: CGFloat =
+            emojiSearchTopInset + emojiSearchFieldHeight + emojiBarSpacing + emojiSearchResultsHeight
+        public static let emojiSearchCompactFieldFraction: CGFloat = 0.45
+        /// The query's caret. It blinks as the system's does.
+        public static let emojiSearchCaretWidth: CGFloat = 2
+        public static let emojiSearchCaretHeight: CGFloat = 20
+        public static let emojiSearchCaretBlink: TimeInterval = 0.53
+        /// Results update this long after the last key, off the main thread (the words match at
+        /// once; this is for the embedding's part).
+        public static let emojiSearchDebounce: Duration = .milliseconds(100)
         /// The skin-tone row that floats above an emoji after a long press.
         public static let emojiToneCellWidth: CGFloat = 40
         public static let emojiToneCellHeight: CGFloat = 44
@@ -418,9 +456,6 @@ public enum DS {
         /// The emoji panel's delete key repeats as the key plane's does (`TypingEngine`).
         public static let deleteRepeatDelay: Duration = .milliseconds(360)
         public static let deleteRepeatInterval: Duration = .milliseconds(75)
-        /// RMS to meter level: microphone RMS sits low, so callers scale it by this before
-        /// handing it to `Waveform`, which itself applies no gain.
-        public static let levelGain: Float = 8
 
         /// Type. The keyboard uses the system face so it sits beside Apple's own keyboards.
         public static let iconFont = SwiftUI.Font.system(size: 19)

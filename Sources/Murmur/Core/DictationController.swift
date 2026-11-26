@@ -2,6 +2,7 @@ import MurmurDictionary
 import AVFoundation
 import AppKit
 import Foundation
+import MurmurDesign
 import MurmurKit
 import Observation
 
@@ -133,6 +134,9 @@ final class DictationController {
     private(set) var transcript = ""
     /// Smoothed microphone level from 0 to 1 that drives the waveform and level meter.
     private(set) var level: Float = 0
+    /// The HUD's trace. Fed with each level the capture reports and reset as a hold attaches,
+    /// so it learns each hold's room afresh. Read by `HUDView`; never observed.
+    @ObservationIgnored let voiceTrace = VoiceTraceSource()
     /// The microphone capture is pinned to, for display. Nil when neither allowed one is
     /// available.
     private(set) var microphoneName: String?
@@ -567,10 +571,14 @@ final class DictationController {
         let openedAt = Date()
         // Attach first: with the microphone already open this is the whole job, and the
         // hold starts with the pre-roll from just before the press.
-        router.attach(audioContinuation) { [weak self] level in
+        voiceTrace.reset()
+        router.attach(audioContinuation) { [weak self] rms in
+            // The time is taken here, where the audio is, and not after the hop to the main actor.
+            let heardAt = VoiceTraceSource.now
             Task { @MainActor in
                 guard let self, self.current === utterance else { return }
-                self.updateLevel(level)
+                self.updateLevel(Self.meterLevel(rms: rms))
+                self.voiceTrace.ingest(rms: rms, at: heardAt)
             }
         }
         let wasOpen = captureKey == key
@@ -814,6 +822,13 @@ final class DictationController {
 
     /// Exponential smoothing: each update closes 35 percent of the gap to the new value. At
     /// the capture's cap of 30 updates a second this makes the waveform glide, not strobe.
+    /// Maps linear RMS onto 0...1 for the level meter: a -50...0 dBFS window lets quiet speech
+    /// still move it.
+    private static func meterLevel(rms: Float) -> Float {
+        let decibels = 20 * log10(max(rms, 1e-7))
+        return min(1, max(0, (decibels + 50) / 50))
+    }
+
     private func updateLevel(_ new: Float) {
         level += (new - level) * 0.35
     }

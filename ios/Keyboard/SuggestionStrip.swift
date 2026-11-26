@@ -321,14 +321,14 @@ private struct RecordControl: View {
 
     @ViewBuilder private var capsuleContent: some View {
         switch dictation.state {
-        case .recording(let level):
-            // Flat and neutral until the hold has audio, then red and following the level, so
-            // the bars never claim a microphone that is not yet hearing.
-            if dictation.heardAudio {
-                Waveform(level: level * DS.Keyboard.levelGain, isActive: true)
-            } else {
-                Waveform(level: 0, isActive: false, tint: DS.Keyboard.waveformFlat)
-            }
+        case .recording:
+            // A flat neutral line until the hold has audio, then the red voice trace, so the
+            // trace never claims a microphone that is not yet hearing.
+            VoiceTrace(
+                source: dictation.voiceTrace,
+                isActive: dictation.heardAudio,
+                idleTint: DS.Keyboard.waveformFlat
+            )
         case .finishing:
             ProgressView().tint(DS.Keyboard.wordmark)
         case .idle, .failed:

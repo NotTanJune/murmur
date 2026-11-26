@@ -62,6 +62,28 @@ final class TypingController {
     /// What a tap on the key plane's emoji key does. Set by the keyboard view, which owns the
     /// panels.
     @ObservationIgnored var onShowEmoji: () -> Void = {}
+
+    /// What the keys do while emoji search is open (`beginSearch`): they type into the query and
+    /// nowhere else.
+    enum SearchKey: Equatable {
+        case text(String)
+        case delete
+        case deleteWord
+        /// Return: the search is done.
+        case submit
+    }
+
+    /// Where the keys' text goes while emoji search is open; nil the rest of the time. This is the
+    /// one seam: `apply` hands insertions and deletions to it before any of the text rules, the
+    /// autocorrect, the strip or the swipe decoder see them, so none of those runs.
+    @ObservationIgnored private(set) var searchSink: ((SearchKey) -> Void)?
+    /// How much taller the keyboard is while it searches. The view controller asks for it
+    /// (`keyboardHeight`) at its next layout.
+    @ObservationIgnored private(set) var searchExtraHeight: CGFloat = 0
+    /// The keyboard's height changed (search opened or closed): the view controller lays out again.
+    @ObservationIgnored var onHeightChange: () -> Void = {}
+    /// The keyboard went away with search open; the view returns to the emoji grid.
+    @ObservationIgnored var onSearchAbandoned: () -> Void = {}
     /// The globe key's touches, with their event, for the keyboard list. Set by the controller.
     @ObservationIgnored var onGlobe: (UIView, UIEvent) -> Void = { _, _ in }
     /// Pop-ups draw on this view's layer, so a first-row pop-up can rise over the strip.
@@ -190,7 +212,7 @@ final class TypingController {
     // MARK: - Geometry
 
     /// The height of the whole keyboard (strip and keys) at the current width and orientation.
-    var keyboardHeight: CGFloat { metrics.height }
+    var keyboardHeight: CGFloat { metrics.height + searchExtraHeight }
 
     /// The portrait height, which does not depend on the width. The height constraint starts
     /// here, before the first layout knows the orientation.
@@ -237,7 +259,8 @@ final class TypingController {
         swipeDecoder = model.map { SwipeDecoder(model: $0, frames: lettersFrames) }
     }
 
-    /// The height of the key plane: everything under the strip.
+    /// The height of the key plane: everything under the strip. Search makes the keyboard taller
+    /// above the plane, never the plane.
     var planeHeight: CGFloat { metrics.height - metrics.constants.stripHeight }
 
     // MARK: - The plane
@@ -266,11 +289,16 @@ final class TypingController {
     }
 
     private var currentState: KeyPlaneState {
-        KeyPlaneState(
+        // While searching, return is the search key and not the field's.
+        let searching = searchSink != nil
+        return KeyPlaneState(
             frames: engine.frames, page: engine.page, shift: engine.shift,
-            returnTitle: traits.returnKeyTitle, returnProminent: returnIsProminent,
+            returnTitle: searching ? Self.searchReturnTitle : traits.returnKeyTitle,
+            returnProminent: searching || returnIsProminent,
             stripHeight: metrics.constants.stripHeight)
     }
+
+    private static let searchReturnTitle = "search"
 
     private func flushState() {
         guard stateIsDirty else { return }
@@ -308,6 +336,7 @@ final class TypingController {
 
     /// The keyboard went away: drop what belongs to the last field's typing.
     func keyboardDisappeared() {
+        if searchSink != nil { onSearchAbandoned() }
         undo = nil
         tracker.reset()
         cancelLiveSwipe()
@@ -335,6 +364,61 @@ final class TypingController {
         engine.setPage(.letters)
         stateIsDirty = true
         flushState()
+    }
+
+    // MARK: - Emoji search
+
+    /// Emoji search opened: letters, space, delete and return go to `sink`, and the keyboard grows
+    /// to hold the search field and its row of results above the keys. The page is the letters
+    /// page with shift off, and no suggestion, autocorrect, swipe or auto-shift state survives
+    /// into it (each is dropped here and cannot start while the sink is set).
+    func beginSearch(_ sink: @escaping (SearchKey) -> Void) {
+        searchSink = sink
+        undo = nil
+        swipeOffer = nil
+        tracker.reset()
+        pending.disarm()
+        lastSpaceTime = nil
+        cancelLiveSwipe()
+        engine.setPage(.letters)
+        engine.setShift(.off)
+        autoShifted = false
+        stateIsDirty = true
+        searchExtraHeight = max(DS.Keyboard.emojiSearchRegionHeight - metrics.constants.stripHeight, 0)
+        flushState()
+        onHeightChange()
+    }
+
+    /// Emoji search closed: the keys type into the field again, and shift and the strip catch up
+    /// with whatever the search typed there (emoji).
+    func endSearch() {
+        guard searchSink != nil else { return }
+        searchSink = nil
+        searchExtraHeight = 0
+        stateIsDirty = true
+        flushState()
+        onHeightChange()
+        scheduleTextRefresh()
+    }
+
+    /// Hands one effect to the search sink. True when it was one the search takes (so `apply`
+    /// does nothing more with it); the cursor trackpad and swipes mean nothing to a query.
+    private func routeToSearch(_ effect: TypingEffect, _ sink: (SearchKey) -> Void) -> Bool {
+        switch effect {
+        case .insert(let text, _):
+            sink(text == "\n" ? .submit : .text(text))
+            return true
+        case .deleteBackward(let count):
+            for _ in 0..<max(count, 1) { sink(.delete) }
+            return true
+        case .deleteWordBackward:
+            sink(.deleteWord)
+            return true
+        case .moveCursor, .swipeUpdate, .swipeEnded:
+            return true
+        default:
+            return false
+        }
     }
 
     /// The field's identity. `UITextDocumentProxy.documentIdentifier` is declared as a
@@ -442,8 +526,8 @@ final class TypingController {
         // Whether a touch may swipe is decided as the finger lands, from the setting as it stands
         // now.
         if case .began = event {
-            recheckAutoShift()
-            engine.swipeEnabled = swipeAllowed
+            if searchSink == nil { recheckAutoShift() }
+            engine.swipeEnabled = searchSink == nil && swipeAllowed
             plane?.swipeTrailWidth = swipeTrailWidth
         }
         let effects = engine.handle(event, bias: biasForTouch())
@@ -456,6 +540,7 @@ final class TypingController {
     private func apply(_ effects: [TypingEffect]) {
         var textChanged = false
         for effect in effects {
+            if let sink = searchSink, routeToSearch(effect, sink) { continue }
             switch effect {
             case .insert(let text, let tap):
                 typeInsert(text, tap: tap)
@@ -744,7 +829,7 @@ final class TypingController {
 
     /// The log-odds for this touch, only in fields that take autocorrect and on the letters page.
     private func biasForTouch() -> [String: Double] {
-        guard engine.page == .letters, AutocorrectPolicy.allows(traits) else { return [:] }
+        guard searchSink == nil, engine.page == .letters, AutocorrectPolicy.allows(traits) else { return [:] }
         // A swiped word is followed by an owed space, so the next letter starts a new word and the
         // swiped one's letters say nothing about it.
         guard swipeOffer == nil else { return [:] }
@@ -881,6 +966,9 @@ final class TypingController {
 
     private func runTextRefresh() {
         textRefreshScheduled = false
+        // While searching nothing reads the field: the strip is not shown, and shift must not
+        // follow the field's text. `endSearch` asks for the pass again.
+        guard searchSink == nil else { return }
         guard textRefreshPending else { return }
         textRefreshPending = false
         if fieldCheckPending {

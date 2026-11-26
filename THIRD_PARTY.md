@@ -61,6 +61,8 @@ the script downloads them and checks their SHA-256.
 | `frequency_dictionary_en_82_765.txt` and `frequency_bigramdictionary_en_243_342.txt` | SymSpell by Wolf Garbe, `github.com/wolfgarbe/SymSpell` | MIT |
 | Word frequencies behind both lists | Google Books Ngram data, http://books.google.com/ngrams | CC BY 3.0 Unported |
 | English vocabulary the unigram list was filtered with | SCOWL (Spell Checker Oriented Word Lists), as the SymSpell README states, http://wordlist.aspell.net/ | Permissive, notice below |
+| Emoji names and keywords in `Sources/MurmurKit/Emoji/EmojiNames.swift`, from the English annotations of CLDR 46 (`common/annotations/en.xml`, `common/annotationsDerived/en.xml`), which the keyboard's emoji search reads | Unicode CLDR, `github.com/unicode-org/cldr` | Unicode License v3 |
+| Emoji list and order in `EmojiData.swift`, from `emoji-test.txt` 16.0 | Unicode Emoji, `unicode.org/Public/emoji/16.0/` | Unicode License v3 |
 
 `training/typing-lm/eval-sentences.tsv`, which only the model evaluation reads and no build
 includes, holds 290 sentences from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each line
@@ -77,3 +79,37 @@ contributors' lists under similar terms):
 > copyright notice and this permission notice appear in supporting documentation. Kevin Atkinson
 > makes no representations about the suitability of this array for any purpose. It is provided
 > "as is" without express or implied warranty.
+
+The Unicode License v3, which covers the two Unicode rows above:
+
+> UNICODE LICENSE V3
+>
+> COPYRIGHT AND PERMISSION NOTICE
+>
+> Copyright © 1991-2024 Unicode, Inc.
+>
+> NOTICE TO USER: Carefully read the following legal agreement. BY DOWNLOADING, INSTALLING,
+> COPYING OR OTHERWISE USING DATA FILES, AND/OR SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO
+> BE BOUND BY, ALL OF THE TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+> DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy of data files and
+> any associated documentation (the "Data Files") or software and any associated documentation
+> (the "Software") to deal in the Data Files or Software without restriction, including without
+> limitation the rights to use, copy, modify, merge, publish, distribute, and/or sell copies of
+> the Data Files or Software, and to permit persons to whom the Data Files or Software are
+> furnished to do so, provided that either (a) this copyright and permission notice appear with
+> all copies of the Data Files or Software, or (b) this copyright and permission notice appear in
+> associated Documentation.
+>
+> THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+> PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT
+> HOLDER OR HOLDERS INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR
+> CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+> WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+> CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA FILES OR SOFTWARE.
+>
+> Except as contained in this notice, the name of a copyright holder shall not be used in
+> advertising or otherwise to promote the sale, use or other dealings in these Data Files or
+> Software without prior written authorization of the copyright holder.

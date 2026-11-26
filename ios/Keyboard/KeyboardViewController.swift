@@ -73,6 +73,8 @@ final class KeyboardViewController: UIInputViewController {
         KeyFeedback.attach(to: view)
         typing.popupHost = view
         typing.onGlobe = { [weak self] button, event in self?.handleInputModeList(from: button, with: event) }
+        // Emoji search makes the keyboard taller; the height is read again at the next layout.
+        typing.onHeightChange = { [weak self] in self?.view.setNeedsLayout() }
         // Dictation types through the same shift state as the keys, and tells the controller
         // what it typed so the shift key and the strip follow.
         dictation.takeShift = { [weak self] in self?.typing.takeShiftForDictation() ?? false }

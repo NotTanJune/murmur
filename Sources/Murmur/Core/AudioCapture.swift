@@ -75,7 +75,7 @@ final class AudioCapture: @unchecked Sendable {
 
     /// Audio thread: receives each converted buffer.
     private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
-    /// Audio thread: receives a 0 to 1 level for the HUD waveform. Both closures are dropped when capture stops.
+    /// Audio thread: receives a buffer's linear RMS, about 30 times a second, for the level meter and the HUD trace. Both closures are dropped when capture stops.
     private nonisolated(unsafe) var onLevel: (@Sendable (Float) -> Void)?
     /// Called on the main thread when a route change stopped capture and it could not be
     /// restarted on the new device. Capture is already stopped when this runs.
@@ -587,7 +587,8 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
-    /// Maps a buffer's RMS onto 0...1 for the level meter.
+    /// A buffer's linear RMS. The meter's window and the trace's room tracking are each applied
+    /// downstream, so quiet rooms and whispers are not clipped here.
     private static func level(of buffer: AVAudioPCMBuffer) -> Float {
         let frames = Int(buffer.frameLength)
         let channels = max(1, Int(buffer.format.channelCount))
@@ -619,10 +620,6 @@ final class AudioCapture: @unchecked Sendable {
             return 0
         }
 
-        let rms = (sum / Float(frames * channels)).squareRoot()
-
-        // A -50...0 dBFS window lets quiet speech still move the meter.
-        let decibels = 20 * log10(max(rms, 1e-7))
-        return min(1, max(0, (decibels + 50) / 50))
+        return (sum / Float(frames * channels)).squareRoot()
     }
 }

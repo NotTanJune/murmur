@@ -21,6 +21,8 @@
 		25540FD2EAAB1D07A5B8EEF9 /* Fraunces[SOFT,WONK,opsz,wght].ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7B12D0E9BD41A8A96838AAED /* Fraunces[SOFT,WONK,opsz,wght].ttf */; };
 		2601D6A0DA90346093029450 /* DictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C4212D9899DC66A521DBD3 /* DictionaryView.swift */; };
 		2732C5A91B4EFDCF84920548 /* KeyboardStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACB8CFB89DB99B343A585E5 /* KeyboardStatus.swift */; };
+		27DF6F5627F686DE4298EC1F /* EmojiSearchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F64D1CE7F38D96D6FE751C47 /* EmojiSearchPanel.swift */; };
+		294C0D8B5552DE400167AEC5 /* EmojiSearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A4350D83E1A6351A1DB741 /* EmojiSearchModel.swift */; };
 		2FEFEA7D43053CAA0F2DB358 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25F40E2A1DF0B99651CB330 /* HistoryView.swift */; };
 		30B6E5C442A23591EBAE77E0 /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF331963D1F614BA7BA95B4B /* KeyboardViewController.swift */; };
 		3128CC2718B1C26352078B7F /* SuggestionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCE543F0B78AAC0F91E61D8 /* SuggestionStrip.swift */; };
@@ -102,6 +104,7 @@
 		2EAF84E0E2C431BF6C134B98 /* Fraunces-Italic[SOFT,WONK,opsz,wght].ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fraunces-Italic[SOFT,WONK,opsz,wght].ttf"; sourceTree = "<group>"; };
 		31985D17A48C0DE2D931F5F7 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		38A18EA29BB2B0F49BD4945B /* OFL-Figtree.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "OFL-Figtree.txt"; sourceTree = "<group>"; };
+		38A4350D83E1A6351A1DB741 /* EmojiSearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiSearchModel.swift; sourceTree = "<group>"; };
 		4AA1F9C6111308F82B26A3C2 /* default-dictionary.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "default-dictionary.txt"; sourceTree = "<group>"; };
 		5228D240776177D7572CA1C1 /* LicencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicencesView.swift; sourceTree = "<group>"; };
 		697F8E24A3BB0202F08C8482 /* WebMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMicrophone.swift; sourceTree = "<group>"; };
@@ -133,6 +136,7 @@
 		E78BB9569506B5634F8195ED /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		EE692167FE2B6825C44B5EF8 /* KeyboardHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHaptics.swift; sourceTree = "<group>"; };
 		F06BA022727CACEEB48B6606 /* EmojiGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiGrid.swift; sourceTree = "<group>"; };
+		F64D1CE7F38D96D6FE751C47 /* EmojiSearchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiSearchPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -275,6 +279,8 @@
 				F06BA022727CACEEB48B6606 /* EmojiGrid.swift */,
 				1E66B9AF5ED95867CC50CE50 /* EmojiPanel.swift */,
 				1FF63A08452D9F4C71078DA7 /* EmojiRecents.swift */,
+				38A4350D83E1A6351A1DB741 /* EmojiSearchModel.swift */,
+				F64D1CE7F38D96D6FE751C47 /* EmojiSearchPanel.swift */,
 				0FE5BA353AD8379FA4DFBBAF /* HapticPlayer.swift */,
 				B025199519AE6DBE7A20BA76 /* HistoryList.swift */,
 				C97162CCF31B94BBAE1B50B5 /* HistoryPanel.swift */,
@@ -436,6 +442,8 @@
 				FA3946BD78F0CFBFEED1270E /* EmojiGrid.swift in Sources */,
 				1750A0C86B022FCC1FA58796 /* EmojiPanel.swift in Sources */,
 				16F516DCF742C2CC59D5405F /* EmojiRecents.swift in Sources */,
+				294C0D8B5552DE400167AEC5 /* EmojiSearchModel.swift in Sources */,
+				27DF6F5627F686DE4298EC1F /* EmojiSearchPanel.swift in Sources */,
 				37DAE145E9CFB54CE70E6DE7 /* HapticPlayer.swift in Sources */,
 				701C36D86E676F1CAA6C73FD /* HistoryList.swift in Sources */,
 				FDC863CC1C38A1080E3E74D7 /* HistoryPanel.swift in Sources */,
