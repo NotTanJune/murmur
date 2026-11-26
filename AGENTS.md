@@ -841,12 +841,16 @@ the same day, with no typing: launched with `--typing-lab-focus` right after an 
 keyboard reported the model `ready` 3 s later, loaded and answered in 0.80 s, with Bark still
 `loading` (it then compiled in 83.7 s); and `--typing-lm-bark-race` in the app showed a model
 that loaded first answering 160 times in a row through an 84.1 s Bark compile, median 5.8 ms
-and slowest 12.1 ms. Not seen by eye yet: the strip's words on the phone with this build.
+and slowest 12.1 ms. The owner then confirmed it on the phone ("it returns a real sentence
+now"), and the keyboard's record of that session read: loaded and answered in 0.82 s, Bark in
+0.55 s (already compiled), 16 answers, none stale, 20 of 22 strip passes with an answer, 142 MB
+left, no marker armed.
 **When debugging the keyboard, read `keyboard-status.json` off the phone before changing
-code**: two rounds were spent on a theory the file would have ruled out. Setup's Predictions
-note still shows temporary counters (answers for the whole process, stale, strip passes with
-an answer, memory left); remove them, `PredictionSelfTest` and the lab's focus argument once
-the owner confirms.
+code**: two rounds were spent on a theory the file would have ruled out. The counters under Setup's
+Predictions row (answers for the whole process, stale, strip passes with an answer, memory
+left), `PredictionSelfTest` and the lab's `--typing-lab-focus` argument stay for now: they are
+how a keyboard change is checked from the Mac without the owner typing. They go with the typing
+lab, before any TestFlight build.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
