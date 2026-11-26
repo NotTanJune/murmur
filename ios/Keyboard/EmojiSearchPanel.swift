@@ -41,6 +41,8 @@ struct EmojiSearchPanel: View {
                     .buttonStyle(PlainKeyStyle())
                     .font(DS.Keyboard.barFont)
                     .foregroundStyle(.primary)
+                    // Text has no keycap around it, so at the keys' edge it read as cut off.
+                    .padding(.trailing, DS.Keyboard.emojiSearchFieldSpacing)
             }
             .frame(height: DS.Keyboard.emojiSearchFieldHeight)
             results

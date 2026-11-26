@@ -30,7 +30,7 @@ public struct KeyboardLayout: Sendable {
         case .symbols:
             return [
                 characters("[ ] { } # % ^ * + ="),
-                characters("_ \\ | ~ < > € £ ¥ •"),
+                characters("_ \\ | ~ < > ¥ £ € •"),
                 [.pageSwitch(.numbers)] + characters(". , ? ! '") + [.delete],
                 bottomRow(switching: .letters, showsGlobe: showsGlobe),
             ]

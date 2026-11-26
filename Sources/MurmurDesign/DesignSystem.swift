@@ -575,6 +575,13 @@ public enum DS {
         public static let capitalLetterWidthAxis = 0x7764_7468
         public static let capitalLetterWidth: CGFloat = 90
         public static let labelUIFont = UIFont.systemFont(ofSize: 16)
+        /// `#+=` is set smaller than `123` on the stock keyboard: about 83% of its width,
+        /// measured from the owner's screenshots on 2026-11-26.
+        public static let symbolsSwitchUIFont = UIFont.systemFont(ofSize: 13.25)
+        /// The `•` key. SF Pro's bullet at the capitals' size is a 3.7 pt dot and the stock
+        /// key's is about 6.7 pt (owner's screenshots, 2026-11-26); at this size its centre
+        /// still lands on the key's centre.
+        public static let bulletUIFont = UIFont.systemFont(ofSize: 40)
         public static let iconPointSize: CGFloat = 19
         #endif
 

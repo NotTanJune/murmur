@@ -182,6 +182,10 @@ final class KeyPlaneView: UIView {
     /// What a letter key shows: lowercase unless shift or caps lock is on, as the iOS 26
     /// keyboard does. Shift applies on the letters page only.
     private func display(_ text: String) -> String {
+        // The stock keyboard labels its quote keys with the typographic marks; what they type
+        // is still decided by the field's smart-quote setting.
+        if text == "\"" { return "\u{201D}" }
+        if text == "'" { return "\u{2019}" }
         guard state.page == .letters, state.shift != .off, text.count == 1 else { return text }
         return text == "ß" ? "\u{1E9E}" : text.uppercased()
     }
@@ -191,11 +195,14 @@ final class KeyPlaneView: UIView {
         switch kind {
         case .character(let text):
             let shown = display(text)
-            let isCapital = shown.count == 1 && shown.first?.isUppercase == true
-            // A key that types a word (".com") is labelled like "123", not like a letter.
+            let isLowercase = shown.count == 1 && shown.first.map { $0.isLetter && $0.isLowercase } == true
+            // A key that types a word (".com") is labelled like "123", not like a letter. Digits
+            // and symbols take the capitals' face: the stock keyboard sets them at its capital
+            // height, and at the lowercase size they came out about 10% taller (2026-11-26).
             let font = shown.count > 1
                 ? DS.Keyboard.labelUIFont
-                : isCapital ? DS.Keyboard.capitalLetterUIFont : DS.Keyboard.letterUIFont
+                : shown == "•" ? DS.Keyboard.bulletUIFont
+                : isLowercase ? DS.Keyboard.letterUIFont : DS.Keyboard.capitalLetterUIFont
             return textLayer(shown, font: font, color: label, size: size)
         case .shift:
             let symbol = switch state.shift {
@@ -220,7 +227,8 @@ final class KeyPlaneView: UIView {
             case .numbers: "123"
             case .symbols: "#+="
             }
-            return textLayer(title, font: DS.Keyboard.labelUIFont, color: label, size: size)
+            let font = page == .symbols ? DS.Keyboard.symbolsSwitchUIFont : DS.Keyboard.labelUIFont
+            return textLayer(title, font: font, color: label, size: size)
         case .emoji:
             return iconLayer("face.smiling", color: label, size: size)
         case .globe:

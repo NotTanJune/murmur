@@ -927,6 +927,13 @@ extension, what the web microphone's echo cancellation does to the floor, and th
 a translucent run of the fade meets the next. Reading the first real holds' dB values off the phone
 is how to tune it.
 
+**The number and symbol pages follow the stock keys** (owner's screenshots, 2026-11-26).
+Digits and symbols use `capitalLetterUIFont`, the stock capital height; at the lowercase size they
+were about 10% taller. The quote keys are labelled with the typographic marks (” and ’) and still
+type what the field's smart-quote setting says. The second symbol row ends `¥ £ €`, `#+=` is
+`symbolsSwitchUIFont` (13.25 pt, smaller than `123`), and `•` is `bulletUIFont` (40 pt) so its dot
+matches the stock one. Checked on the phone the same day.
+
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
 from the owner's screenshots, SF Compact matches the stock capitals at about 23 pt and the stock
