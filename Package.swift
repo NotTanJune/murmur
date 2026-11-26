@@ -91,7 +91,7 @@ let package = Package(
             path: "Tests/MurmurTypingTests",
             resources: [
                 .copy("replay-sentences.txt"), .copy("real-taps.json"), .copy("real-swipes.json"),
-                .copy("bpe-vectors.json"),
+                .copy("bpe-vectors.json"), .copy("bpe-vectors-added.json"), .copy("added-tokens-test.txt"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

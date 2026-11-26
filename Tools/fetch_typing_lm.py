@@ -15,6 +15,7 @@
     uv run Tools/fetch_typing_lm.py --fetch     # download the source model, then build
     uv run Tools/fetch_typing_lm.py             # build from the files already downloaded
     uv run Tools/fetch_typing_lm.py --remove    # empty ios/TypingLM again
+    uv run Tools/fetch_typing_lm.py --added-tokens <word list> [--weights <folder>] [--out <folder>]
 
 The model is distilbert/distilgpt2 (Apache-2.0) at the Hugging Face revision below. A normal
 run never touches the network. `--fetch` downloads four files into the data directory (default
@@ -29,6 +30,7 @@ ios/project.yml copies into the keyboard as a folder:
     ios/TypingLM/vocab.json          the tokenizer's vocabulary, as downloaded
     ios/TypingLM/merges.txt          the tokenizer's merge list, as downloaded
     ios/TypingLM/model.json          what was built, from what
+    ios/TypingLM/added_tokens.json   only with --added-tokens: the whole-word tokens, word to id
 
 Conversion is training/typing-lm/convert.py: a window of 32 tokens, the embedding table as a
 4-bit palette and every other weight as a 6-bit palette (51.5 MB; the choice and its
@@ -36,6 +38,14 @@ measurements are in training/typing-lm/README.md). The palettes come from k-mean
 on one Mac on 2026-11-25 gave the same weight file (SHA-256 59d54459...784f0922), but that is
 not checked, because another version of the libraries may cluster differently; the inputs are
 what is pinned. Without the model the keyboard builds and runs on the word-pair model alone.
+
+`--added-tokens <word list>` (plan 004; training/typing-lm/added_tokens.py explains the list and
+the tokenizer) builds a model whose vocabulary has those words as whole tokens: the same pinned
+weights get mean-initialised rows for them, or `--weights` names a fine-tune made with
+`finetune.py --added-tokens` and the same list. The output then also holds `added_tokens.json`,
+which `BPETokenizer` and `NextWordPredictor` load, and `model.json` records the list's and the
+table's SHA-256. A list derived from a corpus with a non-GPL licence must stay out of git: ios/TypingLM
+is ignored, and `--out` should be a folder under ~/Library/Caches/MurmurBuild.
 """
 import argparse
 import hashlib
@@ -65,7 +75,7 @@ WEIGHT_FORMAT = "emb4rest6"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DATA_DIR = os.path.expanduser("~/Library/Caches/MurmurBuild/typing-lm/source")
 DEFAULT_OUT = os.path.join(ROOT, "ios", "TypingLM")
-OUTPUTS = ["NextWord.mlmodelc", "vocab.json", "merges.txt", "model.json"]
+OUTPUTS = ["NextWord.mlmodelc", "vocab.json", "merges.txt", "model.json", "added_tokens.json"]
 
 
 def die(message):
@@ -129,6 +139,9 @@ def main():
         "--weights", metavar="FOLDER",
         help="build from this folder's config.json and model.safetensors (a fine-tune of the pinned "
         "model, from training/typing-lm/finetune.py) in place of the pinned weights")
+    parser.add_argument(
+        "--added-tokens", metavar="FILE",
+        help="word list (a space and a word a line) to add to the vocabulary as whole-word tokens")
     args = parser.parse_args()
 
     if args.remove:
@@ -150,7 +163,10 @@ def main():
     sys.path.insert(0, os.path.join(ROOT, "training", "typing-lm"))
     import convert  # noqa: E402  (after the checks, because it imports torch and coremltools)
 
-    model = convert.compress(convert.convert(weights, CONTEXT), WEIGHT_FORMAT)
+    import added_tokens  # noqa: E402
+
+    words = added_tokens.read_words(args.added_tokens) if args.added_tokens else None
+    model = convert.compress(convert.convert(weights, CONTEXT, words, args.data_dir), WEIGHT_FORMAT)
     with tempfile.TemporaryDirectory() as scratch:
         package = os.path.join(scratch, "NextWord.mlpackage")
         model.save(package)
@@ -163,6 +179,8 @@ def main():
         shutil.move(os.path.join(scratch, "NextWord.mlmodelc"), os.path.join(args.out, "NextWord.mlmodelc"))
     for name in ("vocab.json", "merges.txt"):
         shutil.copyfile(os.path.join(args.data_dir, name), os.path.join(args.out, name))
+    if words:
+        added_tokens.write_table(words, os.path.join(args.out, "added_tokens.json"))
     size = folder_size(os.path.join(args.out, "NextWord.mlmodelc"))
     manifest = {
         "model": REPO, "revision": REVISION, "licence": LICENCE,
@@ -172,10 +190,17 @@ def main():
     if args.weights:
         tuned = os.path.join(weights, "model.safetensors")
         manifest["fineTuned"] = {"bytes": os.path.getsize(tuned), "sha256": sha256(tuned)}
+    if words:
+        manifest["addedTokens"] = {
+            "count": len(words), "firstId": added_tokens.STOCK_VOCABULARY,
+            "wordList": {"sha256": sha256(args.added_tokens)},
+            "table": {"sha256": sha256(os.path.join(args.out, "added_tokens.json"))},
+        }
     with open(os.path.join(args.out, "model.json"), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
-    print(f"wrote {args.out}: NextWord.mlmodelc {size / 1e6:.1f} MB, vocab.json, merges.txt, model.json")
+    print(f"wrote {args.out}: NextWord.mlmodelc {size / 1e6:.1f} MB, vocab.json, merges.txt, model.json"
+          + (f", added_tokens.json ({len(words)} words)" if words else ""))
 
 
 if __name__ == "__main__":

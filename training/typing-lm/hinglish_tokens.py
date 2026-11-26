@@ -2,18 +2,23 @@
 """How GPT-2's tokenizer splits the Hinglish words the keyboard's word list would gain.
 
     uv run --with tokenizers training/typing-lm/hinglish_tokens.py \
-        --hinglish ~/Library/Caches/MurmurBuild/hinglish [--tokenizer ios/TypingLM] [--top 40]
+        --hinglish ~/Library/Caches/MurmurBuild/hinglish [--tokenizer ios/TypingLM] [--top 40] \
+        [--emit ~/Library/Caches/MurmurBuild/hinglish/added-tokens.txt [--count 2000]]
 
 Takes the same 8,000 words `Tools/build_typing_model.py --hinglish` adds (it imports that
 function, so the selection cannot drift) and counts how many are one token, two, or three or
 more once written with a leading space (" hai"), which is how the model sees a word after a
 space. Counts are weighted by corpus frequency too, since a keyboard meets "hai" far more often
-than a rare word. Prints numbers only; the word lists it reads derive from L3Cube-HingCorpus
+than a rare word. `--emit <file>` also writes the `--count` (2,000) most frequent multi-token words, one per line, each
+with its leading space and in descending corpus frequency, for `finetune.py --added-tokens`. That file
+derives from the corpus, so it stays under ~/Library/Caches/MurmurBuild and is never committed.
+Prints numbers only; the word lists it reads derive from L3Cube-HingCorpus
 (CC BY-NC-SA 4.0), so nothing it prints about individual words may be committed.
 """
 import argparse
 import importlib.util
 import os
+import re
 import sys
 
 from tokenizers import Tokenizer, models, pre_tokenizers, decoders
@@ -35,6 +40,8 @@ def main():
     parser.add_argument("--tokenizer", default=os.path.join(HERE, "..", "..", "ios", "TypingLM"),
                         help="folder with GPT-2's vocab.json and merges.txt")
     parser.add_argument("--data-dir", default=os.path.expanduser("~/Library/Caches/MurmurBuild/typing-data"))
+    parser.add_argument("--emit", help="write the most frequent multi-token words (with leading space) to this file")
+    parser.add_argument("--count", type=int, default=2000, help="how many words --emit writes")
     parser.add_argument("--top", type=int, default=40, help="how many of the most frequent multi-token words to list")
     args = parser.parse_args()
 
@@ -73,8 +80,20 @@ def main():
     for rank in (100, 500, 1000, 2000):
         covered = sum(c for c, _, _ in multi[:rank])
         print(f"top {rank} multi-token words hold {100 * covered / sum(c for c, _, _ in multi):.1f}% of multi-token occurrences")
-    print(f"most frequent multi-token words (local only): "
-          + ", ".join(f"{w}={'|'.join(p)}" for _, w, p in multi[:args.top]))
+    if args.emit:
+        # Only a whole pre-token can be one added token: letters a to z after one space. A word with
+        # an apostrophe is cut at it by GPT-2's pattern ("'s", "'t"), so it never arrives as one piece.
+        chosen = [entry for entry in multi if re.fullmatch(r"[a-z]+", entry[1])][:args.count]
+        os.makedirs(os.path.dirname(os.path.abspath(args.emit)), exist_ok=True)
+        with open(args.emit, "w", encoding="utf-8") as handle:
+            handle.write("".join(f" {word}\n" for _, word, _ in chosen))
+        covered = sum(c for c, _, _ in chosen)
+        print(f"wrote {len(chosen)} words to {args.emit}: {100 * covered / mass:.1f}% more of all occurrences "
+              f"are one token with them (from {100 * buckets[1][1] / mass:.1f}% without: "
+              f"{100 * (buckets[1][1] + covered) / mass:.1f}%)")
+    else:
+        print(f"most frequent multi-token words (local only): "
+              + ", ".join(f"{w}={'|'.join(p)}" for _, w, p in multi[:args.top]))
 
 
 if __name__ == "__main__":

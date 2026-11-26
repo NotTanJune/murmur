@@ -24,10 +24,14 @@ public final class NextWordPredictor: @unchecked Sendable {
         public static let modelName = "NextWord.mlmodelc"
         public static let vocabularyName = "vocab.json"
         public static let mergesName = "merges.txt"
+        /// Optional: whole-word tokens added to the vocabulary (`fetch_typing_lm.py --added-tokens`).
+        public static let addedTokensName = "added_tokens.json"
 
         public let model: URL
         public let vocabulary: URL
         public let merges: URL
+        /// Nil when the folder has no `added_tokens.json`: the model is the stock vocabulary's.
+        public let addedTokens: URL?
 
         /// Nil unless the folder holds all three.
         public init?(folder: URL) {
@@ -35,6 +39,8 @@ public final class NextWordPredictor: @unchecked Sendable {
             vocabulary = folder.appendingPathComponent(Self.vocabularyName)
             merges = folder.appendingPathComponent(Self.mergesName)
             let manager = FileManager.default
+            let added = folder.appendingPathComponent(Self.addedTokensName)
+            addedTokens = manager.fileExists(atPath: added.path) ? added : nil
             guard manager.fileExists(atPath: model.appendingPathComponent("coremldata.bin").path),
                 manager.fileExists(atPath: vocabulary.path), manager.fileExists(atPath: merges.path)
             else { return nil }
@@ -73,6 +79,8 @@ public final class NextWordPredictor: @unchecked Sendable {
     private let model: MLModel
     private let tokenizer: BPETokenizer
     private let start: Int32
+    /// How many ids the tokenizer has; the model's `logp` must be at least this wide.
+    private let vocabularySize: Int
     /// Tokens that begin with a space, read when the text before the cursor ends in one.
     private let afterSpace: Table
     /// Tokens with no space, read at the start of the text and right after a line break or an
@@ -94,9 +102,19 @@ public final class NextWordPredictor: @unchecked Sendable {
         contextLength = shape[1].intValue
         guard contextLength >= 2 else { throw LoadError.unexpectedModel("a window of \(contextLength) tokens") }
 
-        var tokenizer = try BPETokenizer(vocabulary: files.vocabulary, merges: files.merges)
+        var tokenizer = try BPETokenizer(
+            vocabulary: files.vocabulary, merges: files.merges, addedTokens: files.addedTokens)
         guard let start = tokenizer.endOfText else { throw LoadError.noStartToken }
         self.start = start
+        // The width of `logp` is the model's own (50,257 for the stock vocabulary, more with
+        // added tokens), never a constant. A tokenizer with ids the model has no row for would
+        // feed it out-of-range ids, so that pairing is refused when the model says its width.
+        if let width = model.modelDescription.outputDescriptionsByName["logp"]?.multiArrayConstraint?.shape.last?
+            .intValue, width > 0, width < tokenizer.vocabularySize
+        {
+            throw LoadError.unexpectedModel("logp has \(width) values, the tokenizer has \(tokenizer.vocabularySize) ids")
+        }
+        vocabularySize = tokenizer.vocabularySize
 
         var stems: [Int: Int] = [:]
         for stem in Self.contractionStems {
@@ -157,6 +175,9 @@ public final class NextWordPredictor: @unchecked Sendable {
         let output = try model.prediction(from: input)
         guard let logp = output.featureValue(for: "logp")?.multiArrayValue, logp.dataType == .float32 else {
             throw LoadError.unexpectedModel("logp is not a Float32 array")
+        }
+        guard logp.count >= vocabularySize else {
+            throw LoadError.unexpectedModel("logp has \(logp.count) values, the tokenizer has \(vocabularySize) ids")
         }
         var probabilities = [Float](repeating: 0, count: table.words.count)
         logp.withUnsafeBufferPointer(ofType: Float.self) { values in

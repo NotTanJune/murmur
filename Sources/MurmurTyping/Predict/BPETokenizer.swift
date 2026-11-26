@@ -14,6 +14,14 @@ import Foundation
 /// written as one printable character) and `merges.txt` (one pair a line, earliest first). After
 /// loading it works on ids alone: the merge table is keyed by a pair of ids, so encoding makes no
 /// strings. Immutable, so it is safe to share between threads.
+///
+/// **Added tokens** (plan 004). An optional third file, `added_tokens.json` (text to id, for
+/// example `" kya"` to 50257), gives whole words their own tokens. A piece the text is cut into
+/// that equals one of them, byte for byte, is that token and is not merged; every other piece is
+/// merged as before, so without the file, or for text with none of its words, the ids are exactly
+/// the stock ids. The reference is the `tokenizers` BPE model with the words in its vocabulary and
+/// `ignore_merges` on (`training/typing-lm/added_tokens.py`, which says why not `AddedToken`),
+/// and `make_bpe_vectors.py --added` writes the vectors that hold the two together.
 public struct BPETokenizer: Sendable {
     public enum LoadError: Error, Equatable {
         /// `vocab.json` is not an object of token text to id.
@@ -22,6 +30,9 @@ public struct BPETokenizer: Sendable {
         case missingByte(UInt8)
         /// `merges.txt` named no pair the vocabulary knows.
         case noMerges
+        /// `added_tokens.json` is not an object of text to id, or an id is negative, repeated or
+        /// already a token of the vocabulary.
+        case unreadableAddedTokens
     }
 
     /// Every token's text as the vocabulary writes it, by id: bytes as printable characters, a
@@ -35,7 +46,14 @@ public struct BPETokenizer: Sendable {
     /// The character a leading space is written as in `tokens` (byte 32, moved to U+0120).
     public static let spaceMark: Character = "Ġ"
 
+    /// How many ids the tokenizer has: the vocabulary's and the added tokens', up to the largest id.
+    public let vocabularySize: Int
+
     private let byteTokens: [Int32]
+    /// Added tokens by their text; empty without `added_tokens.json`.
+    private let added: [String: Int32]
+    /// The longest added token, in characters, so a longer piece is never looked up.
+    private let longestAdded: Int
     /// A pair of ids (left in the high half) to its place in the merge list and the id it becomes.
     private let merges: [UInt64: Merge]
 
@@ -44,7 +62,7 @@ public struct BPETokenizer: Sendable {
         let token: Int32
     }
 
-    public init(vocabulary: URL, merges mergesURL: URL) throws {
+    public init(vocabulary: URL, merges mergesURL: URL, addedTokens: URL? = nil) throws {
         // `JSONSerialization` and not `JSONDecoder`: the decoder left about 6 MB more in the
         // process's footprint for a table this size (measured on a Mac, 2026-11-25).
         let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: vocabulary, options: .alwaysMapped))
@@ -60,7 +78,6 @@ public struct BPETokenizer: Sendable {
         guard let last = ids.values.max(), last < 1_000_000 else { throw LoadError.unreadableVocabulary }
         var tokens = [String](repeating: "", count: Int(last) + 1)
         for (text, id) in ids where id >= 0 { tokens[Int(id)] = text }
-        self.tokens = tokens
         endOfText = ids["<|endoftext|>"]
 
         byteTokens = try Self.byteCharacters.enumerated().map { byte, character in
@@ -85,6 +102,30 @@ public struct BPETokenizer: Sendable {
         }
         guard !table.isEmpty else { throw LoadError.noMerges }
         merges = table
+
+        var addedIDs: [String: Int32] = [:]
+        if let addedTokens {
+            let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: addedTokens))
+            guard let object = parsed as? NSDictionary else { throw LoadError.unreadableAddedTokens }
+            for (text, id) in object {
+                guard let text = text as? String, !text.isEmpty, let id = (id as? NSNumber)?.int32Value,
+                    id >= 0, id < 1_000_000
+                else { throw LoadError.unreadableAddedTokens }
+                if Int(id) >= tokens.count {
+                    tokens += [String](repeating: "", count: Int(id) + 1 - tokens.count)
+                }
+                // An id the vocabulary already uses, or an added token twice, would make two
+                // texts one token.
+                guard tokens[Int(id)].isEmpty else { throw LoadError.unreadableAddedTokens }
+                // The text as the vocabulary spells it, so the predictor reads it like any token.
+                tokens[Int(id)] = String(text.utf8.map { Self.byteCharacters[Int($0)] })
+                addedIDs[text] = id
+            }
+        }
+        added = addedIDs
+        longestAdded = addedIDs.keys.map { $0.unicodeScalars.count }.max() ?? 0
+        vocabularySize = tokens.count
+        self.tokens = tokens
     }
 
     /// Frees the tokens' text, about 50,000 strings. Encoding works on ids and never reads it;
@@ -99,6 +140,10 @@ public struct BPETokenizer: Sendable {
         var ids: [Int32] = []
         var piece: [Int32] = []
         for range in Self.pieces(of: scalars) {
+            if longestAdded > 0, let token = addedToken(scalars[range]) {
+                ids.append(token)
+                continue
+            }
             piece.removeAll(keepingCapacity: true)
             for scalar in scalars[range] {
                 guard let bytes = Unicode.UTF8.encode(scalar) else { continue }
@@ -108,6 +153,15 @@ public struct BPETokenizer: Sendable {
             ids.append(contentsOf: piece)
         }
         return ids
+    }
+
+    /// The added token this whole piece is, if any. Only ASCII is looked up: a `String` compares
+    /// by canonical equivalence, which must never make an accented piece equal a plain word.
+    private func addedToken(_ piece: ArraySlice<Unicode.Scalar>) -> Int32? {
+        guard piece.count <= longestAdded, piece.allSatisfy({ $0.isASCII }) else { return nil }
+        var text = String.UnicodeScalarView()
+        text.append(contentsOf: piece)
+        return added[String(text)]
     }
 
     /// Joins neighbouring pairs in merge-list order until none is left: the earliest-listed pair

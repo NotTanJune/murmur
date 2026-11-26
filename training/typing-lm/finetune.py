@@ -37,10 +37,20 @@ L3Cube-HingCorpus (roman), a Twitter corpus under CC BY-NC-SA 4.0. That licence 
 GPL-compatible, so the corpus, anything made from it and any model trained on it stay out of
 the repository. A line is kept if it has 5 to 40 words, no URL, handle or tag, and mostly Roman
 letters (`hinglish_ok`); duplicates are dropped. 2,000 kept lines are held out and never trained
-on; `--hinglish-share` is the fraction of the final training sentences that are Hinglish (0.3
-adds about 0.43 Hinglish sentences per English one, the English part being unchanged). Held-out
+on; `--hinglish-share` is the fraction of the final training sentences that are Hinglish (default
+0.15; 0.3 adds about 0.43 Hinglish sentences per English one, the English part being unchanged). Held-out
 Hinglish and English next-word hits are printed before training and at each checkpoint, so one
 run shows both what Hinglish gains and what English loses.
+
+Added tokens (optional, `--added-tokens <file>`, plan 004): the word list `hinglish_tokens.py
+--emit` writes (each word with its leading space, one a line) becomes whole-word tokens, ids 50257
+on. Their embedding rows start as the mean of the rows of the pieces the word was cut into
+(`added_tokens.py`, which says why they are not Hugging Face `AddedToken`s). The tokenizer is built
+before anything is tokenised, so the Hinglish training lines and the held-out measure see an added
+word as one token; the list is saved next to each checkpoint as `added-tokens.txt`. Like the
+corpus, the list derives from CC BY-NC-SA data and is never committed. `--hinglish-share` defaults
+to 0.15; `--max-steps` stops early, for a smoke run on a CPU (with `--soda-turns 0` and
+`--max-english` to keep the data small).
 """
 import argparse
 import bz2
@@ -50,6 +60,8 @@ import math
 import os
 import random
 import re
+import shutil
+import sys
 import time
 import urllib.request
 
@@ -57,6 +69,10 @@ import pyarrow.parquet as pq
 import torch
 from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import added_tokens  # noqa: E402
 
 BASE = "distilbert/distilgpt2"
 BASE_REVISION = "2290a62682d06624634c1f46a6ad5be0f47f38aa"
@@ -323,8 +339,12 @@ def main():
     parser.add_argument("--rate", type=float, default=5e-5)
     parser.add_argument("--seed", type=int, default=20261125)
     parser.add_argument("--hinglish", help="Hinglish corpus lines, plain or .gz (see the docstring)")
-    parser.add_argument("--hinglish-share", type=float, default=0.3,
+    parser.add_argument("--hinglish-share", type=float, default=0.15,
                         help="fraction of the final training sentences that are Hinglish")
+    parser.add_argument("--added-tokens", help="word list (a space and a word a line) to add as whole-word tokens")
+    parser.add_argument("--max-steps", type=int, help="stop after this many steps (a smoke run)")
+    parser.add_argument("--max-english", type=int,
+                        help="use at most this many Tatoeba sentences (a smoke run); with --soda-turns 0 no SODA")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.data, exist_ok=True)
@@ -334,7 +354,11 @@ def main():
     print(f"device {device}: {torch.cuda.get_device_name(0) if device == 'cuda' else 'no GPU'}", flush=True)
 
     held_ids, held_texts = held_out(args.eval_sentences)
-    texts = tatoeba(args.data, held_ids, held_texts) + soda(args.soda_turns, held_texts, rng)
+    english = tatoeba(args.data, held_ids, held_texts)
+    if args.max_english:
+        rng.shuffle(english)
+        english = english[:args.max_english]
+    texts = english + (soda(args.soda_turns, held_texts, rng) if args.soda_turns else [])
     held_hinglish = []
     if args.hinglish:
         if not 0 < args.hinglish_share < 1:
@@ -348,21 +372,36 @@ def main():
     texts = [text for text in texts if text]
     rng.shuffle(texts)
 
-    tokenizer = AutoTokenizer.from_pretrained(BASE, revision=BASE_REVISION)
+    words = added_tokens.read_words(args.added_tokens) if args.added_tokens else []
+    if words:
+        source = os.path.dirname(hf_hub_download(BASE, "vocab.json", revision=BASE_REVISION))
+        hf_hub_download(BASE, "merges.txt", revision=BASE_REVISION)
+        tokenizer = added_tokens.build(source, words)
+        print(f"added tokens: {len(words)} words, ids {added_tokens.STOCK_VOCABULARY} to "
+              f"{added_tokens.STOCK_VOCABULARY + len(words) - 1}", flush=True)
+    else:
+        source = None
+        tokenizer = AutoTokenizer.from_pretrained(BASE, revision=BASE_REVISION)
     start = tokenizer.eos_token_id
     examples = []
     for at in range(0, len(texts), 50_000):
         for ids in tokenizer(texts[at:at + 50_000], add_special_tokens=False)["input_ids"]:
             examples.append([start] + ids[:args.max_tokens - 1])
-    held_back, examples = examples[:5000], examples[5000:]
+    held_back = min(5000, len(examples) // 10)
+    held_back, examples = examples[:held_back], examples[held_back:]
     print(f"{len(examples)} training examples, {sum(map(len, examples)) / len(examples):.1f} tokens each", flush=True)
-    for text in texts[5000:5008]:
+    for text in texts[-8:]:
         print(f"  sample: {text}", flush=True)
 
-    model = AutoModelForCausalLM.from_pretrained(BASE, revision=BASE_REVISION).to(device).train()
+    model = AutoModelForCausalLM.from_pretrained(BASE, revision=BASE_REVISION)
+    if words:
+        added_tokens.extend_embeddings(model, source, words)
+    model = model.to(device).train()
     plan = batches(examples, args.batch, rng)
+    if args.max_steps:
+        plan = plan[:args.max_steps]
     steps = len(plan)
-    warmup = 500
+    warmup = min(500, max(1, steps // 10))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.rate, weight_decay=0.01)
     schedule = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
@@ -387,15 +426,18 @@ def main():
         scaler.update()
         schedule.step()
         running += loss.item()
-        if step % 200 == 0:
+        if step % 200 == 0 or step == steps:
+            every = 200 if step % 200 == 0 else step % 200
             rate = step / (time.time() - began)
-            print(f"step {step}/{steps} loss {running / 200:.4f} {rate:.1f} steps/s, "
+            print(f"step {step}/{steps} loss {running / every:.4f} {rate:.1f} steps/s, "
                   f"{(steps - step) / rate / 60:.1f} min left", flush=True)
             running = 0.0
         if step in saves:
             folder = os.path.join(args.out, saves[step])
             model.save_pretrained(folder)
             tokenizer.save_pretrained(folder)
+            if args.added_tokens:
+                shutil.copyfile(args.added_tokens, os.path.join(folder, "added-tokens.txt"))
             print(f"saved {folder} at step {step}: validation loss "
                   f"{validation_loss(model, held_back, start, device):.4f}", flush=True)
             report_hits(saves[step], model, tokenizer, english_eval, held_hinglish, device)
