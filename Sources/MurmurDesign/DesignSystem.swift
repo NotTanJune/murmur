@@ -418,21 +418,27 @@ public enum DS {
         /// (2026-11-25).
         public static let swipeTrailLayerOpacity: CGFloat = 0.09
         public static let swipeTrailLayerOpacityLight: CGFloat = 0.16
-        /// The emoji picker. Apple's shows five rows in portrait. The panel is exactly as tall as
-        /// the key page (iOS ignores a keyboard that grows after it first appears), and the grid
-        /// divides what is left after the section title and the category bar.
-        public static let emojiRows = 5
+        /// The emoji picker. Apple's shows four rows in portrait (row pitch about 54 pt, measured
+        /// 2026-11-26 on an iPhone 15 Pro). In portrait the panel is `emojiExtraHeight` taller than
+        /// the key page, as the stock emoji keyboard is, and the grid divides what is left after
+        /// the search field and the category bar: 213 pt, four rows of about 53 pt.
+        public static let emojiRows = 4
+        /// How much taller the keyboard is while the emoji grid shows in portrait (the stock emoji
+        /// keyboard is about 40 pt taller than its letters keyboard; 48 pt here gives the grid four
+        /// rows of about 53 pt). Search has its own extra height and does not add this one.
+        public static let emojiExtraHeight: CGFloat = 48
         /// Where less height arrives than the panel asked for, rows are dropped so none is under
         /// `emojiMinCellHeight`, down to `emojiMinRows`; the title and the category bar keep
         /// their sizes.
-        /// Unit D (keyboard polish): 40 so a 36 pt glyph (about 43 pt of line) is not clipped by its
-        /// cell; a 257 pt keyboard still fits four rows (165 pt for the grid, 165 / 40 = 4).
+        /// 40 so a 40 pt glyph is not clipped by its cell; a 257 pt keyboard (where iOS did not
+        /// apply the extra height) still fits four rows (165 pt for the grid, 165 / 40 = 4).
         public static let emojiMinCellHeight: CGFloat = 40
         public static let emojiMinRows = 3
-        /// Columns in view at once, so a cell is the panel's width over this.
-        public static let emojiColumns = 8
-        /// Unit D: was 30; the reviewer calibrates this against a stock screenshot.
-        public static let emojiGlyphSize: CGFloat = 36
+        /// Columns in view at once, so a cell is the panel's width over this. The stock keyboard
+        /// shows 7 (column pitch about 56 pt on 393 pt).
+        public static let emojiColumns = 7
+        /// The stock glyphs are about 37 pt wide on screen; a 40 pt font renders about that.
+        public static let emojiGlyphSize: CGFloat = 40
         /// Landscape rows are about 37 pt, so the glyph is smaller there.
         public static let emojiGlyphSizeCompact: CGFloat = 30
         /// Landscape (compact vertical size class): the key page is 202 pt, which leaves about
@@ -470,7 +476,7 @@ public enum DS {
         /// The skin-tone row that floats above an emoji after a long press.
         public static let emojiToneCellWidth: CGFloat = 40
         public static let emojiToneCellHeight: CGFloat = 44
-        public static let emojiToneGlyphSize: CGFloat = 31 // Unit D: 26 scaled by 36 / 30
+        public static let emojiToneGlyphSize: CGFloat = 35 // 26 scaled by 40 / 30, rounded
         public static let emojiToneRadius: CGFloat = 10
         public static let emojiToneInset: CGFloat = 4
         public static let emojiLongPress: TimeInterval = 0.4
@@ -616,14 +622,18 @@ public enum DS {
         /// still lands on the key's centre.
         public static let bulletUIFont = UIFont.systemFont(ofSize: 40)
         // Unit C (plans/002): the number pad's digits, and the letters under 2 to 9.
-        public static let numberPadDigitUIFont = UIFont.systemFont(ofSize: 28, weight: .regular)
-        public static let numberPadLettersUIFont = UIFont.systemFont(ofSize: 10, weight: .semibold)
-        /// Extra space after each letter under a digit, as the stock pad spaces them.
-        public static let numberPadLettersTracking: CGFloat = 1.5
-        /// How far a digit that has letters under it sits above the key's centre, and how far
-        /// below the centre the letters sit.
-        public static let numberPadDigitLift: CGFloat = 7
-        public static let numberPadLettersDrop: CGFloat = 12
+        /// Measured from Apple's decimal pad on a 393 pt iPhone (2026-11-26): digits 15.8 pt cap
+        /// height (22 pt regular), letters 6.7 pt cap height (9.5 pt semibold).
+        public static let numberPadDigitUIFont = UIFont.systemFont(ofSize: 22, weight: .regular)
+        public static let numberPadLettersUIFont = UIFont.systemFont(ofSize: 9.5, weight: .semibold)
+        /// How far apart the first and last letter of "ABC" are, left edge to right edge.
+        public static let numberPadLettersSpan: CGFloat = 24
+        /// Where a digit's cap top and its letters' cap top sit, as fractions of the pad key's
+        /// height. The same for every digit, so 1 and 0 line up with 2 to 9.
+        public static let numberPadDigitCapTop: CGFloat = 0.229
+        public static let numberPadLettersCapTop: CGFloat = 0.75
+        /// The delete glyph's width on the pad, about the stock one.
+        public static let numberPadDeleteIconWidth: CGFloat = 25
         public static let iconPointSize: CGFloat = 19
         #endif
 
@@ -661,6 +671,11 @@ public enum DS {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.267, alpha: 1) : .white
         }
         public static let key = SwiftUI.Color(uiColor: keyUIColor)
+        /// The number pad's digit keys: RGB 87 on dark (Apple's pad, 2026-11-26), lighter than
+        /// the letter keys. White on light is inferred, not measured.
+        public static let numberPadKeyUIColor = UIColor {
+            $0.userInterfaceStyle == .dark ? UIColor(white: 87.0 / 255.0, alpha: 1) : .white
+        }
         /// What the keyboard's root view and key plane are filled with, in place of clear. iOS
         /// routes a touch to a keyboard extension only where the keyboard has drawn something:
         /// a touch on a fully clear point goes to the host app instead and is never typed

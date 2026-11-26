@@ -37,6 +37,15 @@ import Testing
         let two = frames.first { $0.kind == .character("2") }!.keycap
         #expect(abs(one.width - two.width) < 0.001)
         #expect(abs(frames.map(\.keycap.maxY).max()! - (metrics.height - metrics.constants.bottomInset)) < 0.001)
+        // Stock proportions fitted into the same 205 pt: 46.5 pt keys, 6.33 pt gaps, 5 pt margins.
+        #expect(abs(one.height - 46.5) < 0.001)
+        #expect(abs(metrics.numberPadRowGap - 6.3333) < 0.001)
+        #expect(abs(one.minX - 5) < 0.001)
+        #expect(abs(two.minX - one.maxX - 6) < 0.001)
+        let three = frames.first { $0.kind == .character("3") }!.keycap
+        #expect(abs(metrics.width - three.maxX - 5) < 0.001)
+        #expect(abs(one.width - 123.667) < 0.01)
+        #expect(abs(frames.map(\.keycap.minY).min()! - (metrics.constants.stripHeight + metrics.constants.stripGap)) < 0.001)
     }
 
     @Test("A tap on the 5 of the number pad types it, with no pop-up")

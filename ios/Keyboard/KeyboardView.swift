@@ -52,10 +52,10 @@ struct KeyboardView: View {
             }
         }
         // The height the keyboard actually has, never one asked for: the panels fit what
-        // arrives (`EmojiPanel` drops rows to make room). They are exactly as tall as the key
-        // page, because iOS ignores a keyboard that grows after it first appears. Search is the
-        // one panel that asks for more (`TypingController.beginSearch`), and it too lays out in
-        // whatever arrives (`EmojiSearchPanel` goes to one row).
+        // arrives (`EmojiPanel` drops rows to make room). The key page and history are as tall as
+        // the key page; the emoji grid (portrait) and search ask for more
+        // (`TypingController.setEmojiPanelShown`, `beginSearch`), and a taller keyboard after it
+        // first appeared was observed to apply (2026-11-26). Both lay out in whatever arrives.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             typing.onShowEmoji = { show(.emoji) }
@@ -78,6 +78,7 @@ struct KeyboardView: View {
         }
         panel = next
         typing.setPlaneVisible(next == .keys || next == .search)
+        typing.setEmojiPanelShown(next == .emoji)
     }
 
     /// Search mode: the field and one row of results fill what the keyboard has above the plane

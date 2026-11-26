@@ -148,6 +148,14 @@ final class KeyPlaneView: UIView {
 
     private func fill(for kind: KeyKind) -> UIColor {
         if kind == .return, state.returnProminent { return resolved(DS.Keyboard.prominentUIKey) }
+        if state.page == .numberPad {
+            // Apple's pad fills only the digits; the slot beside 0 and delete show their glyph on
+            // the board. The faint backing keeps them drawn so touches reach the keyboard.
+            if case .character(let text) = kind, text.first?.isNumber == true {
+                return resolved(DS.Keyboard.numberPadKeyUIColor)
+            }
+            return DS.Keyboard.touchBackingUIColor
+        }
         return resolved(DS.Keyboard.keyUIColor)
     }
 
@@ -213,7 +221,8 @@ final class KeyPlaneView: UIView {
             }
             return iconLayer(symbol, color: label, size: size)
         case .delete:
-            return iconLayer("delete.left", color: label, size: size)
+            let width = state.page == .numberPad ? DS.Keyboard.numberPadDeleteIconWidth : nil
+            return iconLayer("delete.left", color: label, size: size, width: width)
         case .space:
             return nil
         case .return:
@@ -244,39 +253,46 @@ final class KeyPlaneView: UIView {
         "9": "WXYZ",
     ]
 
-    /// A pad key: the digit in the larger face with its letters under it, or the digit alone
-    /// (1, 0 and the decimal point) centred. Nil for a character the pad has no special look for.
+    /// A pad key: the digit in the larger face with its letters under it. Every digit's cap top
+    /// sits at the same fraction of the key's height, so 1 and 0 line up with 2 to 9, and the
+    /// decimal point sits on the digits' baseline. Measured from Apple's pad (2026-11-26).
     private func numberPadGlyph(_ text: String, size: CGSize) -> CALayer? {
         let rect = CGRect(origin: .zero, size: size)
         let label = resolved(DS.Keyboard.keyLabelUIColor)
         let digitFont = DS.Keyboard.numberPadDigitUIFont
-        guard let letters = Self.numberPadLetters[text] else {
-            return textLayer(text, font: digitFont, color: label, size: size)
-        }
+        let digit = padText(
+            text, font: digitFont, color: label, kern: 0, rect: rect,
+            capTop: DS.Keyboard.numberPadDigitCapTop)
+        guard let letters = Self.numberPadLetters[text] else { return digit }
+        let lettersFont = DS.Keyboard.numberPadLettersUIFont
+        // Tracking that makes "ABC" span the measured width; every letter group uses the same.
+        let natural = ("ABC" as NSString).size(withAttributes: [.font: lettersFont]).width
+        let kern = (DS.Keyboard.numberPadLettersSpan - natural) / 2
+        let under = padText(
+            letters, font: lettersFont, color: label, kern: kern, rect: rect,
+            capTop: DS.Keyboard.numberPadLettersCapTop)
         let container = CALayer()
         container.frame = rect
-        let digit = CATextLayer()
-        digit.contentsScale = displayScale
-        digit.alignmentMode = .center
-        digit.string = NSAttributedString(
-            string: text, attributes: [.font: digitFont, .foregroundColor: label])
-        digit.frame = textFrame(for: text, font: digitFont, in: rect)
-            .offsetBy(dx: 0, dy: -DS.Keyboard.numberPadDigitLift)
-        let lettersFont = DS.Keyboard.numberPadLettersUIFont
-        let under = CATextLayer()
-        under.contentsScale = displayScale
-        under.alignmentMode = .center
-        under.string = NSAttributedString(
-            string: letters,
-            attributes: [
-                .font: lettersFont, .foregroundColor: label,
-                .kern: DS.Keyboard.numberPadLettersTracking,
-            ])
-        under.frame = textFrame(for: letters, font: lettersFont, in: rect)
-            .offsetBy(dx: DS.Keyboard.numberPadLettersTracking / 2, dy: DS.Keyboard.numberPadLettersDrop)
         container.addSublayer(digit)
         container.addSublayer(under)
         return container
+    }
+
+    /// A line of text centred across `rect` whose cap top is `capTop` of the rect's height down.
+    /// The kern after the last letter is cancelled by shifting half of it back.
+    private func padText(
+        _ string: String, font: UIFont, color: UIColor, kern: CGFloat, rect: CGRect, capTop: CGFloat
+    ) -> CATextLayer {
+        let text = CATextLayer()
+        text.contentsScale = displayScale
+        text.alignmentMode = .center
+        text.string = NSAttributedString(
+            string: string, attributes: [.font: font, .foregroundColor: color, .kern: kern])
+        let baseline = rect.minY + rect.height * capTop + font.capHeight
+        let top = ((baseline - font.ascender) * displayScale).rounded() / displayScale
+        text.frame = CGRect(
+            x: rect.minX + kern / 2, y: top, width: rect.width, height: font.lineHeight.rounded(.up))
+        return text
     }
 
     /// A line of text centred in a key. `CATextLayer` does not centre vertically, so the layer
@@ -314,8 +330,15 @@ final class KeyPlaneView: UIView {
 
     /// An SF Symbol drawn once into a bitmap in the label colour. A symbol image has no
     /// `cgImage` of its own, so it is rendered; the layer then needs no tint handling.
-    private func iconLayer(_ name: String, color: UIColor, size: CGSize) -> CALayer? {
-        let configuration = UIImage.SymbolConfiguration(pointSize: DS.Keyboard.iconPointSize)
+    private func iconLayer(_ name: String, color: UIColor, size: CGSize, width: CGFloat? = nil) -> CALayer? {
+        var pointSize = DS.Keyboard.iconPointSize
+        if let width, let probe = UIImage(
+            systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize)),
+            probe.size.width > 0
+        {
+            pointSize *= width / probe.size.width
+        }
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize)
         guard let symbol = UIImage(systemName: name, withConfiguration: configuration)?
             .withTintColor(color, renderingMode: .alwaysOriginal)
         else { return nil }

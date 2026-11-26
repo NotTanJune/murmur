@@ -13,9 +13,8 @@ import UIKit
 /// controller, with no SwiftUI view or gesture recognizer in between.
 final class KeyboardViewController: UIInputViewController {
     private let microphone = WebMicrophone()
-    /// The keyboard's height: the key page's, computed from the width at each layout. The emoji
-    /// and history panels use the same height, because iOS ignores a keyboard that grows after
-    /// it first appears.
+    /// The keyboard's height: the key page's, computed from the width at each layout, plus the
+    /// extra height the emoji grid (portrait) and search ask for (`TypingController.keyboardHeight`).
     private var heightConstraint: NSLayoutConstraint?
     /// The key plane: the keyboard's height less the strip, set at each layout.
     private let plane = KeyPlaneView()

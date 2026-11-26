@@ -161,18 +161,21 @@ public struct KeyboardMetrics: Sendable {
     public func frames(for rows: [[KeyKind]], isNumberPad: Bool = false) -> [KeyFrame] {
         var result: [KeyFrame] = []
         for (rowIndex, row) in rows.enumerated() {
+            let rowTop = isNumberPad ? numberPadTop(row: rowIndex) : keycapTop(row: rowIndex)
+            let rowHeight = isNumberPad ? numberPadKeycapHeight : constants.keycapHeight
+            let rowGap = isNumberPad ? numberPadRowGap : constants.rowGap
             let keycaps = isNumberPad
-                ? numberPadRects(count: row.count, top: keycapTop(row: rowIndex))
-                : keycapRects(for: row, top: keycapTop(row: rowIndex))
+                ? numberPadRects(count: row.count, top: rowTop)
+                : keycapRects(for: row, top: rowTop)
             let isLast = rowIndex == rows.count - 1
-            let top = rowIndex == 0 ? constants.stripHeight : keycapTop(row: rowIndex) - constants.rowGap / 2
+            let top = rowIndex == 0 ? constants.stripHeight : rowTop - rowGap / 2
             let bottom = isLast
-                ? keycapTop(row: rowIndex) + constants.keycapHeight + constants.bottomInset
-                : keycapTop(row: rowIndex) + constants.keycapHeight + constants.rowGap / 2
+                ? rowTop + rowHeight + constants.bottomInset
+                : rowTop + rowHeight + rowGap / 2
             for (index, keycap) in keycaps.enumerated() {
                 // The pad's empty bottom-left slot is not part of the first key's touch area.
-                let leadingEdge = isNumberPad && keycap.minX > constants.sideInset + 1
-                    ? keycap.minX - constants.keyGap / 2 : 0
+                let leadingEdge = isNumberPad && keycap.minX > Self.numberPadSideInset + 1
+                    ? keycap.minX - Self.numberPadKeyGap / 2 : 0
                 let left = index == 0 ? leadingEdge : (keycaps[index - 1].maxX + keycap.minX) / 2
                 let right = index == keycaps.count - 1
                     ? width : (keycap.maxX + keycaps[index + 1].minX) / 2
@@ -190,15 +193,40 @@ public struct KeyboardMetrics: Sendable {
 
     // MARK: - Row widths
 
+    /// The stock number pad, measured on a 393 pt iPhone (2026-11-26): 48 pt keys on a 54 pt
+    /// pitch, 5 pt side margins, 6 pt between columns. Murmur keeps the keyboard's height, so
+    /// the four rows share the 205 pt the letter rows span (4 x 43 + 3 x 11) in the stock
+    /// proportions: 46.5 pt keys and 6.33 pt gaps. In another orientation the same fractions
+    /// of that orientation's span apply.
+    public static let numberPadSideInset: CGFloat = 5
+    public static let numberPadKeyGap: CGFloat = 6
+    private static let numberPadKeycapFraction: CGFloat = 46.5 / 205
+
+    /// The height the four rows and three gaps span, the same as every other page's.
+    private var rowsSpan: CGFloat {
+        CGFloat(Self.rowCount) * constants.keycapHeight + CGFloat(Self.rowCount - 1) * constants.rowGap
+    }
+
+    public var numberPadKeycapHeight: CGFloat { rowsSpan * Self.numberPadKeycapFraction }
+
+    public var numberPadRowGap: CGFloat {
+        (rowsSpan - CGFloat(Self.rowCount) * numberPadKeycapHeight) / CGFloat(Self.rowCount - 1)
+    }
+
+    /// The top of a number pad row's keycaps.
+    public func numberPadTop(row: Int) -> CGFloat {
+        constants.stripHeight + constants.stripGap + CGFloat(row) * (numberPadKeycapHeight + numberPadRowGap)
+    }
+
     /// The number pad's keycaps: three equal columns between the side insets. A row of fewer
     /// than three keys takes the rightmost columns, so `0` and delete keep their places.
     private func numberPadRects(count: Int, top: CGFloat) -> [CGRect] {
         let columns: CGFloat = 3
-        let keyWidth = (width - 2 * constants.sideInset - (columns - 1) * constants.keyGap) / columns
+        let keyWidth = (width - 2 * Self.numberPadSideInset - (columns - 1) * Self.numberPadKeyGap) / columns
         let firstColumn = Int(columns) - count
         return (0..<count).map { index in
-            let x = constants.sideInset + CGFloat(firstColumn + index) * (keyWidth + constants.keyGap)
-            return CGRect(x: x, y: top, width: keyWidth, height: constants.keycapHeight)
+            let x = Self.numberPadSideInset + CGFloat(firstColumn + index) * (keyWidth + Self.numberPadKeyGap)
+            return CGRect(x: x, y: top, width: keyWidth, height: numberPadKeycapHeight)
         }
     }
 

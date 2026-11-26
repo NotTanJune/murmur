@@ -84,6 +84,9 @@ final class TypingController {
     /// How much taller the keyboard is while it searches. The view controller asks for it
     /// (`keyboardHeight`) at its next layout.
     @ObservationIgnored private(set) var searchExtraHeight: CGFloat = 0
+    /// How much taller the keyboard is while the emoji grid shows (portrait only, never together
+    /// with search's own extra height). Set by the view as its panel changes.
+    @ObservationIgnored private(set) var emojiExtraHeight: CGFloat = 0
     /// The keyboard's height changed (search opened or closed): the view controller lays out again.
     @ObservationIgnored var onHeightChange: () -> Void = {}
     /// The keyboard went away with search open; the view returns to the emoji grid.
@@ -213,7 +216,19 @@ final class TypingController {
     // MARK: - Geometry
 
     /// The height of the whole keyboard (strip and keys) at the current width and orientation.
-    var keyboardHeight: CGFloat { metrics.height + searchExtraHeight }
+    var keyboardHeight: CGFloat {
+        let emoji = metrics.isLandscape || searchSink != nil ? 0 : emojiExtraHeight
+        return metrics.height + searchExtraHeight + emoji
+    }
+
+    /// The emoji grid opened or closed: the keyboard is taller while it shows, in portrait. Search
+    /// is not this panel and brings its own height (`beginSearch`).
+    func setEmojiPanelShown(_ shown: Bool) {
+        let next = shown ? DS.Keyboard.emojiExtraHeight : 0
+        guard emojiExtraHeight != next else { return }
+        emojiExtraHeight = next
+        onHeightChange()
+    }
 
     /// The portrait height, which does not depend on the width. The height constraint starts
     /// here, before the first layout knows the orientation.
