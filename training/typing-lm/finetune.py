@@ -312,19 +312,32 @@ def tensors(examples, indices, pad, device):
     return ids.to(device), mask.to(device), labels.to(device)
 
 
-def validation_loss(model, examples, pad, device):
-    model.eval()
+class LossOnly(torch.nn.Module):
+    """The model's loss and nothing else, so `DataParallel` gathers one number per GPU and
+    never the logits (batch x tokens x 52,257 words), which would land on the first GPU whole.
+    Autocast is entered here because `DataParallel` runs each replica in its own thread."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids, attention_mask, labels):
+        with torch.autocast("cuda", dtype=torch.float16, enabled=input_ids.is_cuda):
+            return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss.unsqueeze(0)
+
+
+def validation_loss(scorer, examples, pad, device, size):
+    scorer.eval()
     total, count = 0.0, 0
     with torch.no_grad():
-        for start in range(0, len(examples), 512):
-            indices = list(range(start, min(start + 512, len(examples))))
+        for start in range(0, len(examples), size):
+            indices = list(range(start, min(start + size, len(examples))))
             ids, mask, labels = tensors(examples, indices, pad, device)
-            with torch.autocast("cuda", dtype=torch.float16, enabled=device == "cuda"):
-                loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
+            loss = scorer(ids, mask, labels).float().mean()
             tokens = int((labels != -100).sum()) - len(indices)
             total += loss.item() * tokens
             count += tokens
-    model.train()
+    scorer.train()
     return total / count
 
 
@@ -335,6 +348,9 @@ def main():
     parser.add_argument("--data", default="/content/data")
     parser.add_argument("--soda-turns", type=int, default=1_500_000)
     parser.add_argument("--batch", type=int, default=256)
+    # 512 sentences of 48 tokens over 52,257 words is a 5.1 GB block of float32 logits in the
+    # loss, which a 16 GB T4 could not hold beside the model (2026-11-26).
+    parser.add_argument("--eval-batch", type=int, default=128)
     parser.add_argument("--max-tokens", type=int, default=48)
     parser.add_argument("--rate", type=float, default=5e-5)
     parser.add_argument("--seed", type=int, default=20261125)
@@ -397,6 +413,12 @@ def main():
     if words:
         added_tokens.extend_embeddings(model, source, words)
     model = model.to(device).train()
+    scorer = LossOnly(model)
+    gpus = torch.cuda.device_count() if device == "cuda" else 0
+    if gpus > 1:
+        # Kaggle's "GPU T4 x2": each batch is split across the cards.
+        scorer = torch.nn.DataParallel(scorer)
+    print(f"GPUs used: {max(gpus, 1) if device == 'cuda' else 0}", flush=True)
     plan = batches(examples, args.batch, rng)
     if args.max_steps:
         plan = plan[:args.max_steps]
@@ -409,15 +431,14 @@ def main():
         else 0.5 * (1 + math.cos(math.pi * (step - warmup) / max(1, steps - warmup))))
     scaler = torch.amp.GradScaler("cuda", enabled=device == "cuda")
     saves = {steps // 4: "quarter", steps // 2: "half", steps: "full"}
-    print(f"validation loss before: {validation_loss(model, held_back, start, device):.4f}", flush=True)
+    print(f"validation loss before: {validation_loss(scorer, held_back, start, device, args.eval_batch):.4f}", flush=True)
     english_eval = eval_sentences(args.eval_sentences)
     report_hits("before", model, tokenizer, english_eval, held_hinglish, device)
 
     began, running = time.time(), 0.0
     for step, indices in enumerate(plan, 1):
         ids, mask, labels = tensors(examples, indices, start, device)
-        with torch.autocast("cuda", dtype=torch.float16, enabled=device == "cuda"):
-            loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
+        loss = scorer(ids, mask, labels).float().mean()
         optimizer.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -439,7 +460,7 @@ def main():
             if args.added_tokens:
                 shutil.copyfile(args.added_tokens, os.path.join(folder, "added-tokens.txt"))
             print(f"saved {folder} at step {step}: validation loss "
-                  f"{validation_loss(model, held_back, start, device):.4f}", flush=True)
+                  f"{validation_loss(scorer, held_back, start, device, args.eval_batch):.4f}", flush=True)
             report_hits(saves[step], model, tokenizer, english_eval, held_hinglish, device)
     print(f"DONE in {(time.time() - began) / 60:.1f} min", flush=True)
 
