@@ -166,7 +166,7 @@ final class TypingController {
     // Smart predictions: the language model behind the strip (`SmartPredictions`,
     // `NextWordPredictor`). The pair model answers first and always; the model's answer for the
     // same word boundary replaces it when it is there.
-    @ObservationIgnored private let smart = SmartPredictions()
+    @ObservationIgnored private let smart = SmartPredictions.shared
     /// The model's answer for the newest word boundary. Written on the main actor, read by the
     /// strip's pass on `suggestionQueue`.
     @ObservationIgnored private let prediction = OSAllocatedUnfairLock<WordPrediction?>(initialState: nil)
@@ -231,7 +231,6 @@ final class TypingController {
         engine = TypingEngine(metrics: initial)
         planeSpace = initial.height - initial.constants.stripHeight
         lettersFrames = initial.frames(for: KeyboardLayout.rows(for: .letters, showsGlobe: false))
-        smart.onPrediction = { [weak self] in self?.predictionArrived($0) }
     }
 
     // MARK: - Geometry
@@ -360,6 +359,8 @@ final class TypingController {
         var snapshot = counters
         snapshot.offKey = engine.offKeyLifts - offKeyAtReset
         snapshot.predictionState = smart.state.rawValue
+        // The process's total, so a controller made by a screenshot does not report none.
+        snapshot.predictionAnswers = smart.answers
         snapshot.predictionLoadSeconds = smart.loadSeconds
         snapshot.predictionLastMs = smart.lastPredictionMs
         snapshot.predictionFootprintMB = smart.footprintMB
@@ -1233,7 +1234,7 @@ final class TypingController {
         }
         guard keysTouched, boundary != requestedBoundary else { return }
         requestedBoundary = boundary
-        smart.request(boundary, words: model)
+        smart.request(boundary, words: model) { [weak self] in self?.predictionArrived($0) }
     }
 
     /// The model answered. An answer for a boundary the text has left is dropped. Otherwise it is

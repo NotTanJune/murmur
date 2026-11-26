@@ -101,4 +101,11 @@ extension CrashMarker {
     static var typingModel: CrashMarker {
         CrashMarker(directory: AppStorage.directory, name: "typing-lm-loading")
     }
+
+    /// Armed when a keyboard finds `typingModel` left armed by the process before it, and tries
+    /// the load once more. Both armed means two processes in a row ended while loading the
+    /// model, which is when the keyboard stops trying. The first prediction disarms it.
+    static var typingModelStrike: CrashMarker {
+        CrashMarker(directory: AppStorage.directory, name: "typing-lm-strike")
+    }
 }

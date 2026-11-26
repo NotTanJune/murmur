@@ -785,9 +785,14 @@ points worse. How it works:
   `Settings.smartPredictions` (Settings tab, default on), the model in the bundle, 60 MB left
   before the extension's limit (`os_proc_available_memory`), and no armed `typing-lm-loading`
   marker: the marker is armed before the load and disarmed after the first prediction, as
-  Bark's is, and a marker found armed at launch means the last keyboard died there, so nothing
+  Bark's is. A marker found armed at launch means the last keyboard ended there; once is not
+  proof of a memory death (an install leaves the same marker), so the first time only a second
+  marker (`typing-lm-strike`) is armed and the load is tried again, and with both armed nothing
   loads until the app's switch is turned off and on. One prediction runs at a time on a
-  background queue and only the newest waiting request is kept.
+  background queue and only the newest waiting request is kept. **It is one per process
+  (`SmartPredictions.shared`), never the controller's:** iOS makes a new input view controller
+  at many appearances (a screenshot does it), and a controller-owned model lost its load and
+  left the marker armed, which locked every later keyboard out.
 - **Why the CPU.** On the Neural Engine a first load of this file put 240 MB into the process,
   over the keyboard's 177 MB limit, for 2 ms saved per pass.
 - **The model is not in git.** `uv run Tools/fetch_typing_lm.py --fetch` downloads the pinned
@@ -808,12 +813,18 @@ offered 54.5% of the time (stock 45.1%), and centre taps read like messages ("pl
 about it I know you will do great in your new job"). The weights are on the owner's Mac only
 (`~/Library/Caches/MurmurBuild/typing-lm-ft/quarter`, SHA-256 `952ef2d8...`), built with
 `Tools/fetch_typing_lm.py --weights <folder>`; `training/typing-lm/README.md` has the numbers.
-The fallbacks beyond that are in `plans/001-keyboard-v2.md`, Milestone 9. **Open on the phone:**
-the owner saw the pair model's words come back after a few centre taps while the keyboard
-reported the model ready. On the Mac the engine keeps the model's words for 45 taps and 400
-predictions add no memory, so the fault is in the keyboard's layer and unfound. Setup's
-Predictions line shows temporary counters for it (answers, stale, strip passes with an answer,
-memory left); remove them and `PredictionSelfTest` once it is found.
+The fallbacks beyond that are in `plans/001-keyboard-v2.md`, Milestone 9. **The pair model's words kept coming back on the phone, and why** (found 2026-11-26). The
+owner saw "my dog breeds of the same time to the first to be a new window" with the model
+installed. The phone's shared folder held `typing-lm-loading` armed from the minute of the test,
+and the status file came from a controller that had asked the model nothing (`waiting`, 0 taps).
+The model belonged to `TypingController`; the controller was replaced during the load (the
+load is slow right after an install, while Bark compiles), the load was thrown away with it,
+and the marker it had armed made every later keyboard report `stoppedLastTime` at its first
+request. The fix is the bullet above: one model per process and two strikes before the lock.
+Whether the strip now shows the model's words on the phone is unverified until the owner types.
+Setup's Predictions line still shows temporary counters (answers for the whole process, stale,
+strip passes with an answer, memory left); remove them and `PredictionSelfTest` once the owner
+confirms.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
