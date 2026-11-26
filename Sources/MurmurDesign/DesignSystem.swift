@@ -267,36 +267,67 @@ public enum DS {
         /// With Reduce Motion on the trace redraws less often and its braid stops travelling.
         public static let waveformReducedInterval: TimeInterval = 1.0 / 15.0
 
-        // The voice trace (`VoiceTrace`): a dot matrix with strands braided through it, newest in
+        // The voice trace (`VoiceTrace`): a dot matrix with a smooth, flowing liquid body, newest in
         // the middle, older towards the edges. The keyboard's capsule sets its own pitch
         // (`Keyboard.traceDotPitch`); the rest is shared.
         /// Distance between dot centres, here on the Mac.
         public static let traceDotPitch: CGFloat = 2.8
         /// How much history each side shows, in seconds.
         public static let traceSeconds: TimeInterval = 1.0
-        /// Strands in the braid, evenly spaced in phase, and how far a dot may be from one (in
-        /// rows, as a gaussian's sigma) and still light.
-        public static let traceStrands = 3
-        public static let traceStrandSigma: Double = 0.7
-        /// The carrier's wavelength in columns and its travel (left to right) in cycles a second.
-        public static let traceCarrierColumns: Double = 24
-        public static let traceCarrierSpeed: Double = 0.45
+        /// The strands of the braid: long, slow ribbons. Each has its own wavelength (columns),
+        /// travel speed (a share of `traceCarrierSpeed`) and start phase, so they cross slowly and
+        /// never line up into a repeating pattern.
+        public static let traceStrandColumns: [Double] = [52, 70, 44]
+        public static let traceStrandSpeeds: [Double] = [1.0, 0.7, 1.25]
+        public static let traceStrandPhases: [Double] = [0.0, 0.31, 0.64]
+        /// The carrier's travel (left to right) in cycles a second, for a strand of speed 1.
+        public static let traceCarrierSpeed: Double = 0.2
+        /// Share of the grid's half height a full-voice strand swings through, so the mass leaves
+        /// room for its own width.
+        public static let traceReach: Double = 0.9
+        /// How many columns wide the level is blurred across before it shapes the mass (a
+        /// gaussian's sigma), so a syllable is a rounded bulge and never a spike.
+        public static let traceSmoothColumns: Double = 3.5
+        /// A very slow swell along the trace (wavelength in columns, rate in cycles a second) that
+        /// changes each strand's swing and width by up to `traceWritheDepth`.
+        public static let traceWritheColumns: Double = 110
+        public static let traceWritheRate: Double = 0.08
+        public static let traceWritheDepth: Double = 0.15
+        /// A strand's glow in rows (a gaussian's sigma) in silence and at full voice. Louder is fatter.
+        public static let traceStrandSigma: Double = 0.8
+        public static let traceLoudSigma: Double = 1.5
+        /// What one strand adds to the field at its centre.
+        public static let traceStrandWeight: Double = 0.5
+        /// The body between the outer strands fills in as the level climbs from the first value to
+        /// the second, so a speaking mass is solid. It reaches at least `traceBodyReach` of the
+        /// swing either side of the strands' mean, so the strands crossing never pinches it.
+        public static let traceBodyFrom: Double = 0.1
+        public static let traceBodyTo: Double = 0.5
+        public static let traceBodyReach: Double = 0.2
+        /// What the body adds once it is full.
+        public static let traceBodyWeight: Double = 1.0
+        /// The field (the sum of strands plus body) lights a dot from the first value to the second.
+        /// The wider the span, the softer the rim.
+        public static let traceFieldLow: Double = 0.5
+        public static let traceFieldHigh: Double = 1.4
         /// Dot sizes as shares of the pitch: the dim base grid, a fully lit dot and its halo.
         public static let traceBaseRadius: CGFloat = 0.24
         public static let traceLitRadius: CGFloat = 0.45
         public static let traceHaloRadius: CGFloat = 0.95
-        /// Opacity of an unlit dot, and of the halo round a fully lit one.
+        /// Opacity of an unlit dot, and of the halo on a dot at the mass's edge. A dot deep in the
+        /// mass has only `traceHaloInterior` of it, so the glow sits on the rim.
         public static let traceBaseOpacity: Double = 0.14
         public static let traceHaloOpacity: Double = 0.4
+        public static let traceHaloInterior: Double = 0.2
         /// Brightness is drawn in this many steps, each one path, so a frame costs a few fills.
-        public static let traceLevels = 8
+        public static let traceLevels = 10
         /// Brightness below this is not drawn as lit.
         public static let traceLitThreshold: Double = 0.06
         /// Brightness at the oldest column against 1 in the middle, and how fast it falls with age.
         public static let traceEdgeOpacity: Double = 0.55
         public static let traceFadeExponent: Double = 1.0
         /// Share of each side, from the edge in, over which the strands close onto the middle row.
-        public static let traceEdgeTaper: Double = 0.3
+        public static let traceEdgeTaper: Double = 0.4
         /// The middle row's opacity before audio, against the neutral tint it is drawn in.
         public static let traceIdleRowOpacity: Double = 1.0
         public static let fadeDuration: TimeInterval = 0.16

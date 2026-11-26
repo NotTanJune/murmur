@@ -37,11 +37,13 @@ public final class VoiceTraceSource {
     }
 }
 
-/// The listening trace: a dot matrix with three strands braided through it. The middle column is
-/// now and older sound drifts out towards both edges, fading, so a pause still shows the last words
-/// leaving. A strand's height at a column is the level (`VoiceTraceModel`) at that column's age times
-/// half the grid's height, so silence closes the braid onto the bright middle row and speech swells
-/// it. Dots near a strand are brighter and a little larger, with a halo; every dot is faintly drawn.
+/// The listening trace: a dot matrix with one smooth, flowing liquid body in it. The middle column
+/// is now and older sound drifts out towards both edges, fading, so a pause still shows the last
+/// words leaving. Three long, slow strands cross each other like ribbons of mercury; the level is
+/// blurred across columns, so a syllable is a rounded bulge, and sets both a strand's swing and its
+/// width, so louder is fatter. The strands and a solid body around them add into a field that a
+/// wide smooth threshold turns into lit dots: a continuous core with a soft rounded rim, which
+/// carries the halo.
 ///
 /// Inactive, it is the dim grid with a flat middle row in `idleTint` and the clock is paused. Red
 /// means recording, so the keyboard passes a neutral `idleTint` for the time before the hold has
@@ -141,45 +143,109 @@ public struct VoiceTrace: View {
     }
 
     /// Hermite smoothstep from 0 at `edge0` to 1 at `edge1`.
-    static func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
+    nonisolated static func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
         let t = min(1, max(0, (x - edge0) / (edge1 - edge0)))
         return t * t * (3 - 2 * t)
     }
 
+    /// A very slow swell in -1...1 along the trace (`x` in columns) and in time. `seed` makes each
+    /// strand's different.
+    nonisolated static func wobble(x: Double, time: TimeInterval, seed: Double) -> Double {
+        sin(2 * .pi * (x / DS.HUD.traceWritheColumns - time * DS.HUD.traceWritheRate + seed))
+    }
+
+    /// `levels` blurred across columns with a gaussian (`sigma` in columns). The first value is
+    /// the middle and the history is mirrored there, so the blur never opens a notch at the
+    /// middle; past the oldest value the last one is held.
+    nonisolated static func smoothed(_ levels: [Float], sigma: Double) -> [Double] {
+        guard sigma > 0.01, levels.count > 1 else { return levels.map(Double.init) }
+        let radius = max(1, Int((sigma * 3).rounded(.up)))
+        var weights = [Double](repeating: 0, count: radius * 2 + 1)
+        var total = 0.0
+        for slot in weights.indices {
+            let offset = Double(slot - radius)
+            weights[slot] = exp(-offset * offset / (2 * sigma * sigma))
+            total += weights[slot]
+        }
+        var result = [Double](repeating: 0, count: levels.count)
+        for index in levels.indices {
+            var sum = 0.0
+            for slot in weights.indices {
+                let source = min(levels.count - 1, abs(index + slot - radius))
+                sum += weights[slot] * Double(levels[source])
+            }
+            result[index] = sum / total
+        }
+        return result
+    }
+
     /// Brightness 0...1 of every dot, row-major (`row * columns + column`), for the level
     /// `amplitudes[d]` at `d` columns from the middle (0...1, newest first) and a time for the
-    /// carrier. Pure, so a test can read it.
-    static func brightness(amplitudes: [Float], grid: Grid, time: TimeInterval, reduceMotion: Bool) -> [Float] {
+    /// motion. Pure, so a test can read it.
+    ///
+    /// Per column each strand has a height and a width; a dot's field is the sum of the strands'
+    /// gaussians plus a body that fills the space around them as the level climbs.
+    nonisolated static func brightness(amplitudes: [Float], grid: Grid, time: TimeInterval, reduceMotion: Bool) -> [Float] {
         var result = [Float](repeating: 0, count: grid.columns * grid.rows)
         let middle = grid.middleColumn
         guard middle > 0, !amplitudes.isEmpty else { return result }
         let halfRows = Double(grid.rows - 1) / 2
-        let travel = reduceMotion ? 0 : time * DS.HUD.traceCarrierSpeed
-        let strands = max(1, DS.HUD.traceStrands)
-        let twoSigmaSquared = 2 * DS.HUD.traceStrandSigma * DS.HUD.traceStrandSigma
+        let clock = reduceMotion ? 0 : time
+        let strands = min(DS.HUD.traceStrandColumns.count, DS.HUD.traceStrandSpeeds.count, DS.HUD.traceStrandPhases.count)
+        guard strands > 0 else { return result }
+        let levels = smoothed(amplitudes, sigma: DS.HUD.traceSmoothColumns)
         var heights = [Double](repeating: 0, count: strands)
+        var sigmas = [Double](repeating: 0, count: strands)
 
         for column in 0..<grid.columns {
             let distance = abs(column - middle)
             let age = Double(distance) / Double(middle)
-            let level = Double(amplitudes[min(distance, amplitudes.count - 1)])
-            // The strands close onto the middle row at the edges, as the old line did.
+            let level = levels[min(distance, levels.count - 1)]
+            // The mass thins smoothly onto the middle row at the edges.
             let close = 1 - smoothstep(1 - DS.HUD.traceEdgeTaper, 1, age)
-            let amplitude = level * halfRows * close
+            let voice = level * close
             let fade = DS.HUD.traceEdgeOpacity
                 + (1 - DS.HUD.traceEdgeOpacity) * pow(1 - age, DS.HUD.traceFadeExponent)
-            // Signed from the middle, so the two halves are not mirrors of each other.
-            let phase = Double(column - middle) / DS.HUD.traceCarrierColumns - travel
+            let x = Double(column - middle)
+
+            var low = Double.infinity
+            var high = -Double.infinity
+            var mean = 0.0
+            var swingSum = 0.0
             for strand in 0..<strands {
-                heights[strand] = amplitude * sin(2 * .pi * (phase + Double(strand) / Double(strands)))
+                let swell = 1 + DS.HUD.traceWritheDepth * wobble(x: x, time: clock, seed: Double(strand) * 0.37)
+                let wavelength = DS.HUD.traceStrandColumns[strand]
+                let speed = DS.HUD.traceStrandSpeeds[strand] * DS.HUD.traceCarrierSpeed
+                let phase = x / wavelength - clock * speed + DS.HUD.traceStrandPhases[strand]
+                let swing = min(halfRows, voice * DS.HUD.traceReach * halfRows * swell)
+                heights[strand] = swing * sin(2 * .pi * phase)
+                sigmas[strand] = DS.HUD.traceStrandSigma
+                    + (DS.HUD.traceLoudSigma - DS.HUD.traceStrandSigma) * min(1, voice * swell)
+                low = min(low, heights[strand])
+                high = max(high, heights[strand])
+                mean += heights[strand] / Double(strands)
+                swingSum += swing / Double(strands)
             }
+            // The body spans the strands and never less than a share of the swing about their mean.
+            let bodyLow = min(low, mean - DS.HUD.traceBodyReach * swingSum)
+            let bodyHigh = max(high, mean + DS.HUD.traceBodyReach * swingSum)
+            let body = DS.HUD.traceBodyFrom < DS.HUD.traceBodyTo
+                ? smoothstep(DS.HUD.traceBodyFrom, DS.HUD.traceBodyTo, voice) : 0
+            let bodySigma = sigmas.max() ?? DS.HUD.traceStrandSigma
+
             for row in 0..<grid.rows {
                 let y = Double(grid.middleRow - row)
-                var lit = 0.0
-                for height in heights {
-                    let offset = y - height
-                    lit = max(lit, exp(-offset * offset / twoSigmaSquared))
+                var field = 0.0
+                for strand in 0..<strands {
+                    let offset = y - heights[strand]
+                    field += DS.HUD.traceStrandWeight * exp(-offset * offset / (2 * sigmas[strand] * sigmas[strand]))
                 }
+                if body > 0 {
+                    // Full inside, falling away outside, as a gaussian: a round contour.
+                    let outside = max(0, bodyLow - y, y - bodyHigh)
+                    field += DS.HUD.traceBodyWeight * body * exp(-outside * outside / (2 * bodySigma * bodySigma))
+                }
+                let lit = smoothstep(DS.HUD.traceFieldLow, DS.HUD.traceFieldHigh, field)
                 result[row * grid.columns + column] = Float(lit * fade)
             }
         }
@@ -233,7 +299,10 @@ public struct VoiceTrace: View {
             let radius = pitch * (DS.HUD.traceLitRadius + (DS.HUD.traceHaloRadius - DS.HUD.traceLitRadius) * CGFloat(value))
             var halos = Path()
             for centre in centres[level] { halos.addEllipse(in: dot(at: centre, radius: radius)) }
-            context.fill(halos, with: .color(style.tint.opacity(DS.HUD.traceHaloOpacity * value * value)))
+            // Brightest on the rim (middle values), a little in the mass, so the glow sits on the edge.
+            let rim = 4 * value * (1 - value)
+            let halo = DS.HUD.traceHaloOpacity * (rim + (1 - rim) * DS.HUD.traceHaloInterior * value)
+            context.fill(halos, with: .color(style.tint.opacity(halo)))
         }
         for level in 0..<levels {
             let value = Double(level + 1) / Double(levels)

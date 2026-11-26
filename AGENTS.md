@@ -917,26 +917,41 @@ middle holds the newest frame for 0.1 s and then dies away, so a stalled feed ho
 The view draws a grid of round dots, `DS.HUD.traceDotPitch` apart (2.8 pt on the Mac,
 `DS.Keyboard.traceDotPitch` 3 pt on the phone), whose counts come from the room the view is given
 (`VoiceTrace.Grid`: odd numbers, so there is a middle column and a middle row; the phone's capsule
-gives it about 70 columns by 11 rows, the HUD 43 by 11). Every dot is drawn dim. Three strands, a
-third of a cycle apart, run along it as a sine carrier (24 columns a wavelength, travelling
-0.45 cycles a second, signed from the middle so the halves are not mirrors); a strand's height at a
-column is the model's level at that column's age (1 s each side) times half the grid's height, and
-closes onto the middle row over the outer 30% of each side. A dot's brightness is the largest
-gaussian falloff (sigma 0.7 rows) of its distance to a strand, times a fade by age (1 in the middle,
-0.55 at the edges). Brightness is drawn in 8 steps, each one path, as a larger dot in `record` at
-more opacity plus a larger, faint halo circle (no blur, no gradient), so a frame is about 20 fills,
-not one per dot. The brightness is `VoiceTrace.brightness`, a pure function, so it is tested; the
+gives it about 70 columns by 11 rows, the HUD 43 by 11). Every dot is drawn dim. On top of it
+lives one smooth liquid body, made as a field. It has had three versions, each from the owner's
+words: three thin braided outlines ("too thin"), a lumpy mass with veins and spikes ("alien"), and
+this one ("smooth and fluid"). First the level is blurred across columns with a gaussian 3.5
+columns wide (`VoiceTrace.smoothed`, mirrored at the middle), so a syllable is a rounded bulge and
+never a spike or a notch. Three strands then run along the grid as long, slow sine ribbons with
+different wavelengths (52, 70 and 44 columns), speeds (1, 0.7 and 1.25 times 0.2 cycles a second,
+left to right) and start phases, so they cross slowly and never repeat; a very slow swell (110
+columns, 0.08 cycles a second) changes their swing and width by 15% at most. At a column a strand's
+swing is the blurred level at that column's age (1 s each side) times 0.9 of half the grid's
+height, and its width, a gaussian sigma, grows from 0.8 rows in silence to 1.5 at full voice:
+louder is fatter, and the spring's overshoot swells a syllable. Both thin smoothly onto the middle
+row over the outer 40% of each side. A dot's field is the sum of the three strands' gaussians (0.5
+each) plus a solid body (weight 1, filling in as the level climbs from 0.1 to 0.5) that spans the
+strands and at least 0.2 of the swing about their mean, so the strands crossing only necks the
+body and never opens a hole. A smoothstep from 0.5 to 1.4 turns the field into brightness: a
+continuous core with a soft, rounded rim about two dots wide, times a fade by age (1 in the middle,
+0.55 at the edges). Silence is the middle row with a faint dot either side. Brightness is drawn in
+10 steps, each one path, as a larger dot in `record` at more opacity, plus a larger, faint halo
+circle (no blur, no gradient) strongest on the rim (a dot deep in the mass has 20% of it), so a
+frame is about 25 fills, not one per dot. The pure helpers are `nonisolated`: they sit in a
+`View`, which is main-actor, and the tests call them off it (a closure inside one trapped at run
+time before that). The brightness is `VoiceTrace.brightness`, a pure function, so it is tested; the
 view reads the model under a `GeometryReader` and hands the `Canvas` plain arrays, so nothing
 mutates state in the draw (see above). The timeline runs at 60 Hz while active and is paused
 otherwise. Before the phone's hold has audio (`heardAudio` false) it is the dim grid with a flat
-middle row of dots in `DS.Keyboard.waveformFlat`. Reduce Motion stops the carrier's travel and
+middle row of dots in `DS.Keyboard.waveformFlat`. Reduce Motion stops the strands' travel and the swell (the mass still follows the level) and
 redraws at 15 Hz. The model lives in a `VoiceTraceSource`, fed from where the audio arrives
 (`KeyboardDictation.received` and the pre-roll, `DictationController`'s capture callback). The
 pre-roll goes in so the room is calibrated before the press. The Mac's `AudioCapture` reports
 linear RMS and the controller maps it to the meter's old -50...0 dBFS window, so the meter is
 unchanged. `MURMUR_TRACE_PREVIEW=<folder> swift test --filter VoiceTracePreview` writes
 `voice-trace-dots.png`: the Mac HUD and a 236 pt phone capsule at six moments of a synthetic
-sentence. **Unverified on a device or in the HUD:** how the motion looks (the preview is stills),
+sentence. **Unverified on a device or in the HUD:** how the motion looks (the preview is stills;
+whether it reads as liquid or as a plain waveform when it moves is the owner's call),
 whether the spring and the 35 and 95 ms numbers feel right with a real microphone, the cost of the
 Canvas at 60 Hz in the keyboard extension (a Release build on the phone has not run it), the
 phone capsule's real width (the preview assumes 236 pt) and whether the red grid reads as muddy on
