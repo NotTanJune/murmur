@@ -25,7 +25,7 @@ import os
 /// at each appearance, and Bark's preparation waits in `waitForLoad` until this load has ended,
 /// for at most `KeyboardDictation`'s limit. Measured the same day on the same phone, in the
 /// first keyboard after an install: the model loaded and answered in 0.80 s and Bark then
-/// compiled in 83.7 s; and in the app (`PredictionSelfTest.race`), a model loaded first
+/// compiled in 83.7 s; and in the app (a test since removed), a model loaded first
 /// answered 160 times in a row through Bark's 84.1 s compile, median 5.8 ms, slowest 12.1 ms.
 ///
 /// **`ready` means it has answered.** The load ends with one prediction on the background
@@ -48,8 +48,8 @@ import os
 /// newest waiting request is kept, so a fast typist costs at most one pass per word and never
 /// waits for any of them. An answer comes back on the main actor through its request's `reply`.
 ///
-/// `state`, `loadSeconds`, `lastPredictionMs` and `footprintMB` go to `KeyboardStatus` so the
-/// Setup tab shows what the phone does; `onChange` writes that file at every change of state.
+/// `state` goes to `KeyboardStatus` so the Setup tab shows what the phone does; `onChange` writes
+/// that file at every change of state.
 @MainActor
 final class SmartPredictions {
     /// The process's one model. See the type's note for why it is not the controller's.
@@ -88,15 +88,6 @@ final class SmartPredictions {
     private(set) var state = State.waiting {
         didSet { if state != oldValue { onChange?() } }
     }
-    /// This process's model load, first prediction included, in seconds.
-    private(set) var loadSeconds: Double?
-    /// The last prediction's time on the background queue, in milliseconds.
-    private(set) var lastPredictionMs: Double?
-    /// The footprint gained from just before the load to just after its first prediction.
-    private(set) var footprintMB: Double?
-    /// Predictions delivered since the process started. Not reset when the keyboard reappears,
-    /// so Setup still shows them after a screenshot has replaced the controller.
-    private(set) var answers = 0
     /// Called on the main actor when `state` changes. The view controller on screen sets it, to
     /// write the status file at once: Setup's check mark must not lag the keyboard by a poll.
     var onChange: (@MainActor () -> Void)?
@@ -122,7 +113,6 @@ final class SmartPredictions {
     private var launchMarkerHandled = false
     /// This process armed the marker and its load has not ended.
     private var markerArmedHere = false
-    private var footprintBeforeLoad = 0.0
     /// The newest boundary waiting for the model. Older ones are dropped unanswered.
     private var pending: Request?
     /// The reply of the prediction now running on `queue`.
@@ -226,7 +216,6 @@ final class SmartPredictions {
         pending = request
         marker.arm()
         markerArmedHere = true
-        footprintBeforeLoad = MemoryProbe.footprintMB()
         state = .loading
         let warmup = Self.warmupText
         queue.async { [worker, weak self] in
@@ -261,10 +250,8 @@ final class SmartPredictions {
         marker.disarm()
         strike.disarm()
         markerArmedHere = false
-        loadSeconds = seconds
-        footprintMB = max(0, MemoryProbe.footprintMB() - footprintBeforeLoad)
         Self.log.info(
-            "language model loaded and answered in \(String(format: "%.2f", seconds), privacy: .public) s, footprint +\(String(format: "%.1f", self.footprintMB ?? 0), privacy: .public) MB")
+            "language model loaded and answered in \(String(format: "%.2f", seconds), privacy: .public) s")
         state = .ready
         predictNext()
     }
@@ -282,7 +269,6 @@ final class SmartPredictions {
         inFlight = request.reply
         let boundary = request.boundary
         queue.async { [worker, weak self] in
-            let started = ContinuousClock.now
             var prediction: WordPrediction?
             var failure: String?
             do {
@@ -290,14 +276,13 @@ final class SmartPredictions {
             } catch {
                 failure = String(describing: error)
             }
-            let milliseconds = (ContinuousClock.now - started) / .milliseconds(1)
             Task { @MainActor [weak self] in
-                self?.predicted(prediction, failure: failure, milliseconds: milliseconds)
+                self?.predicted(prediction, failure: failure)
             }
         }
     }
 
-    private func predicted(_ prediction: WordPrediction?, failure: String?, milliseconds: Double) {
+    private func predicted(_ prediction: WordPrediction?, failure: String?) {
         let reply = inFlight
         inFlight = nil
         if let failure {
@@ -307,8 +292,6 @@ final class SmartPredictions {
         }
         // Nil when the model was released while the request waited.
         guard let prediction, state == .ready else { return }
-        lastPredictionMs = milliseconds
-        answers += 1
         reply?(prediction)
         predictNext()
     }

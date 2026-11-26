@@ -29,45 +29,6 @@ extension MetricsConstants {
     }
 }
 
-/// What the keys did since the keyboard last appeared, written to `KeyboardStatus` so a device
-/// run says whether typed letters are lost and where. Times are in milliseconds.
-struct TypingStats: Equatable {
-    /// Touch-downs on any key.
-    var touchDowns = 0
-    /// Insert effects the keys produced: the characters, spaces and returns that reached the field.
-    var typed = 0
-    /// Touches iOS cancelled (a system gesture, the keyboard going away). A cancelled character
-    /// touch types nothing.
-    var cancelled = 0
-    /// Lifts that hit no key and typed the touch's last key instead (`TypingEngine.offKeyLifts`).
-    var offKey = 0
-    /// The longest `handle`: the event in to its effects applied.
-    var slowestHandleMs = 0.0
-    /// The largest gap between a touch's timestamp and the keyboard handling it. A burst of
-    /// touches delivered late, or the main thread busy, shows here.
-    var maxDeliveryMs = 0.0
-    /// The slowest autocorrect evaluation (parse, decode and policy, at a word end or for the
-    /// strip's correction), run on the main actor. Zero until one ran.
-    var slowestAutocorrectMs = 0.0
-    /// The strip's language model (`SmartPredictions`): its state, this process's load in seconds,
-    /// the last prediction in milliseconds and the footprint the model added, in megabytes. Nil
-    /// until there is something to report. Not counters: they are not reset at an appearance.
-    var predictionState: String?
-    var predictionLoadSeconds: Double?
-    var predictionLastMs: Double?
-    var predictionFootprintMB: Double?
-    /// Temporary (2026-11-25), to find where the model's answer is lost on the phone: answers
-    /// that arrived for the current word boundary, answers that arrived for one the text had
-    /// left, strip passes shown, and strip passes that had the model's answer for their text.
-    var predictionAnswers = 0
-    var predictionStale = 0
-    var stripPasses = 0
-    var stripPassesWithPrediction = 0
-    /// Temporary with them: the memory left before the extension's limit, in megabytes. The
-    /// model is released under `SmartPredictions.releaseBelowMB`.
-    var predictionFreeMB: Double?
-}
-
 /// The typing side of the keyboard: it owns `TypingEngine`, applies what the engine decides to
 /// the host field, and keeps the strip's suggestions.
 ///
@@ -131,8 +92,6 @@ final class TypingController {
     @ObservationIgnored private var textRefreshScheduled = false
     /// The host reported a change, so the field's identity and traits are read again too.
     @ObservationIgnored private var fieldCheckPending = false
-    @ObservationIgnored private var counters = TypingStats()
-    @ObservationIgnored private var offKeyAtReset = 0
 
     // Autocorrect (Milestone 5). The logic lives in `MurmurTyping`; this is the state it needs.
     /// The decoder, the policy and the owner's words. Nil until the word model has loaded.
@@ -154,8 +113,6 @@ final class TypingController {
     @ObservationIgnored private var lettersLayout: LettersLayout?
     /// The next-letter bias, built off the typing path and cached per prefix.
     @ObservationIgnored private var biasCache = NextLetterBiasCache()
-    /// Diagnostics only: the staged two-key test, armed from Setup.
-    @ObservationIgnored private var stageTest = TypingStageTest()
     /// The strip is computed here, off the main thread; see `refreshSuggestions`.
     @ObservationIgnored private let suggestionQueue = DispatchQueue(
         label: "ai.pivotstudio.murmur.suggestions", qos: .userInitiated)
@@ -326,9 +283,6 @@ final class TypingController {
     /// The keyboard came up: read the field, start on the right page, and reset what belongs to
     /// the last field (a pending space, the double-space clock).
     func keyboardAppeared() {
-        TypingDiagnostics.startSession()
-        counters = TypingStats()
-        offKeyAtReset = engine.offKeyLifts
         if !modelLoaded {
             modelLoaded = true
             do {
@@ -352,26 +306,8 @@ final class TypingController {
         flushState()
     }
 
-    /// The counters since the keyboard last appeared; the engine owns the off-key count.
-    var stats: TypingStats {
-        var snapshot = counters
-        snapshot.offKey = engine.offKeyLifts - offKeyAtReset
-        snapshot.predictionState = smart.state.rawValue
-        // The process's total, so a controller made by a screenshot does not report none.
-        snapshot.predictionAnswers = smart.answers
-        snapshot.predictionLoadSeconds = smart.loadSeconds
-        snapshot.predictionLastMs = smart.lastPredictionMs
-        snapshot.predictionFootprintMB = smart.footprintMB
-        snapshot.predictionFreeMB = SmartPredictions.availableMB
-        return snapshot
-    }
-
-    /// The keyboard went away: log what the keys did, so a device run reads it from the log as
-    /// well as from Setup.
+    /// The keyboard went away: drop what belongs to the last field's typing.
     func keyboardDisappeared() {
-        let snapshot = stats
-        Self.log.info(
-            "typing: \(snapshot.touchDowns) touch-downs, \(snapshot.typed) typed, \(snapshot.cancelled) cancelled, \(snapshot.offKey) off-key, slowest handle \(snapshot.slowestHandleMs, format: .fixed(precision: 1)) ms, delivery \(snapshot.maxDeliveryMs, format: .fixed(precision: 1)) ms, autocorrect \(snapshot.slowestAutocorrectMs, format: .fixed(precision: 1)) ms")
         undo = nil
         tracker.reset()
         cancelLiveSwipe()
@@ -501,87 +437,17 @@ final class TypingController {
 
     // MARK: - Events
 
-    /// One finger event, from the plane. Counts it, and times it from entry to its effects
-    /// applied; the delivery delay is how long the event waited, by the touch's own timestamp
-    /// (`systemUptime`, as `ProcessInfo` reads it), before the keyboard got to it.
+    /// One finger event, from the plane: the engine decides, `apply` carries it out.
     func handle(_ event: TouchEvent) {
-        let entered = ContinuousClock.now
-        let uptime = ProcessInfo.processInfo.systemUptime
-        switch event {
-        case .began(_, _, let time):
-            counters.touchDowns += 1
-            noteDelivery(uptime - time)
-        case .moved(_, _, let time), .ended(_, _, let time):
-            noteDelivery(uptime - time)
-        case .cancelled:
-            counters.cancelled += 1
-        case .tick:
-            break
-        }
-        let stage = stageTest.stage(for: event, at: uptime)
-        if stageTest.justFinished {
-            // Tell the owner the test is over; from here the keyboard types as usual.
-            proxy()?.insertText("\n[test done]\n")
-        }
         // Whether a touch may swipe is decided as the finger lands, from the setting as it stands
-        // now, never in the staged test (its cut-down paths know nothing of swipes).
+        // now.
         if case .began = event {
             recheckAutoShift()
-            engine.swipeEnabled = stage == nil && swipeAllowed
+            engine.swipeEnabled = swipeAllowed
             plane?.swipeTrailWidth = swipeTrailWidth
         }
-        let effects = engine.handle(event, bias: stage == nil ? biasForTouch() : [:])
-        if !effects.isEmpty {
-            if let stage, stage != .full { applyReduced(effects, stage: stage) } else { apply(effects) }
-        }
-        let elapsed = (ContinuousClock.now - entered).components
-        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-        counters.slowestHandleMs = max(counters.slowestHandleMs, milliseconds)
-        // Diagnostics: how late each touch-down and lift reached the keyboard and how long the
-        // keyboard then took, so "typing feels heavy" can be read off the log as numbers.
-        if TypingDiagnostics.isOn {
-            switch event {
-            case .began(_, _, let time):
-                TypingDiagnostics.log("timing", [
-                    "phase": "down", "late": (uptime - time) * 1000, "ms": milliseconds])
-            case .ended(_, _, let time):
-                TypingDiagnostics.log("timing", [
-                    "phase": "up", "late": (uptime - time) * 1000, "ms": milliseconds])
-            default:
-                break
-            }
-        }
-    }
-
-    /// The stage test's cut-down paths: only the parts of a key press the stage allows, with no
-    /// text rules, autocorrect or strip refresh, so a stage's lost taps can be laid at the door
-    /// of what it added.
-    private func applyReduced(_ effects: [TypingEffect], stage: TypingStageTest.Stage) {
-        for effect in effects {
-            switch effect {
-            case .insert(let text, _):
-                if stage.inserts { proxy()?.insertText(text) }
-            case .deleteBackward(let count):
-                if stage.inserts { for _ in 0..<count { proxy()?.deleteBackward() } }
-            case .showPopup(let kind, let alternates, let selected):
-                if stage.popups { showPopup(kind, alternates: alternates, selected: selected) }
-            case .hidePopup:
-                plane?.hidePopup()
-            case .feedback:
-                if stage.feedback { KeyFeedback.press() }
-            case .setPage, .setShift:
-                stateIsDirty = true
-            case .trackpad(let active):
-                plane?.setTrackpad(active)
-            case .deleteWordBackward, .moveCursor, .showEmoji, .globe, .swipeUpdate, .swipeEnded:
-                break
-            }
-        }
-        flushState()
-    }
-
-    private func noteDelivery(_ seconds: TimeInterval) {
-        counters.maxDeliveryMs = max(counters.maxDeliveryMs, seconds * 1000)
+        let effects = engine.handle(event, bias: biasForTouch())
+        if !effects.isEmpty { apply(effects) }
     }
 
     /// Applies the engine's effects in order. Typing effects go through the text rules; the rest
@@ -592,20 +458,14 @@ final class TypingController {
         for effect in effects {
             switch effect {
             case .insert(let text, let tap):
-                TypingDiagnostics.log("insert", ["text": text])
                 typeInsert(text, tap: tap)
-                counters.typed += 1
                 textChanged = true
             case .deleteBackward(let count):
                 // The one delete that follows a replacement keeps its offer (and shows it);
                 // anything else ends it. The taps of the word lose the letters deleted.
-                TypingDiagnostics.log("delete", ["count": count])
                 // A delete after a swipe takes one character, like any other delete: the owner
                 // asked for that over deleting the whole word (2026-11-25). It ends the offer.
-                if let offer = swipeOffer {
-                    swipeOffer = nil
-                    TypingDiagnostics.logSwipeSample(["e": "swipe-backspace", "word": offer.word])
-                }
+                swipeOffer = nil
                 undo = undo?.afterDelete(count: count)
                 tracker.dropLast(count)
                 deleteBackward(count)
@@ -807,10 +667,8 @@ final class TypingController {
         // A word cut in two by the cursor is not the word the taps describe.
         if proxy.documentContextAfterInput?.first?.isLetter == true { return before }
         refreshLexicon()
-        let started = ContinuousClock.now
         let result = autocorrector?.evaluate(
             textBefore: String(before.suffix(Self.contextLimit)), tracker: tracker, field: traits)
-        noteAutocorrectTime(since: started)
         guard let result, let replacement = result.replacement else { return before }
 
         var typed = smartApostrophes(replacement.text)
@@ -819,7 +677,6 @@ final class TypingController {
         if !autoCapitals, result.word.text == result.word.text.lowercased(), let first = typed.first, first.isUppercase {
             typed = first.lowercased() + typed.dropFirst()
         }
-        TypingDiagnostics.log("replace", ["from": result.word.text, "to": typed])
         for _ in 0..<result.word.text.count { proxy.deleteBackward() }
         proxy.insertText(typed)
         undo = UndoOffer(original: result.word.text, replacement: typed, terminator: terminator)
@@ -838,7 +695,6 @@ final class TypingController {
         KeyFeedback.press()
         let before = proxy.documentContextBeforeInput ?? ""
         if offer.isConsistent(with: before) {
-            TypingDiagnostics.log("undo", ["from": offer.replacement, "to": offer.original])
             for _ in 0..<offer.restoreDeleteCount { proxy.deleteBackward() }
             proxy.insertText(offer.original)
             autocorrector?.recordUndo(offer)
@@ -850,12 +706,6 @@ final class TypingController {
         lastSpaceTime = nil
         textChangedByKeys()
         flushState()
-    }
-
-    private func noteAutocorrectTime(since started: ContinuousClock.Instant) {
-        let elapsed = (ContinuousClock.now - started).components
-        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-        counters.slowestAutocorrectMs = max(counters.slowestAutocorrectMs, milliseconds)
     }
 
     /// Rebuilds the owner's lexicon when the Murmur dictionary changed (its revision moved) or
@@ -907,10 +757,8 @@ final class TypingController {
         for effect in effects {
             switch effect {
             case .deleteBackward(let count):
-                TypingDiagnostics.log("rule", ["delete": count])
                 for _ in 0..<count { proxy()?.deleteBackward() }
             case .insert(let text, _):
-                TypingDiagnostics.log("rule", ["text": text])
                 proxy()?.insertText(text)
             case .setShift(let state):
                 engine.setShift(state)
@@ -1099,7 +947,6 @@ final class TypingController {
         guard autoShifted, engine.shift == .on, let proxy = proxy() else { return }
         let before = proxy.documentContextBeforeInput ?? ""
         guard !TextRules.autoShift(before: before, autocapitalization: traits.autocapitalization) else { return }
-        TypingDiagnostics.log("autoshift", ["to": "off", "why": "stale at touch-down", "before": before.count])
         engine.setShift(.off)
         autoShifted = false
         stateIsDirty = true
@@ -1113,9 +960,6 @@ final class TypingController {
             break
         case .off:
             if wants {
-                TypingDiagnostics.log("autoshift", [
-                    "to": "on", "before": before.count, "endsInNewline": before.last?.isNewline ?? false,
-                ])
                 engine.setShift(.on)
                 autoShifted = true
                 stateIsDirty = true
@@ -1191,9 +1035,7 @@ final class TypingController {
         let capitalisesStarts = autoCapitals
         suggestionQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard latest.withLock({ $0 }) == generation else { return }
-            let started = ContinuousClock.now
             let answer = prediction.withLock { $0 }
-            let answered = answer != nil && answer?.boundary == SuggestionEngine.boundary(before: tail)
             var next = SuggestionEngine.suggestions(
                 before: tail, model: model, prediction: answer, capitalisesStarts: capitalisesStarts)
             // Mid-word, a confident correction takes the centre cell, the typed word stays on
@@ -1207,10 +1049,7 @@ final class TypingController {
             let result = next
             Task { @MainActor [weak self] in
                 guard let self, self.suggestionGeneration.withLock({ $0 }) == generation else { return }
-                self.noteAutocorrectTime(since: started)
                 self.stripShownGeneration = generation
-                self.counters.stripPasses += 1
-                if answered { self.counters.stripPassesWithPrediction += 1 }
                 if result != self.suggestions { self.suggestions = result }
             }
         }
@@ -1249,11 +1088,7 @@ final class TypingController {
     /// kept for the strip's passes, and if the strip already shows this text without it, the pass
     /// is run again at once: the same generation, so a newer refresh still wins.
     private func predictionArrived(_ answer: WordPrediction) {
-        guard answer.boundary == requestedBoundary else {
-            counters.predictionStale += 1
-            return
-        }
-        counters.predictionAnswers += 1
+        guard answer.boundary == requestedBoundary else { return }
         prediction.withLock { $0 = answer }
         let generation = suggestionGeneration.withLock { $0 }
         guard stripShownGeneration == generation, let model, let text = stripText else { return }
@@ -1280,7 +1115,6 @@ final class TypingController {
             perform(fix)
         }
         let edit = SuggestionEngine.edit(applying: suggestion, before: before)
-        TypingDiagnostics.log("suggest", ["delete": edit.deleteCount, "text": edit.insert])
         for _ in 0..<edit.deleteCount { proxy.deleteBackward() }
         let text = traits.smartQuotes ? edit.insert.replacingOccurrences(of: "'", with: "’") : edit.insert
         proxy.insertText(text)
@@ -1400,18 +1234,11 @@ final class TypingController {
         let tail = String(before.suffix(Self.contextLimit))
         let previousWord = swipesJoin ? nil : SwipeInsertion.previousWord(before: tail)
         let previous = previousWord.flatMap { model.id(of: $0) }
-        swipeSamplePrevious = previousWord
 
-        let started = ContinuousClock.now
         let candidates = decoder.decode(
             path: path, times: times, previous: previous, lexicon: autocorrector?.lexicon ?? .empty,
             limit: 1 + SwipeOffer.alternativeLimit)
-        let elapsed = (ContinuousClock.now - started).components
-        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-        guard !candidates.isEmpty else {
-            logSwipe(readings: [], milliseconds: milliseconds, path: path)
-            return false
-        }
+        guard !candidates.isEmpty else { return false }
 
         let needsSpace = !swipesJoin && SwipeInsertion.needsLeadingSpace(before: before)
         if needsSpace, swipeOffer == nil, !WordAtCursor.trailingWord(of: before).isEmpty {
@@ -1440,20 +1267,15 @@ final class TypingController {
                 smartApostrophes(entry.display), shift: shift, sentenceCapital: capital, capitalisesI: autoCapitals)
             if !readings.contains(name) { readings.insert(name, at: 1) }
         }
-        TypingDiagnostics.log("swipe-case", [
-            "shift": String(describing: shift), "sentenceStart": capital, "before": before.count,
-        ])
         proxy.insertText((needsSpace ? " " : "") + readings[0])
         swipeOffer = SwipeOffer(readings: readings)
         undo = nil
         pending.disarm()
         lastSpaceTime = nil
-        counters.typed += 1
         if engine.spendShiftAfterSwipe() {
             autoShifted = false
             stateIsDirty = true
         }
-        logSwipe(readings: readings, milliseconds: milliseconds, path: path)
         return true
     }
 
@@ -1468,8 +1290,6 @@ final class TypingController {
             flushState()
             return
         }
-        TypingDiagnostics.log("swipe-alt", ["from": offer.word, "to": next.word])
-        TypingDiagnostics.logSwipeSample(["e": "swipe-alt"].merging(["from": offer.word, "to": next.word]) { a, _ in a })
         for _ in 0..<offer.word.count { proxy.deleteBackward() }
         proxy.insertText(next.word)
         swipeOffer = next
@@ -1479,23 +1299,5 @@ final class TypingController {
         lastSpaceTime = nil
         textChangedByKeys()
         flushState()
-    }
-
-    /// Diagnostics: one line per swipe with what was typed, the other readings, the decode time
-    /// and the path (points to 0.1 pt), so real swipes can later tune the decoder.
-    /// The word before the last swipe, for the swipe sample's context.
-    @ObservationIgnored private var swipeSamplePrevious: String?
-
-    private func logSwipe(readings: [String], milliseconds: Double, path: [CGPoint]) {
-        guard TypingDiagnostics.isOn else { return }
-        func tenth(_ value: CGFloat) -> Double { (Double(value) * 10).rounded() / 10 }
-        let fields: [String: Any] = [
-            "word": readings.first ?? "", "alts": Array(readings.dropFirst()),
-            "ms": (milliseconds * 100).rounded() / 100,
-            "path": path.map { [tenth($0.x), tenth($0.y)] },
-            "previous": swipeSamplePrevious ?? "",
-        ]
-        TypingDiagnostics.log("swipe", fields)
-        TypingDiagnostics.logSwipeSample(fields)
     }
 }

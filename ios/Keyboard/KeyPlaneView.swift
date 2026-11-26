@@ -367,34 +367,6 @@ final class KeyPlaneView: UIView {
         touches.sorted { ($0.timestamp, $0.location(in: self).x) < ($1.timestamp, $1.location(in: self).x) }
     }
 
-    /// Diagnostics only: UIKit hit-tests the plane for every touch-down before it delivers the
-    /// touch, so a logged hit with no `began` after it is a touch lost on the way in. UIKit can
-    /// ask more than once per touch, so repeats for one event and point are skipped.
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let view = super.hitTest(point, with: event)
-        if TypingDiagnostics.isOn, let event, event.type == .touches, view === self {
-            let key = (event.timestamp, Int(point.x), Int(point.y))
-            if lastLoggedHit.map({ $0 != key }) ?? true {
-                lastLoggedHit = key
-                TypingDiagnostics.log("hit", [
-                    "t": event.timestamp, "x": Double(point.x), "y": Double(point.y + state.stripHeight),
-                ])
-            }
-        }
-        return view
-    }
-
-    private var lastLoggedHit: (TimeInterval, Int, Int)?
-
-    private func logTouch(_ phase: String, id: Int, touch: UITouch, point: CGPoint, event: UIEvent?) {
-        guard TypingDiagnostics.isOn else { return }
-        let key = HitTester.key(at: point, frames: state.frames, bias: [:]).map { String(describing: $0.kind) } ?? "none"
-        TypingDiagnostics.log(phase, [
-            "t": touch.timestamp, "id": id, "x": Double(point.x), "y": Double(point.y), "key": key,
-            "n": event?.allTouches?.count ?? 1,
-        ])
-    }
-
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in ordered(touches) {
             let id = nextTouchID
@@ -403,11 +375,9 @@ final class KeyPlaneView: UIView {
             // A touch taken from the strip (`point(inside:with:)`) lands on the top row's edge.
             var point = enginePoint(touch)
             if point.y < state.stripHeight {
-                TypingDiagnostics.log("reach", ["x": Double(point.x), "y": Double(point.y)])
                 point.y = state.stripHeight
             }
             lastTouchDown = touch.timestamp
-            logTouch("began", id: id, touch: touch, point: point, event: event)
             // A key that types a word (".com") darkens like a function key: it gets no pop-up.
             if let frame = HitTester.key(at: point, frames: state.frames, bias: [:]),
                 (frame.kind.characterValue?.count ?? 0) != 1
@@ -431,7 +401,6 @@ final class KeyPlaneView: UIView {
         for touch in ordered(touches) {
             guard let id = touchIDs.removeValue(forKey: ObjectIdentifier(touch)) else { continue }
             pressed[id] = nil
-            logTouch("ended", id: id, touch: touch, point: enginePoint(touch), event: event)
             onTouch?(.ended(id: id, point: enginePoint(touch), time: touch.timestamp))
         }
         applyHighlight()
@@ -442,7 +411,6 @@ final class KeyPlaneView: UIView {
         for touch in touches {
             guard let id = touchIDs.removeValue(forKey: ObjectIdentifier(touch)) else { continue }
             pressed[id] = nil
-            logTouch("cancelled", id: id, touch: touch, point: enginePoint(touch), event: event)
             onTouch?(.cancelled(id: id))
         }
         applyHighlight()

@@ -351,8 +351,6 @@ public enum DS {
         /// 2026-11-25 did not change how many taps a fast sentence lost, so the redraw is not what
         /// loses them; 120 ms keeps the strip feeling live.
         public static let suggestionQuietSeconds: Double = 0.12
-        /// Typing diagnostics: a main-thread frame gap longer than this is logged as a stall.
-        public static let stallThresholdSeconds: Double = 0.034
         public static let tickRateMinimum: Float = 80
         public static let tickRateMaximum: Float = 120
         /// Swipe typing: while a finger swipes, the strip's centre cell shows the best reading at

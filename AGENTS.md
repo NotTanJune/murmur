@@ -243,7 +243,10 @@ embeds. The deployment target is iOS 26.0. Version 1 was dictation only (a talk 
 letters). On the `keyboard-v2` branch it is a full keyboard: letters, number and symbol pages, an
 emoji panel, autocorrect, suggestions and swipe typing, with dictation on the **m** in the
 suggestion strip (`plans/001-keyboard-v2.md`). Sections below that describe the talk key are
-version 1's and partly superseded. S1-mini never runs on the phone, so the rule pass and Apple
+version 1's and partly superseded. **The iPhone app is the owner's own**, installed from this
+Mac with `make ios-install`: there is no TestFlight or App Store build to prepare for
+(2026-11-26), so the Xcode Cloud notes below describe set-up that is not in use, and the
+language model can stay a local file outside git. S1-mini never runs on the phone, so the rule pass and Apple
 Intelligence are its cleanup engines, and the phone defaults to Bark Clean where the Mac
 defaults to Apple.
 
@@ -302,14 +305,10 @@ system's size and ours differ, and that log is expected. Separately, `KeyboardVi
 height it is given instead of a fixed frame, and `EmojiPanel` keeps the title and bar at their
 sizes and gives the grid the rest, dropping rows so none is under `DS.Keyboard.emojiMinCellHeight`
 (34 pt), down to `emojiMinRows` (3): a 168 pt keyboard shows three rows, not a clipped panel.
-The grid's vertical offset is pinned to 0 in `scrollViewDidScroll`. As evidence, the controller
-reports the requested height and the height the keyboard actually got (the smaller of the
-view's and its window's) on each layout while the panel asks for more than the key page;
-`KeyboardStatus` stores the last pair (its fields are still named `emojiPanelRequestedHeight`
-and `emojiPanelShownHeight`), the log says `keyboard height: N pt requested, M pt shown`, and
-Setup's keyboard card shows "Keyboard height: N requested, M pt shown". The key page, and so
-every panel, is now 257 pt in portrait (the device reported 239 and 243 shown for the earlier sizes). Whether the required constraint resizes the keyboard on
-a device is unverified until the two numbers match.
+The grid's vertical offset is pinned to 0 in `scrollViewDidScroll`. The key page, and so
+every panel, is 257 pt in portrait, and the owner's phone reported 257 requested and 257 shown
+on 2026-11-26, so the required constraint does resize the keyboard there. (The report that
+showed it went with the diagnostics.)
 
 **Capture runs in WebKit, and Apple may close the path.** A keyboard extension cannot record:
 it lacks the entitlement, so `AVAudioEngine` and audio queues fail inside it. A `WKWebView` in
@@ -349,9 +348,8 @@ Several details are load-bearing:
   permissions message. A silence after the fallback fails as before and puts the mode back to
   the last one that worked. The permissions message therefore takes about 4.5 s when a started
   page stays silent and about 6 s when the page never posts `started`. The first audio of an
-  open stores the mode in the shared defaults (`keyboardCaptureMode`) and
-  `KeyboardStatus.captureMode` carries it to the Setup tab ("Capture: record-only" or
-  "Capture: play-and-record"). Every process starts in `recordOnly` even when `playAndRecord`
+  open stores the mode in the shared defaults (`keyboardCaptureMode`); the owner's phone
+  reported `recordOnly` on 2026-11-26. Every process starts in `recordOnly` even when `playAndRecord`
   is stored, so one transient silence cannot pin the fallback for good; the result of that
   open decides the mode for the rest of the process, at the cost of up to about 1.5 s on
   the first open of a process on a phone where record-only never works. The log line `web
@@ -398,8 +396,9 @@ points** (`MurmurPhoneApp.init` and `KeyboardViewController.init(nibName:bundle:
 repeat call is a no-op in `PhoneEnvironment`. Unsigned builds and a missing entitlement fall
 back to the process's own Application Support, so the app and keyboard then see different
 folders; the Setup tab reports `PhoneEnvironment.isShared`. Besides the Mac's files, the shared
-root holds `bark-loading` (the crash marker) and `keyboard-status.json` (`KeyboardStatus`,
-which the keyboard writes at each appearance and Bark state change and the Setup tab reads).
+root holds `bark-loading` (the crash marker) and `keyboard-status.json` (`KeyboardStatus`:
+Bark's state, the language model's state, Full Access and when it was written), which the
+keyboard writes at each appearance and at each change of either state and the Setup tab reads.
 Without Full Access the keyboard has no shared container, so its status never reaches the app:
 Setup shows "Not reported yet" with a hint to turn on Allow Full Access, and the "Full Access
 off" branch is defensive.
@@ -559,12 +558,8 @@ Idle, "Murmur" has a caption under it only while something is not ready: "Starti
 microphone…" while `warming`, "Loading Bark · Apple until ready", "Bark not downloaded · using
 Apple" and the stopped and failed equivalents. Nothing shows when all is ready.
 
-**Start latency is measured.** `Hold.pressedAt` is a monotonic instant at touch-down; the first
-samples the hold receives set `startLatencyMs` (0 when the pre-roll supplied them). It is logged
-(`start latency N ms`, category `speech`) and written to `KeyboardStatus.lastStartLatencyMs`, an
-optional so old files decode, and the Setup tab shows "Last start: N ms" in the keyboard row.
-No device number has been recorded yet: the cold path before this change, and the warm path
-after it, are unmeasured until the user runs it.
+**Start latency is not measured any more.** The first-audio timing, its log line and its Setup
+line went with the diagnostics on 2026-11-26. No device number was ever recorded for it.
 
 **Holds.** Touch-down starts recording at once. A quick tap locks recording on and the next tap
 ends it; a long touch is a hold and ends on release (`HoldGesture`). A hold ends by itself at
@@ -621,19 +616,15 @@ fast. Suspected causes, all changed: SwiftUI's gesture handling on the hosting v
 character touch types nothing), a lift that hit no key typing nothing (it now types the touch's
 last key), and per-key work on the main thread (shift and suggestions are one pass per run-loop
 turn, `scheduleTextRefresh`, and the strip is published only when it changed). Which one was the
-cause is unmeasured. The evidence for the next device run is `KeyboardStatus.typing*`, reset at
-each appearance and written on the 10 s cadence and at disappear: Setup shows "Typing: N taps ·
-N cancelled · N off-key · slowest N ms · delivery N ms" (touch-downs, touches iOS cancelled,
-lifts that fell back to the last key, the longest `handle`, and the largest wait between a
-touch's timestamp and its handling), and the log has the same at disappear.
+cause is unmeasured, and none of them was the main one: see the next paragraph.
 
 **The keyboard is never clear anywhere.** iOS routes a touch to a keyboard extension only where
 the keyboard has drawn something. On a fully clear point the touch goes to the host app's
 `_UIRemoteView` and never enters the keyboard's process: no hit test, no touch, nothing in any
 log of ours. The key plane was clear between its keycap layers, so a fast tap that landed in a
 6 pt gap, on a keycap's edge or in the strip gap above the first row was lost. Measured on
-2026-11-25 with the typing lab's touch spy (the app logging touches in its own windows while a
-lab field is typed in): two Murmur lines lost eight letters, the app saw exactly eight touches
+2026-11-25 with a typing lab in the app (since removed), which logged touches in the app's own
+windows while a lab field was typed in: two Murmur lines lost eight letters, the app saw exactly eight touches
 in `_UIRemoteView`, each at the lost key's place and each in a gap or within a point of a
 keycap's edge. Apple's keyboard and Gboard typed the same sentence 41 for 41, and Murmur with
 the warm microphone and haptics off still lost four, so neither of those is involved. Ruled out
@@ -653,8 +644,6 @@ lost taps fixed, a pangram came out 41 for 41 at 7 keys a second, and in the fre
 it the `e` of "the" landed 0.3 pt above the plane, went to the strip's SwiftUI view and was not
 typed. One sample; the reach and the window are guesses, unverified on a device. A suggestion
 tapped in its lowest 12 pt within 0.35 s of a key types a letter instead, which is the cost.
-The diagnostics log also records what the keyboard changed by itself: `replace` (autocorrect),
-`undo`, `suggest` and `rule` (the text rules).
 
 **Swipe typing.** Added 2026-11-25 (Milestone 6 of `plans/001-keyboard-v2.md`). The decoder is
 `SwipeDecoder` (`Sources/MurmurTyping/Swipe`); the touch rules are in `TypingEngine`, which stays
@@ -700,9 +689,8 @@ address fields and in mail apps' message fields, which turn autocorrection off (
 swipe is how the word is typed, not a correction. In a web or email address field
 (`TypingController.swipesJoin`) swiped words go in with no space before or after and with no
 previous word as context, because an address has none. The trail is a `CAShapeLayer`
-in `KeyPlaneView` over the keys, the last 0.45 s of the path. `TypingDiagnostics` logs `swipe`
-(word, other readings, decode ms, path to 0.1 pt) and `swipe-alt`. **Nothing here
-is verified on a device:** the 0.36 s window and the one-pitch threshold against real thumbs, the
+in `KeyPlaneView` over the keys, the last 0.45 s of the path. The owner uses it daily and
+calls typing with it good (2026-11-26). **Not measured on a device:** the 0.36 s window and the one-pitch threshold against real thumbs, the
 trail's width and look, whether the lift-time decode is quick enough on a phone, how often the
 live preview flickers, the decoder's accuracy on real swipes (its noise model is synthetic), and
 whether the owed-space rules feel right in Notes and Messages.
@@ -723,11 +711,11 @@ paid for `scanBudget` 8,000 words read (4,000 before): held-out first choice 85.
 three 94.2% to 95.2%, the neat benchmark 92.65% to 92.60% (one word in 2,000), debug 99th
 percentile about 9 to 11 ms. The cost: an exact swipe of a rare word can lose to a common
 look-alike ("swipe" reads "store" first). The noise model is a guess, so these numbers say
-nothing certain about a thumb; `swipe-samples.jsonl` from the owner's phone is what to tune on
-next.
+nothing certain about a thumb; real swipes from the owner's phone are what to tune on next
+(the recorder that collected them is in git history, see "The diagnostics are gone").
 
 **The first real swipes: 8 of 10, and what they showed.** On 2026-11-25 the owner swiped "this
-is a test of swipe typing on the new keyboard" with diagnostics on; the ten paths are
+is a test of swipe typing on the new keyboard" with the swipe recorder on; the ten paths are
 `Tests/MurmurTypingTests/real-swipes.json`, and `RealSwipeReplayTests` replays them (the Mac
 gives the phone's first reading on all ten). "swipe" came out "serious" and was not offered, and
 "typing" came out "tripping" with "typing" fourth. An agent diagnosed both and changed nothing
@@ -807,8 +795,7 @@ points worse. How it works:
   weights (size and SHA-256 checked), converts them and writes the compiled model and the
   tokenizer's files into `ios/TypingLM`, a git-ignored folder the keyboard target copies whole.
   A checkout without it builds and runs on the pair model (`SmartPredictions` reports
-  `missing`). **Xcode Cloud builds therefore have no model** until it is hosted or converted in
-  CI, which is the owner's decision and still open.
+  `missing`), and so would an Xcode Cloud build, which the owner does not use.
 
 Known limits: it never offers a contraction as a next word ("I'm" is two tokens), it has GPT-2's
 web taste ("please enable javascript to view the comments"), and everything on the phone is
@@ -831,26 +818,25 @@ later keyboard report `stoppedLastTime`. Fixed by one model per process and two 
 the lock; the owner's next test still showed the pair model's words. Second cause, read off
 `keyboard-status.json` after that test: the model was `ready`, but its load had taken 104.75 s
 and Bark's 105.83 s in the same process, the first keyboard after an install. Alone on the same
-phone the model loads in 0.64 s (`PredictionSelfTest` in the app). The model's first load in a
+phone the model loads in 0.64 s (a self-test in the app, since removed). The model's first load in a
 container, which compiles it, started at the first key while Bark was compiling for the Neural
 Engine, and waited for the whole of it; the owner's test fell inside those two minutes each
 time, because each build was tried right after its install. That the load waits behind Bark's
 compile is read off those times, not traced inside Core ML. The fix is the order: the model
 loads at the keyboard's appearance and Bark waits for it. Verified from the Mac on the phone
-the same day, with no typing: launched with `--typing-lab-focus` right after an install, the
-keyboard reported the model `ready` 3 s later, loaded and answered in 0.80 s, with Bark still
-`loading` (it then compiled in 83.7 s); and `--typing-lm-bark-race` in the app showed a model
+the same day, with no typing: with the app launched right after an install so that a text
+field took focus, the keyboard reported the model `ready` 3 s later, loaded and answered in 0.80 s, with Bark still
+`loading` (it then compiled in 83.7 s); and a test in the app showed a model
 that loaded first answering 160 times in a row through an 84.1 s Bark compile, median 5.8 ms
 and slowest 12.1 ms. The owner then confirmed it on the phone ("it returns a real sentence
 now"), and the keyboard's record of that session read: loaded and answered in 0.82 s, Bark in
 0.55 s (already compiled), 16 answers, none stale, 20 of 22 strip passes with an answer, 142 MB
 left, no marker armed.
 **When debugging the keyboard, read `keyboard-status.json` off the phone before changing
-code**: two rounds were spent on a theory the file would have ruled out. The counters under Setup's
-Predictions row (answers for the whole process, stale, strip passes with an answer, memory
-left), `PredictionSelfTest` and the lab's `--typing-lab-focus` argument stay for now: they are
-how a keyboard change is checked from the Mac without the owner typing. They go with the typing
-lab, before any TestFlight build.
+code** (`xcrun devicectl device copy from --domain-type appGroupDataContainer
+--domain-identifier group.ai.pivotstudio.murmur`): two rounds were spent on a theory the file
+would have ruled out. It now carries the two states only, which is enough to see whether a
+model loaded.
 
 **Capitals on the keys are a narrowed SF Pro.** The stock keyboard sets its keys in SF Compact,
 which an app cannot ask for and may not bundle. Fitted on 2026-11-25 to letter widths measured
@@ -875,8 +861,7 @@ dictionary terms still set their own spelling, and a name the model lacks types 
 Separately, `TypingController.recheckAutoShift` checks an automatic shift against the text at
 each touch-down and takes it back if the text no longer starts a sentence: auto-shift is
 otherwise worked out only after a text change or a host call, and a host call with an empty
-context reads as a sentence start. That second cause is suspected, not observed; the
-diagnostics log now records `autoshift` and `swipe-case` to settle it.
+context reads as a sentence start. That second cause is suspected, not observed.
 
 **The swipe trail is a soft ribbon that relaxes behind the finger, and its width is a
 setting.** Three versions, each from the owner's words (2026-11-25). An even 8 pt stroke of the
@@ -903,13 +888,20 @@ swipe typing is on. The look was checked on the Mac, not on the phone:
 keyboard for three of the owner's real swipes. How it moves, and what four shape layers redrawn
 at 120 Hz cost on a phone, are unverified.
 
-**Swipe samples outlive a session.** The touch log is cleared at every appearance, so two swipe
-sessions were lost before they were read. While Typing diagnostics is on, each swiped word (its
-readings, the previous word and the path), the first delete after one (`swipe-backspace`, a hint
-that the word was wrong) and each alternative chosen is
-also appended to `swipe-samples.jsonl` in the App Group (`TypingDiagnostics.logSwipeSample`),
-up to 2 MB, across appearances and expiries, until the switch is turned off. A screenshot hides
-any third-party keyboard until it is saved; Gboard does the same, so that is iOS and not a bug.
+**The diagnostics are gone** (2026-11-26). With typing, predictions and swiping working, the
+owner asked for every test tool out of the app and the keyboard. Removed: the touch log and the
+swipe recorder (`TypingDiagnostics`, `typing-diagnostics.jsonl`, `swipe-samples.jsonl`), the
+two-key staged test, the window and touch probes, the stall monitor, the memory sampler, the
+typing and prediction counters, the timing fields of `KeyboardStatus`, the typing lab and the
+model self-test in the app, and `Tools/typing_live_log.py`. The keyboard's behaviour with them
+switched off was kept line for line: the staged test's normal path is the only path now,
+`relaxTouchDelays` still changes the same recognizers, and the plane's strip reach, empty
+`draw(_:)` and touch backing are untouched. All of it is in git at `3b9ab87` if a problem needs
+it again; the swipe recorder is the piece most likely to come back, for tuning the decoder on
+real swipes. The status file is no longer rewritten every 10 s, only when a state changes, so
+Setup allows a Bark load 300 s before it reads a silent `loading` as a death. A screenshot
+hides any third-party keyboard until it is saved; Gboard does the same, so that is iOS and not
+a bug.
 
 **Auto-capitalisation is a setting, off by default.** The owner types in lowercase and asked for
 it off (2026-11-25). `Settings.autoCapitalise` (key `autoCapitalise`, default false; Settings tab,
@@ -947,9 +939,8 @@ key, and now does so only for marks, the space, and when a suggestion's or a swi
 waiting. (2) The plane's display link asks for 80 to 120 Hz (it asked for at most 60), and the
 keyboard's `Info.plist` sets `CADisableMinimumFrameDurationOnPhone`. (3)
 `viewDidLayoutSubviews` works the geometry out again only when the width, the orientation, the
-globe key or the top trim changed, and reports the height only when it changed. The diagnostics
-log has a `timing` line per touch-down and lift (`late`: milliseconds from the touch to its
-handling; `ms`: the handling itself) to compare against the numbers above. **The key tap is the light
+globe key or the top trim changed. The owner then called typing perfect (2026-11-26); the
+delays were not measured again. **The key tap is the light
 impact at 0.7** (`DS.Keyboard.keyTapStrength`, in `KeyFeedback`): the owner tried light, soft and
 rigid at strengths from 0.1 to 1 through two temporary settings and chose it by feel on
 2026-11-25, because "heavy" was partly the tap at full strength. The settings are gone. Do not
@@ -1013,15 +1004,10 @@ that has not finished in `warmupTimeoutSeconds` (15 s) logs a fault, disarms the
 reports `failed`, and that result stays cached so a second warm-up never overlaps the first.
 `barkLoadSeconds` includes `manager()`'s own pass.
 
-**Timing fields in `KeyboardStatus`.** All optional, so old files decode: `barkLoadSeconds`,
-`barkWarmupSeconds`, and for the last delivered hold `lastReleaseEngineMs` (release to the
-engine's final text), `lastReleaseCleanupMs` (the finisher and dictionary) and `lastReleaseEngine`.
-The keyboard writes them where it writes the rest, carries the last hold's values over from the
-file in a new process, and logs them (category `speech`). The Setup tab's Model card shows
-"Bark loaded in N s · warm-up N s" and "Last release: N ms speech + N ms cleanup (Bark, Apple, or
-Apple standing in for Bark)". A new process keeps the last known load numbers until its own load
-completes. They
-exist to say, on the next device run, where Bark's 0.65 to 0.70 s release went.
+**Bark's timings are in the log only.** The keyboard logs "Bark loaded in N s, warm-up N s" and
+"release: N ms speech + N ms cleanup" (category `speech`); the status file and the Setup tab no
+longer carry them. On the owner's phone Bark's first load after an install took 84 to 106 s
+(the Neural Engine compile) and 0.55 s after that (2026-11-26).
 
 **Building.** Output goes under `~/Library/Caches/MurmurBuild/ios`, never the repo.
 

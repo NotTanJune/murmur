@@ -25,8 +25,6 @@ final class WebMicrophone: NSObject {
     var onSamples: (([Float], Float) -> Void)?
     /// Capture stopped for a reason other than `close()`, or never started.
     var onEnded: ((String) -> Void)?
-    /// The first audio of an open arrived in a mode, which is now the remembered one.
-    var onModeConfirmed: ((CaptureMode) -> Void)?
 
     /// How the page captures. The microphone's orange indicator cannot be avoided, but a page
     /// whose audio graph feeds the context's output also makes WebKit report it as playing
@@ -269,14 +267,13 @@ final class WebMicrophone: NSObject {
     }
 
     /// The first audio of this open arrived in `mode`: remember it, here and for the next
-    /// process, and tell the keyboard so the Setup tab can show it.
+    /// process.
     private func confirm() {
         hasAudio = true
         Self.log.info("capture mode \(self.mode.rawValue, privacy: .public) delivered audio")
         guard confirmedMode != mode else { return }
         confirmedMode = mode
         MurmurEnvironment.defaults.set(mode.rawValue, forKey: Self.modeKey)
-        onModeConfirmed?(mode)
     }
 
     // The page sends samples at the context's own rate; Swift resamples (`PCMConverter`), so

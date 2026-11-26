@@ -2,59 +2,30 @@ import MurmurDesign
 import MurmurKit
 import SwiftUI
 
-/// The fourth tab: cleanup, appearance, and the way into the model, training and licence pages.
+/// The fourth tab. One card per thing the owner sets: how the keys type, how dictation hears
+/// and cleans up, what the keyboard plays back, and how the app looks. Each card holds its own
+/// way deeper (the model's page from Dictation), so nothing is set in two places.
 struct SettingsView: View {
     @State private var settings = Settings.shared
 
     var body: some View {
         NavigationStack {
             PhonePage(title: "Settings") {
-                let unavailable = FoundationModelFormatter.unavailableReason
-
-                Card(title: "Cleanup") {
-                    ToggleRow(
-                        title: "Clean up what you say",
-                        note: settings.cleanupEnabled
-                            ? "Removes fillers and fixes spacing and punctuation before the text is typed."
-                            : "Types the transcript as the engine heard it.",
-                        isOn: $settings.cleanupEnabled
-                    )
-                    ToggleRow(
-                        title: "Apple Intelligence",
-                        note: unavailable ?? "Rewrites the text with Apple's on-device model. Off uses the basic rules.",
-                        isOn: Binding(
-                            get: { settings.cleanupEngine == .appleIntelligence },
-                            set: { settings.cleanupEngine = $0 ? .appleIntelligence : .rules }
-                        ),
-                        isDisabled: !settings.cleanupEnabled || unavailable != nil
-                    )
-                }
-
-                Card(title: "Microphone") {
-                    ToggleRow(
-                        title: "Keep microphone ready",
-                        note: "Dictation starts the moment you press. The microphone stays ready for 30 seconds after each dictation, and iOS shows its microphone indicator for that time. The next press after that opens it again, a moment slower. Audio is kept in memory for a fraction of a second and only saved when you dictate. With Bluetooth headphones, iOS may switch them to their call microphone while it is open.",
-                        isOn: $settings.alwaysOpenMic
-                    )
-                }
-
-                Card {
-                    ToggleRow(
-                        title: "Sounds",
-                        note: "A tone when dictation starts and when the text is typed.",
-                        isOn: $settings.soundEnabled
-                    )
-                    ToggleRow(
-                        title: "Haptics",
-                        note: "A double tap when dictation starts, and a buzz then a double tap when the text is typed.",
-                        isOn: $settings.hapticsEnabled
-                    )
+                Card(title: "Typing") {
                     ToggleRow(title: "Swipe typing", isOn: $settings.swipeTyping)
-                    ToggleRow(title: "Auto-capitalisation", isOn: $settings.autoCapitalise)
+                    if settings.swipeTyping {
+                        ChoiceRow(
+                            title: "Swipe trail",
+                            options: SwipeTrailChoice.allCases,
+                            selection: $settings.swipeTrail,
+                            name: \.displayName
+                        )
+                    }
                     ToggleRow(title: "Smart predictions", isOn: $settings.smartPredictions)
+                    ToggleRow(title: "Auto-capitalisation", isOn: $settings.autoCapitalise)
                 }
                 // Turning it on is also how to try again after the model stopped the keyboard:
-                // the keyboard never clears its own marker.
+                // the keyboard never clears its own markers.
                 .onChange(of: settings.smartPredictions) { _, isOn in
                     if isOn {
                         CrashMarker.typingModel.disarm()
@@ -62,14 +33,35 @@ struct SettingsView: View {
                     }
                 }
 
-                if settings.swipeTyping {
-                    Card(title: "Swipe trail") {
-                        ChoiceKeys(
-                            options: SwipeTrailChoice.allCases,
-                            selection: $settings.swipeTrail,
-                            title: \.displayName
-                        )
+                Card(title: "Dictation") {
+                    let unavailable = FoundationModelFormatter.unavailableReason
+                    LinkRow(title: "Model", detail: settings.engine == .barkClean ? "Bark Clean" : "Apple") {
+                        ModelView()
                     }
+                    ToggleRow(
+                        title: "Clean up what you say",
+                        note: "Removes fillers and fixes punctuation.",
+                        isOn: $settings.cleanupEnabled
+                    )
+                    ToggleRow(
+                        title: "Apple Intelligence",
+                        note: unavailable ?? "Rewrites the text with Apple's on-device model.",
+                        isOn: Binding(
+                            get: { settings.cleanupEngine == .appleIntelligence },
+                            set: { settings.cleanupEngine = $0 ? .appleIntelligence : .rules }
+                        ),
+                        isDisabled: !settings.cleanupEnabled || unavailable != nil
+                    )
+                    ToggleRow(
+                        title: "Keep microphone ready",
+                        note: "Dictation starts at once. The microphone stays open for 30 seconds after each dictation, and Bluetooth headphones may switch to their call microphone meanwhile.",
+                        isOn: $settings.alwaysOpenMic
+                    )
+                }
+
+                Card(title: "Feedback") {
+                    ToggleRow(title: "Sounds", isOn: $settings.soundEnabled)
+                    ToggleRow(title: "Haptics", isOn: $settings.hapticsEnabled)
                 }
 
                 Card(title: "Appearance") {
@@ -80,10 +72,9 @@ struct SettingsView: View {
                     )
                 }
 
-                VStack(spacing: DS.Space.snug) {
-                    SettingsLink(title: "Model", detail: settings.engine == .barkClean ? "Bark Clean" : "Apple") { ModelView() }
-                    SettingsLink(title: "Training", detail: nil) { TrainingView() }
-                    SettingsLink(title: "Licences", detail: nil) { LicencesView() }
+                Card {
+                    LinkRow(title: "Training") { TrainingView() }
+                    LinkRow(title: "Licences") { LicencesView() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -91,10 +82,28 @@ struct SettingsView: View {
     }
 }
 
-/// A card that pushes a page.
-private struct SettingsLink<Destination: View>: View {
+/// A choice with a handful of options, as a titled row inside a card: the title in the rows'
+/// own type, the chips under it.
+private struct ChoiceRow<Option: Hashable>: View {
     let title: String
-    let detail: String?
+    let options: [Option]
+    @Binding var selection: Option
+    let name: (Option) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.snug) {
+            Text(title)
+                .font(DS.Font.bodyEmphasis)
+                .foregroundStyle(DS.Color.ink)
+            ChoiceKeys(options: options, selection: $selection, title: name)
+        }
+    }
+}
+
+/// A row inside a card that pushes a page: the title, what is chosen there, and a chevron.
+private struct LinkRow<Destination: View>: View {
+    let title: String
+    var detail: String?
     @ViewBuilder var destination: Destination
 
     var body: some View {
@@ -115,9 +124,7 @@ private struct SettingsLink<Destination: View>: View {
                     .font(.system(size: DS.Icon.small, weight: .semibold))
                     .foregroundStyle(DS.Color.inkTertiary)
             }
-            .padding(DS.Space.roomy)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardSurface()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

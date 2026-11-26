@@ -11,7 +11,6 @@ struct MurmurPhoneApp: App {
     init() {
         PhoneEnvironment.configure()
         RunLog.prepare()
-        PredictionSelfTest.runIfAsked()
         _settings = State(initialValue: Settings.shared)
     }
 

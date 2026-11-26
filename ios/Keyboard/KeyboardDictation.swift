@@ -108,30 +108,6 @@ final class KeyboardDictation {
     /// Audio from just before a press, kept only while no hold listens. It never leaves memory
     /// except as the start of the next hold's audio, and nothing older than the window is kept.
     @ObservationIgnored private var preRoll = PreRollBuffer(maxSeconds: KeyboardDictation.preRollSeconds)
-    /// Touch-down to the first samples the last hold received, in ms (0 when the pre-roll
-    /// supplied them). Reported to the Setup tab through `KeyboardStatus`.
-    @ObservationIgnored private var lastStartLatencyMs: Int?
-    /// This process's Bark load and the warm-up decode after it, in seconds, and the last
-    /// delivered hold's release timings. Reported through `KeyboardStatus` and the log.
-    @ObservationIgnored private var barkLoadSeconds: Double?
-    @ObservationIgnored private var barkWarmupSeconds: Double?
-    @ObservationIgnored private var lastReleaseEngineMs: Int?
-    @ObservationIgnored private var lastReleaseCleanupMs: Int?
-    @ObservationIgnored private var lastReleaseEngine: String?
-    /// The keyboard's requested height and the height its view actually got, in points, as last
-    /// reported by the view controller (named for the emoji panel, which once asked for more). Evidence for whether the
-    /// system honoured the height constraint; written to `KeyboardStatus`.
-    @ObservationIgnored private var emojiPanelRequestedHeight: Int?
-    @ObservationIgnored private var emojiPanelShownHeight: Int?
-    /// The process's physical footprint at the last sample and the largest sample seen, in MB.
-    /// Sampled at each appearance, at each hold's end and every `memorySampleSeconds` while
-    /// visible; reported through `KeyboardStatus`.
-    @ObservationIgnored private var footprintMB: Double?
-    @ObservationIgnored private var peakFootprintMB: Double?
-    @ObservationIgnored private var memoryTimer: Timer?
-    /// The key plane's counters since the keyboard appeared, asked for at each status write. Set
-    /// by the view controller; nil until it is.
-    @ObservationIgnored var typingReport: (() -> TypingStats)?
     /// When the microphone was last reopened automatically, newest last, for the loop breaker.
     @ObservationIgnored private var reopenTimes: [ContinuousClock.Instant] = []
     @ObservationIgnored private var reopenTask: Task<Void, Never>?
@@ -147,8 +123,6 @@ final class KeyboardDictation {
     /// How long a release's finish or an abandon's teardown may run before the hold is dropped.
     /// A stuck engine would otherwise leave the talk key busy for the life of the process.
     static let teardownTimeoutSeconds: TimeInterval = 20
-    /// How often the footprint is sampled while the keyboard is visible.
-    static let memorySampleSeconds: TimeInterval = 10
     /// How much audio before a press a hold starts from, as the Mac's `CaptureRouter` does.
     static let preRollSeconds: Double = 0.3
     /// A warm microphone that stopped after delivering audio is reopened after this long, at
@@ -170,12 +144,9 @@ final class KeyboardDictation {
         let engine: any TranscriptionEngine
         let engineName: String
         let usesBark: Bool
-        /// The short name the Setup tab shows beside the release timings.
+        /// The short name the log shows beside the release timings.
         var releaseLabel = ""
         let pressed = Date()
-        /// Monotonic touch-down instant, taken before any settings or engine work, for the
-        /// start latency; `pressed` is a wall-clock date for the run.
-        let pressedAt: ContinuousClock.Instant
         /// The hold has received its first samples, from the pre-roll or live.
         var heardAudio = false
         /// The start tone has played (or sounds are off) for this hold.
@@ -212,8 +183,7 @@ final class KeyboardDictation {
         /// the Mac.
         var pipeline: CleanupPipeline?
 
-        init(engine: any TranscriptionEngine, engineName: String, usesBark: Bool, pressedAt: ContinuousClock.Instant) {
-            self.pressedAt = pressedAt
+        init(engine: any TranscriptionEngine, engineName: String, usesBark: Bool) {
             self.engine = engine
             self.engineName = engineName
             self.usesBark = usesBark
@@ -237,7 +207,6 @@ final class KeyboardDictation {
         microphone.onStarted = { [weak self] rate in self?.captureStarted(rate: rate) }
         microphone.onSamples = { [weak self] samples, level in self?.received(samples, level: level) }
         microphone.onEnded = { [weak self] reason in self?.captureEnded(reason) }
-        microphone.onModeConfirmed = { [weak self] _ in self?.writeStatus() }
     }
 
     // MARK: Keyboard lifecycle
@@ -256,21 +225,6 @@ final class KeyboardDictation {
         // dictionary file the app seeds later.
         DictionaryStore.shared.reload()
         noteMarkerClearedByApp()
-        // A new process starts with no measurement; keep the last one the Setup tab shows.
-        if lastStartLatencyMs == nil || lastReleaseEngine == nil || barkLoadSeconds == nil {
-            let previous = KeyboardStatus.read()
-            if lastStartLatencyMs == nil { lastStartLatencyMs = previous?.lastStartLatencyMs }
-            // The last known load stays on the Setup tab until this process's own load completes.
-            if barkLoadSeconds == nil {
-                barkLoadSeconds = previous?.barkLoadSeconds
-                barkWarmupSeconds = previous?.barkWarmupSeconds
-            }
-            if lastReleaseEngine == nil {
-                lastReleaseEngineMs = previous?.lastReleaseEngineMs
-                lastReleaseCleanupMs = previous?.lastReleaseCleanupMs
-                lastReleaseEngine = previous?.lastReleaseEngine
-            }
-        }
         self.hasFullAccess = hasFullAccess
         isVisible = true
         // A failure message belongs to the last time the keyboard was up.
@@ -278,19 +232,12 @@ final class KeyboardDictation {
         // The setting was just re-read above. On, the microphone opens now, ahead of the model
         // work below, so a press finds it already delivering audio; off, it opens at the press.
         keepsMicrophoneWarm = Settings.shared.alwaysOpenMic
-        // Diagnostics only: which of the keyboard's extras ran under a typing test.
-        TypingDiagnostics.log("appear", [
-            "t": ProcessInfo.processInfo.systemUptime,
-            "warmMic": keepsMicrophoneWarm, "haptics": Settings.shared.hapticsEnabled,
-        ])
         if keepsMicrophoneWarm {
             openMicrophone()
             scheduleIdleClose()
         }
         Task { await AppleSpeechEngine.prewarm() }
         loadBarkIfAllowed()
-        recordMemory()
-        startMemorySampling()
         writeStatus()
     }
 
@@ -299,8 +246,6 @@ final class KeyboardDictation {
     /// so an abandoned hold leaves no text and no run.
     func keyboardDisappeared() {
         isVisible = false
-        memoryTimer?.invalidate()
-        memoryTimer = nil
         reopenTask?.cancel()
         idleCloseTask?.cancel()
         idleCloseTask = nil
@@ -356,9 +301,7 @@ final class KeyboardDictation {
                 // Every controller in this process waits for the same load and warm-up, so none
                 // marks Bark ready, or runs a real hold on the shared models, while the
                 // warm-up decode is still using them.
-                let preparation = try await Self.barkPreparationTask().value
-                barkLoadSeconds = preparation.loadSeconds
-                barkWarmupSeconds = preparation.warmupSeconds
+                try await Self.barkPreparationTask().value
                 barkReady = true
                 reportLoad(.ready)
                 // The keyboard went away mid-load and left the marker armed. The load has now
@@ -372,13 +315,6 @@ final class KeyboardDictation {
                 reportLoad(.failed)
             }
         }
-    }
-
-    /// What one process's Bark preparation took: the model load and, when it ran, the warm-up
-    /// decode after it.
-    private struct BarkPreparation: Sendable {
-        let loadSeconds: Double
-        let warmupSeconds: Double?
     }
 
     private enum BarkPreparationError: LocalizedError {
@@ -403,11 +339,11 @@ final class KeyboardDictation {
     /// sign that Bark is ready; it waits on this task instead. Only this task arms the crash
     /// marker. A failed load clears it so a later controller may try again; a warm-up timeout
     /// stays cached, so a second warm-up never overlaps the one still running.
-    @ObservationIgnored private static var barkPreparation: Task<BarkPreparation, Error>?
+    @ObservationIgnored private static var barkPreparation: Task<Void, Error>?
 
-    private static func barkPreparationTask() -> Task<BarkPreparation, Error> {
+    private static func barkPreparationTask() -> Task<Void, Error> {
         if let barkPreparation { return barkPreparation }
-        let task = Task { () throws -> BarkPreparation in
+        let task = Task { () throws in
             await SmartPredictions.shared.waitForLoad(timeout: predictionsFirstSeconds)
             marker.arm()
             armedByThisProcess = true
@@ -439,7 +375,6 @@ final class KeyboardDictation {
             }
             let warmupText = warmupSeconds.map { String(format: "%.2f s", $0) } ?? "skipped"
             log.info("Bark loaded in \(loadSeconds, format: .fixed(precision: 2))s, warm-up \(warmupText, privacy: .public)")
-            return BarkPreparation(loadSeconds: loadSeconds, warmupSeconds: warmupSeconds)
         }
         barkPreparation = task
         return task
@@ -557,76 +492,15 @@ final class KeyboardDictation {
     }
 
     private func writeStatus() {
-        let typing = typingReport?()
         KeyboardStatus(
             barkState: barkState.rawValue, hasFullAccess: hasFullAccess, lastSeen: Date(),
-            lastStartLatencyMs: lastStartLatencyMs,
-            barkLoadSeconds: barkLoadSeconds, barkWarmupSeconds: barkWarmupSeconds,
-            lastReleaseEngineMs: lastReleaseEngineMs, lastReleaseCleanupMs: lastReleaseCleanupMs,
-            lastReleaseEngine: lastReleaseEngine,
-            captureMode: microphone.confirmedMode?.rawValue,
-            emojiPanelRequestedHeight: emojiPanelRequestedHeight,
-            emojiPanelShownHeight: emojiPanelShownHeight,
-            footprintMB: footprintMB, peakFootprintMB: peakFootprintMB,
-            typingTouchDowns: typing?.touchDowns, typingTyped: typing?.typed,
-            typingCancelled: typing?.cancelled, typingOffKey: typing?.offKey,
-            typingSlowestHandleMs: typing?.slowestHandleMs,
-            typingMaxDeliveryMs: typing?.maxDeliveryMs,
-            typingSlowestAutocorrectMs: typing?.slowestAutocorrectMs,
-            predictionState: typing?.predictionState,
-            predictionLoadSeconds: typing?.predictionLoadSeconds,
-            predictionLastMs: typing?.predictionLastMs,
-            predictionFootprintMB: typing?.predictionFootprintMB,
-            predictionAnswers: typing?.predictionAnswers, predictionStale: typing?.predictionStale,
-            stripPasses: typing?.stripPasses, stripPassesWithPrediction: typing?.stripPassesWithPrediction,
-            predictionFreeMB: typing?.predictionFreeMB
+            predictionState: SmartPredictions.shared.state.rawValue
         ).write()
     }
 
-    /// Takes one footprint sample and keeps the peak. It does not write the status file; callers
-    /// that are not about to write it use `sampleMemory`.
-    private func recordMemory() {
-        let current = MemoryProbe.footprintMB()
-        guard current > 0 else { return }
-        footprintMB = current
-        peakFootprintMB = max(peakFootprintMB ?? 0, current)
-    }
-
-    private func sampleMemory() {
-        recordMemory()
-        writeStatus()
-    }
-
-    /// The typing side's report changed in a way the Setup tab should see now and not at the
-    /// next memory sample: the language model started loading, became ready or stopped.
+    /// The typing side's report changed in a way the Setup tab should see now: the language
+    /// model started loading, became ready or stopped.
     func typingStatusChanged() {
-        writeStatus()
-    }
-
-    /// Samples every `memorySampleSeconds` while the keyboard is visible. A timer in the common
-    /// run-loop modes, because the default mode stops while a `ScrollView` tracks a finger (the
-    /// emoji and history panels), which is when the footprint matters most.
-    private func startMemorySampling() {
-        memoryTimer?.invalidate()
-        let timer = Timer(timeInterval: Self.memorySampleSeconds, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sampleMemory() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        memoryTimer = timer
-    }
-
-    /// The view controller laid the keyboard out: `requested` is the height constraint's
-    /// constant (the key page's height, which the emoji and history panels share), `shown` the
-    /// height the keyboard actually has. Logged and written to the status file only when the
-    /// pair changes, so the Setup tab shows the last one. (The field names keep "emojiPanel"
-    /// because the status file already carries them.)
-    func noteEmojiPanelHeight(requested: CGFloat, shown: CGFloat) {
-        let requested = Int(requested.rounded())
-        let shown = Int(shown.rounded())
-        guard requested != emojiPanelRequestedHeight || shown != emojiPanelShownHeight else { return }
-        emojiPanelRequestedHeight = requested
-        emojiPanelShownHeight = shown
-        Self.log.info("keyboard height: \(requested) pt requested, \(shown) pt shown")
         writeStatus()
     }
 
@@ -634,9 +508,8 @@ final class KeyboardDictation {
 
     /// Touch down starts recording at once, so a hold loses nothing to the tap check.
     func touchDown() {
-        let instant = ContinuousClock.now
         switch gesture.touchDown(at: Date(), busy: hold != nil || isTearingDown) {
-        case .start: pressDown(at: instant)
+        case .start: pressDown()
         case .lock, .finish, .none: break
         }
     }
@@ -662,7 +535,7 @@ final class KeyboardDictation {
 
     // MARK: Hold
 
-    private func pressDown(at pressedAt: ContinuousClock.Instant) {
+    private func pressDown() {
         guard hold == nil, !isTearingDown else { return }
         // The app may have changed a setting since the keyboard appeared (Training, engine).
         let settings = Settings.shared
@@ -681,7 +554,7 @@ final class KeyboardDictation {
             engine = AppleSpeechEngine(dictionaryPhrases: { await MainActor.run { DictionaryStore.shared.biasPhrases } })
             name = Self.appleName(settings: settings, barkState: barkState)
         }
-        let hold = Hold(engine: engine, engineName: name, usesBark: choice == .bark, pressedAt: pressedAt)
+        let hold = Hold(engine: engine, engineName: name, usesBark: choice == .bark)
         hold.releaseLabel = choice == .bark ? "Bark" : (settings.engine == .barkClean ? "Apple (standing in for Bark)" : "Apple")
         // As the Mac: the pipeline only with Apple Intelligence on, and only in the General
         // profile (Email and Notes place greetings from the whole text).
@@ -815,21 +688,11 @@ final class KeyboardDictation {
         if !hold.heardAudio { noteHeard(hold, fromPreRoll: false) }
     }
 
-    /// The hold has its first samples. The key turns from waiting to listening, and the time
-    /// from touch-down is recorded (0 when the pre-roll supplied them).
+    /// The hold has its first samples. The key turns from waiting to listening.
     private func noteHeard(_ hold: Hold, fromPreRoll: Bool) {
         hold.heardAudio = true
         if !fromPreRoll { playStartTone(hold) }
         heardAudio = true
-        let elapsed = ContinuousClock.now - hold.pressedAt
-        let milliseconds = fromPreRoll ? 0 : Int((elapsed / .milliseconds(1)).rounded())
-        let source = fromPreRoll ? "pre-roll" : "live"
-        Self.log.info("start latency \(milliseconds, privacy: .public) ms (\(source, privacy: .public))")
-        // Written after the press has been handled, and only when the number changed: with a
-        // warm microphone it is 0 every time.
-        guard lastStartLatencyMs != milliseconds else { return }
-        lastStartLatencyMs = milliseconds
-        Task { writeStatus() }
     }
 
     /// The start tone and the start tap, once per hold, each when its setting is on.
@@ -1049,7 +912,7 @@ final class KeyboardDictation {
                 run.rawText = raw
                 run.source = .phone
                 RunLog.record(run, audio: hold.recorded)
-                noteReleaseTimings(
+                logReleaseTimings(
                     engine: hold.releaseLabel,
                     engineSeconds: engineDoneAt.timeIntervalSince(released),
                     cleanupSeconds: readyAt.timeIntervalSince(engineDoneAt))
@@ -1069,20 +932,14 @@ final class KeyboardDictation {
         hold.recorded.removeAll(keepingCapacity: false)
         self.hold = nil
         if case .failed = state {} else { state = .idle }
-        sampleMemory()
         scheduleIdleClose()
     }
 
     /// Where a delivered hold's release time went: the engine, then cleanup and the dictionary.
-    /// Written to the status file for the Setup tab and to the log.
-    private func noteReleaseTimings(engine: String, engineSeconds: Double, cleanupSeconds: Double) {
+    private func logReleaseTimings(engine: String, engineSeconds: Double, cleanupSeconds: Double) {
         let engineMs = Int((engineSeconds * 1000).rounded())
         let cleanupMs = Int((cleanupSeconds * 1000).rounded())
-        lastReleaseEngine = engine
-        lastReleaseEngineMs = engineMs
-        lastReleaseCleanupMs = cleanupMs
         Self.log.info("release: \(engineMs) ms speech (\(engine, privacy: .public)) + \(cleanupMs) ms cleanup")
-        writeStatus()
     }
 
     private func fail(_ hold: Hold, _ kind: Failure, _ message: String) {
