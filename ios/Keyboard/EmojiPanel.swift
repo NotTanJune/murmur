@@ -4,14 +4,15 @@ import SwiftUI
 import UIKit
 
 /// Murmur's own emoji picker. A keyboard extension has no way to show Apple's, so this follows
-/// iOS 26's instead: a "Describe an Emoji" search field at the top (a tap opens search mode,
-/// `EmojiSearchPanel`), a grid that scrolls sideways, a category bar at the bottom, and a long
-/// press for skin tones. There is no section title: the selected category in the bar names the
-/// section. It lays out in the height it is given, never a taller one: the field and the bar keep
-/// their sizes and the grid takes the rest, with fewer rows (never under `emojiMinRows`) where
-/// five would be under `emojiMinCellHeight` each (the field costs the fifth row of a 253 pt
-/// panel, as it does in iOS 26). Each section starts on a fresh column, so scrolling to a
-/// category lands on its first emoji. The grid is UIKit (`EmojiGrid`); this view holds the
+/// iOS 26's instead (measured against the owner's screenshot of Apple's on 2026-11-27): a "Search
+/// Emoji" field at the top (a tap opens search mode, `EmojiSearchPanel`), a grid that scrolls
+/// sideways, a category bar at the bottom, and a long press for skin tones. There is no section
+/// title: the selected category in the bar names the section. It lays out in the height it is
+/// given, never a taller one: the field and the bar keep their sizes and the grid takes the rest,
+/// with fewer rows (never under `emojiMinRows`) where five would be under `emojiMinCellHeight`
+/// each. The vertical rhythm is Apple's measured from the keyboard's bottom edge
+/// (`emojiPanelTopInset` and the tokens after it). Each section starts on a fresh column, so
+/// scrolling to a category lands on its first emoji. The grid is UIKit (`EmojiGrid`); this view holds the
 /// field, the category bar and the tone row, and hears from the grid only when the section in view
 /// changes.
 struct EmojiPanel: View {
@@ -42,8 +43,11 @@ struct EmojiPanel: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                VStack(spacing: DS.Keyboard.emojiBarSpacing) {
+                VStack(spacing: 0) {
                     searchField
+                        .padding(.horizontal, DS.Keyboard.emojiFieldSideInset)
+                        .padding(.top, DS.Keyboard.emojiPanelTopInset)
+                        .padding(.bottom, DS.Keyboard.emojiFieldGridGap)
                     EmojiGrid(
                         categories: categories,
                         rows: Self.rows(fitting: geometry.size.height, preferred: preferredRows),
@@ -57,6 +61,8 @@ struct EmojiPanel: View {
                         compact: isCompact
                     )
                     categoryBar
+                        .padding(.top, DS.Keyboard.emojiGridBarGap)
+                        .padding(.bottom, DS.Keyboard.emojiPanelBottomInset)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 if let tonePopup {
@@ -76,11 +82,13 @@ struct EmojiPanel: View {
     }
 
     /// The rows that fit the grid's share of a panel `height` tall, at least
-    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. A 257 pt keyboard
-    /// (245 pt inside its padding) leaves 165 pt for the grid under the 36 pt field: four rows of
-    /// 41 pt. Turned, 202 pt (190 inside) leaves 110 pt: three rows of 37 pt.
+    /// `emojiMinCellHeight` each, between `emojiMinRows` and `preferred`. The 305 pt portrait
+    /// picker leaves 215 pt for the grid: four rows of 54 pt. A 257 pt keyboard (where iOS did not
+    /// apply the extra height) leaves 167 pt, four rows of 42. Turned, 202 pt leaves 112 pt:
+    /// three rows of 37 pt.
     private static func rows(fitting height: CGFloat, preferred: Int) -> Int {
-        let grid = height - DS.Keyboard.emojiSearchFieldHeight - DS.Keyboard.emojiBarHeight - DS.Keyboard.emojiBarSpacing * 2
+        let grid = height - DS.Keyboard.emojiGridTop - DS.Keyboard.emojiGridBarGap - DS.Keyboard.emojiBarHeight
+            - DS.Keyboard.emojiPanelBottomInset
         let fitting = Int((max(grid, 0) / DS.Keyboard.emojiMinCellHeight).rounded(.down))
         return max(DS.Keyboard.emojiMinRows, min(preferred, fitting))
     }
@@ -104,10 +112,10 @@ struct EmojiPanel: View {
     /// it is done by the key plane in search mode, not here.
     private var searchField: some View {
         Button(action: openSearch) {
-            HStack(spacing: DS.Keyboard.emojiSearchFieldSpacing) {
+            HStack(spacing: DS.Keyboard.emojiSearchIconSpacing) {
                 Image(systemName: "magnifyingglass")
                     .font(DS.Keyboard.emojiSearchIconFont)
-                Text("Describe an Emoji")
+                Text("Search Emoji")
                     .font(DS.Keyboard.emojiSearchFieldFont)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -115,12 +123,12 @@ struct EmojiPanel: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, DS.Keyboard.emojiSearchFieldInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Capsule().fill(DS.Keyboard.key))
+            .background(Capsule().fill(DS.Keyboard.emojiFieldFill))
             .contentShape(Capsule())
         }
         .buttonStyle(PlainKeyStyle())
-        .frame(height: DS.Keyboard.emojiSearchFieldHeight)
-        .accessibilityLabel("Describe an Emoji")
+        .frame(height: DS.Keyboard.emojiPanelFieldHeight)
+        .accessibilityLabel("Search Emoji")
         .accessibilityHint("Search emoji by description")
         .accessibilityAddTraits(.isSearchField)
     }
@@ -140,7 +148,7 @@ struct EmojiPanel: View {
         let base = EmojiCatalog.base(ofToned: emoji) ?? emoji
         let forms = EmojiCatalog.tones(for: base)
         guard !forms.isEmpty else { return }
-        let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiSearchFieldHeight + DS.Keyboard.emojiBarSpacing)
+        let panelAnchor = anchor.offsetBy(dx: 0, dy: DS.Keyboard.emojiGridTop)
         KeyFeedback.press()
         toneEntered = false
         toneHover = nil
@@ -240,37 +248,49 @@ struct EmojiPanel: View {
 
     // MARK: Category bar
 
+    /// Apple's bar: ABC near the leading edge, the categories in equal cells with the selected
+    /// one on a circle, every icon in the label colour, and the delete glyph alone at the end.
     private var categoryBar: some View {
         HStack(spacing: 0) {
-            Button("ABC", action: close)
-                .font(DS.Keyboard.barFont)
-                .frame(width: DS.Keyboard.functionKeyWidth)
+            Button(action: close) {
+                Text("ABC")
+                    .font(DS.Keyboard.emojiBarABCFont)
+                    .opacity(DS.Keyboard.emojiBarABCOpacity)
+                    .padding(.leading, DS.Keyboard.emojiBarABCInset)
+                    .frame(width: DS.Keyboard.emojiBarSideWidth, alignment: .leading)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
             ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
                 let selected = index == section
                 Button {
                     section = index
                     grid.scroll(toSection: index)
                 } label: {
-                    Image(systemName: category.symbol)
-                        .font(DS.Keyboard.barIconFont)
-                        .foregroundStyle(selected ? .primary : .secondary)
+                    Self.icon(for: category)
+                        .frame(maxWidth: DS.Keyboard.emojiBarSelectionDiameter, maxHeight: DS.Keyboard.emojiBarSelectionDiameter)
+                        .background(Circle().fill(selected ? DS.Keyboard.emojiSelectionFill : .clear))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius)
-                                .fill(selected ? DS.Keyboard.functionKey : .clear)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: DS.Keyboard.keyRadius))
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(category.title)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
-            // The gap every other row keeps between keys: without it the selected category's
-            // fill met the delete key's edge when the last category (Flags) was selected.
-            DeleteKey(height: DS.Keyboard.emojiBarHeight, action: actions.delete)
-                .padding(.leading, DS.Keyboard.keySpacing)
+            DeleteKey(height: DS.Keyboard.emojiBarHeight, bare: true, action: actions.delete)
         }
         .buttonStyle(PlainKeyStyle())
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary)
         .frame(height: DS.Keyboard.emojiBarHeight)
+    }
+
+    /// Three of Apple's category icons are not SF Symbols, so Murmur draws its own.
+    @ViewBuilder
+    private static func icon(for category: EmojiCatalog.Category) -> some View {
+        switch category.id {
+        case "nature": DogFaceIcon()
+        case "food": AppleFruitIcon()
+        case "travel": CompactCarIcon()
+        default: Image(systemName: category.symbol).font(DS.Keyboard.barIconFont)
+        }
     }
 }

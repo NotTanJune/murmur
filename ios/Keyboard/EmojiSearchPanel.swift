@@ -69,14 +69,14 @@ struct EmojiSearchPanel: View {
     // MARK: Field
 
     private var field: some View {
-        HStack(spacing: DS.Keyboard.emojiSearchFieldSpacing) {
+        HStack(spacing: DS.Keyboard.emojiSearchIconSpacing) {
             Image(systemName: "magnifyingglass")
                 .font(DS.Keyboard.emojiSearchIconFont)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             queryText
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Describe an Emoji")
+                .accessibilityLabel("Search Emoji")
                 .accessibilityValue(model.query.isEmpty ? "Empty" : model.query)
                 .accessibilityAddTraits(.isSearchField)
             if !model.query.isEmpty {
@@ -92,7 +92,7 @@ struct EmojiSearchPanel: View {
         }
         .padding(.horizontal, DS.Keyboard.emojiSearchFieldInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Capsule().fill(DS.Keyboard.key))
+        .background(Capsule().fill(DS.Keyboard.emojiFieldFill))
     }
 
     /// The query with the caret after it, or the placeholder with the caret before it.
@@ -100,7 +100,7 @@ struct EmojiSearchPanel: View {
         HStack(spacing: 0) {
             if model.query.isEmpty {
                 Caret()
-                Text("Describe an Emoji")
+                Text("Search Emoji")
                     .font(DS.Keyboard.emojiSearchFieldFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -280,7 +280,7 @@ struct EmojiGrid: UIViewRepresentable {
             guard let view = collectionView else { return }
             // The grid's coordinates start below the search field in the panel's.
             let location = recognizer.location(in: view)
-            let point = CGPoint(x: location.x, y: location.y + DS.Keyboard.emojiSearchFieldHeight + DS.Keyboard.emojiBarSpacing)
+            let point = CGPoint(x: location.x, y: location.y + DS.Keyboard.emojiGridTop)
             switch recognizer.state {
             case .began:
                 guard let path = view.indexPathForItem(at: location) else { return }

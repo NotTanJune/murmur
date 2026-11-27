@@ -43,7 +43,8 @@ struct KeyboardView: View {
                     },
                     openSearch: { show(.search) }
                 )
-                .padding(DS.Keyboard.padding)
+                // The picker sets its own top and bottom insets (`emojiPanelTopInset`).
+                .padding(.horizontal, DS.Keyboard.padding)
             case .search:
                 searching
             case .history:
@@ -130,6 +131,9 @@ struct KeyFace<Content: View>: View {
 /// Deletes once on touch, then repeats while held.
 struct DeleteKey: View {
     let height: CGFloat
+    /// The emoji bar's form: the glyph alone, with no keycap, near the trailing edge of the space
+    /// it is given, as Apple's picker draws it.
+    var bare = false
     let action: () -> Void
     @State private var repeater: Task<Void, Never>?
     /// Resets itself when the gesture is cancelled, which `onEnded` does not report; the change
@@ -137,10 +141,18 @@ struct DeleteKey: View {
     @GestureState private var touching = false
 
     var body: some View {
-        KeyFace(fill: DS.Keyboard.key) {
-            Image(systemName: repeater == nil ? "delete.left" : "delete.left.fill").font(DS.Keyboard.iconFont)
+        KeyFace(fill: bare ? Color.clear : DS.Keyboard.key) {
+            if bare {
+                Image(systemName: repeater == nil ? "delete.left" : "delete.left.fill")
+                    .font(DS.Keyboard.emojiBarDeleteFont)
+                    .opacity(DS.Keyboard.emojiBarDeleteOpacity)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, DS.Keyboard.emojiBarDeleteInset)
+            } else {
+                Image(systemName: repeater == nil ? "delete.left" : "delete.left.fill").font(DS.Keyboard.iconFont)
+            }
         }
-        .frame(width: DS.Keyboard.functionKeyWidth, height: height)
+        .frame(width: bare ? DS.Keyboard.emojiBarSideWidth : DS.Keyboard.functionKeyWidth, height: height)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .updating($touching) { _, state, _ in state = true }

@@ -404,24 +404,25 @@ public enum DS {
         /// The emoji picker. Apple's shows four rows in portrait (row pitch about 54 pt, measured
         /// 2026-11-26 on an iPhone 15 Pro). In portrait the panel is `emojiExtraHeight` taller than
         /// the key page, as the stock emoji keyboard is, and the grid divides what is left after
-        /// the search field and the category bar: 213 pt, four rows of about 53 pt.
+        /// the search field and the category bar: 215 pt, four rows of about 54 pt.
         public static let emojiRows = 4
         /// How much taller the keyboard is while the emoji grid shows in portrait (the stock emoji
         /// keyboard is about 40 pt taller than its letters keyboard; 48 pt here gives the grid four
-        /// rows of about 53 pt). Search has its own extra height and does not add this one.
+        /// rows of about 54 pt). Search has its own extra height and does not add this one.
         public static let emojiExtraHeight: CGFloat = 48
         /// Where less height arrives than the panel asked for, rows are dropped so none is under
         /// `emojiMinCellHeight`, down to `emojiMinRows`; the title and the category bar keep
         /// their sizes.
         /// 40 so a 40 pt glyph is not clipped by its cell; a 257 pt keyboard (where iOS did not
-        /// apply the extra height) still fits four rows (165 pt for the grid, 165 / 40 = 4).
+        /// apply the extra height) still fits four rows (167 pt for the grid, 167 / 40 = 4).
         public static let emojiMinCellHeight: CGFloat = 40
         public static let emojiMinRows = 3
         /// Columns in view at once, so a cell is the panel's width over this. The stock keyboard
         /// shows 7 (column pitch about 56 pt on 393 pt).
         public static let emojiColumns = 7
-        /// The stock glyphs are about 37 pt wide on screen; a 40 pt font renders about that.
-        public static let emojiGlyphSize: CGFloat = 40
+        /// The stock faces are 35 pt wide on screen (105 px at 3x, measured 2026-11-27 against
+        /// the owner's screenshot of Apple's picker); a 40 pt font drew them 37 pt, so 38.
+        public static let emojiGlyphSize: CGFloat = 38
         /// Landscape rows are about 37 pt, so the glyph is smaller there.
         public static let emojiGlyphSizeCompact: CGFloat = 30
         /// Landscape (compact vertical size class): the key page is 202 pt, which leaves about
@@ -429,19 +430,55 @@ public enum DS {
         /// five would shrink it. The columns widen to match the wider screen.
         public static let emojiRowsCompact = 3
         public static let emojiColumnsCompact = 14
-        public static let emojiBarHeight: CGFloat = 36
+        /// The category bar: as tall as its selection circle, as Apple's is.
+        public static let emojiBarHeight: CGFloat = 30
+        /// The gap between the field and the results in search mode.
         public static let emojiBarSpacing: CGFloat = 4
+        /// The picker's vertical rhythm, from Apple's picker on an iPhone 15 Pro (2026-11-27,
+        /// measured from the keyboard's bottom edge, where the host's top margin cannot reach): the
+        /// bar's centre 20 pt up, the last row's centre 65 pt up, rows on a 54 pt pitch, the field
+        /// 40 pt tall and 8 pt over the grid. The top inset takes what the keyboard's height leaves.
+        public static let emojiPanelTopInset: CGFloat = 4
+        public static let emojiPanelFieldHeight: CGFloat = 40
+        public static let emojiFieldGridGap: CGFloat = 8
+        public static let emojiGridBarGap: CGFloat = 3
+        public static let emojiPanelBottomInset: CGFloat = 5
+        /// Where the grid starts inside the picker, for converting the grid's points to the panel's.
+        public static let emojiGridTop: CGFloat = emojiPanelTopInset + emojiPanelFieldHeight + emojiFieldGridGap
+        /// The field sits 9 pt from the keyboard's edges, 3 pt inside the panel's own padding.
+        public static let emojiFieldSideInset: CGFloat = 3
+        /// The bar's three parts: ABC 13 pt from the keyboard's edge in a 47 pt cell, the
+        /// categories sharing what is between (32 pt each on a 393 pt phone), the delete glyph's
+        /// ink about 8 pt from the trailing edge (the symbol's own bearing adds 3) in a 47 pt cell.
+        public static let emojiBarSideWidth: CGFloat = 47
+        public static let emojiBarABCInset: CGFloat = 7
+        public static let emojiBarDeleteInset: CGFloat = 5
+        /// The selected category's circle.
+        public static let emojiBarSelectionDiameter: CGFloat = 30
+        /// The two category icons Murmur draws itself (`DogFaceIcon`, `AppleFruitIcon`): their
+        /// square and their stroke, matched to the medium-weight symbols beside them.
+        public static let emojiBarDrawnIconSize: CGFloat = 20
+        public static let emojiBarIconStroke: CGFloat = 1.6
+        /// Apple's delete glyph in the bar is a little dimmer than the category icons.
+        public static let emojiBarDeleteOpacity: Double = 0.8
+        public static let emojiBarDeleteFont = SwiftUI.Font.system(size: 20)
+        /// ABC is lighter than the icons: 28 pt of ink and a peak of RGB 224 in Apple's bar.
+        public static let emojiBarABCFont = SwiftUI.Font.system(size: 14.5)
+        public static let emojiBarABCOpacity: Double = 0.88
         /// The small caps label of the history panel's header (the emoji panel's section is shown by
         /// its category bar, and its header is the search field below).
         public static let emojiTitleFont = SwiftUI.Font.system(size: 12, weight: .semibold)
-        /// The "Describe an Emoji" field above the grid, as in iOS 26's picker: a capsule with a
-        /// magnifying glass, `emojiSearchFieldHeight` tall. It takes the place of the section
-        /// title, so a 253 pt panel fits four rows of the grid and not five.
+        /// Search mode's field, as tall as before the picker's own field grew to
+        /// `emojiPanelFieldHeight` (search's height is unmeasured against Apple's).
         public static let emojiSearchFieldHeight: CGFloat = 36
-        public static let emojiSearchFieldInset: CGFloat = 10
+        /// Inside either field: the magnifying glass 12 pt from the capsule's edge and 8 pt before
+        /// the text (Apple's text starts 37 pt in), a 16 pt glyph, 17 pt text.
+        public static let emojiSearchFieldInset: CGFloat = 12
+        public static let emojiSearchIconSpacing: CGFloat = 8
+        /// Between search mode's field and its Cancel button.
         public static let emojiSearchFieldSpacing: CGFloat = 6
         public static let emojiSearchFieldFont = SwiftUI.Font.system(size: 17)
-        public static let emojiSearchIconFont = SwiftUI.Font.system(size: 15, weight: .medium)
+        public static let emojiSearchIconFont = SwiftUI.Font.system(size: 17)
         /// Search mode: the field, then one row of results, above the key plane. The keyboard is
         /// taller by `emojiSearchRegionHeight` less the strip's height while it shows, and the
         /// region is laid out in whatever height arrives: below `emojiSearchRegionHeight` the
@@ -472,7 +509,8 @@ public enum DS {
         /// Type. The keyboard uses the system face so it sits beside Apple's own keyboards.
         public static let iconFont = SwiftUI.Font.system(size: 19)
         public static let barFont = SwiftUI.Font.system(size: 15, weight: .medium)
-        public static let barIconFont = SwiftUI.Font.system(size: 15)
+        /// The emoji bar's category symbols: Apple's are about 7% larger than 15 pt and heavier.
+        public static let barIconFont = SwiftUI.Font.system(size: 16, weight: .medium)
         public static let messageFont = SwiftUI.Font.system(size: 12)
         public static let messageActionFont = SwiftUI.Font.system(size: 13, weight: .semibold)
         /// The readiness line in the strip that says what is not ready yet.
@@ -697,7 +735,17 @@ public enum DS {
         public static let letterKey = SwiftUI.Color(uiColor: UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white
         })
-        /// The emoji bar's selected category and the chosen skin tone.
+        /// The emoji picker's field and its selected category's circle: RGB 64 on dark (Apple's
+        /// picker, 2026-11-27). The light values are the earlier ones, not measured.
+        public static let emojiFieldFill = SwiftUI.Color(uiColor: UIColor {
+            $0.userInterfaceStyle == .dark ? UIColor(white: 64.0 / 255.0, alpha: 1) : .white
+        })
+        public static let emojiSelectionFill = SwiftUI.Color(uiColor: UIColor {
+            $0.userInterfaceStyle == .dark
+                ? UIColor(white: 64.0 / 255.0, alpha: 1)
+                : UIColor(red: 0.67, green: 0.69, blue: 0.74, alpha: 1)
+        })
+        /// The chosen skin tone.
         public static let functionKey = SwiftUI.Color(uiColor: UIColor {
             $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.74, alpha: 1)
         })
