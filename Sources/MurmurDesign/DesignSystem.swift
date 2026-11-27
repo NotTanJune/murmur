@@ -267,49 +267,32 @@ public enum DS {
         /// With Reduce Motion on the trace redraws less often and its braid stops travelling.
         public static let waveformReducedInterval: TimeInterval = 1.0 / 15.0
 
-        // The voice trace (`VoiceTrace`): one smooth liquid body filled as a single vector shape,
-        // newest in the middle, older towards the edges. The keyboard's capsule shares all of it.
-        // Lengths are in points, so the shape is the same on any width.
-        /// Distance between the outline's samples across the width.
+        // The voice trace (`VoiceTrace`): a silk line with four fanned echoes (trace lab style
+        // A7, 2026-11-27). The keyboard's capsule shares all of it.
+        /// Distance between a line's samples across the width.
         public static let traceSampleSpacing: CGFloat = 1
-        /// How much history each side shows, in seconds.
-        public static let traceSeconds: TimeInterval = 1.0
-        /// The strands: long, slow ribbons. Each has its own wavelength (points), travel speed (a
-        /// share of `traceCarrierSpeed`) and start phase, so they cross slowly and never line up
-        /// into a repeating pattern.
-        public static let traceStrandWavelengths: [Double] = [146, 196, 123]
-        public static let traceStrandSpeeds: [Double] = [1.0, 0.7, 1.25]
-        public static let traceStrandPhases: [Double] = [0.0, 0.31, 0.64]
-        /// The carrier's travel (left to right) in cycles a second, for a strand of speed 1.
-        public static let traceCarrierSpeed: Double = 0.2
-        /// Share of the room a full-voice strand swings through (the room is the half height less
-        /// the loud thickness), so the mass never leaves the view.
-        public static let traceReach: Double = 0.9
-        /// How far along the trace the level is blurred before it shapes the mass (a gaussian's
-        /// sigma, points), so a syllable is a rounded bulge and never a spike.
-        public static let traceSmoothLength: Double = 10
-        /// The same for the finished edges, which takes out the crease where two strands cross.
-        public static let traceEdgeSmoothLength: Double = 3
-        /// A very slow swell along the trace (wavelength in points, rate in cycles a second) that
-        /// changes each strand's swing and thickness by up to `traceWritheDepth`.
-        public static let traceWritheLength: Double = 308
-        public static let traceWritheRate: Double = 0.08
-        public static let traceWritheDepth: Double = 0.15
-        /// A strand's half thickness in points in silence (a hairline of twice this) and at full
-        /// voice. Louder is fatter.
-        public static let traceThinHalf: Double = 0.75
-        public static let traceLoudHalf: Double = 7
-        /// The body between the outer strands fills in as the level climbs from the first value to
-        /// the second, so a speaking mass is solid. It reaches at least `traceBodyReach` of the
-        /// swing either side of the strands' mean, so the strands crossing never pinches it.
-        public static let traceBodyFrom: Double = 0.1
-        public static let traceBodyTo: Double = 0.5
-        public static let traceBodyReach: Double = 0.2
-        /// The soft rim: a copy of the shape this many points wider, at this opacity, under it.
-        public static let traceRimWidth: Double = 1.5
-        public static let traceRimOpacity: Double = 0.3
-        /// Share of each side, from the edge in, over which the body closes onto the middle line.
-        public static let traceEdgeTaper: Double = 0.4
+        /// How much history the model is asked for: the loudest level of this last stretch, read
+        /// at this many evenly spaced ages, drives the line.
+        public static let traceLevelWindow: TimeInterval = 0.12
+        public static let traceLevelSamples = 6
+        /// Waves across the width, and how fast they travel (radians a second).
+        public static let traceCycles: Double = 1.6
+        public static let traceSpeed: Double = 2.6
+        /// The main line's peak height at full voice, as a share of the view's height.
+        public static let traceReach: Double = 0.42
+        /// The fan, faintest first and the main line last: each line's lag (0 is the main line),
+        /// opacity and stroke width in points.
+        public static let traceEchoLags: [Double] = [0.48, 0.36, 0.24, 0.12, 0]
+        public static let traceEchoOpacities: [Double] = [0.08, 0.14, 0.24, 0.42, 1]
+        public static let traceEchoWidths: [CGFloat] = [1, 1, 1.1, 1.3, 1.75]
+        /// An echo trails the main line by `lag` times this phase (radians) and is lower by `lag`
+        /// times this share.
+        public static let traceEchoPhase: Double = 6
+        public static let traceEchoFalloff: Double = 0.8
+        /// Share of each side, from the edge in, over which every line closes onto the middle.
+        public static let traceTaper: Double = 0.22
+        /// The idle hairline's width before the hold has heard audio.
+        public static let traceIdleWidth: CGFloat = 1.75
         public static let fadeDuration: TimeInterval = 0.16
     }
 

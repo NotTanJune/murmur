@@ -959,33 +959,13 @@ of the height at most, and the steady level reaches 0.8. Each frame goes into a 
 age with the frames interpolated: now in the middle, older values pushed out to both edges, so a
 pause shows the last words leaving. Time since the newest frame also pushes values outward, and the
 middle holds the newest frame for 0.1 s and then dies away, so a stalled feed holds no level.
-The view draws one smooth vector body and no dots. `VoiceTrace.outline` samples the trace every
-`DS.HUD.traceSampleSpacing` (1 pt) across the view's width and returns a top and a bottom edge.
-The level is blurred along the trace with a gaussian (`traceSmoothLength`, 10 pt; the edges
-`traceEdgeSmoothLength`, 3 pt; `VoiceTrace.smoothed`, mirrored at the middle), so a syllable is a
-rounded bulge and never a spike. Three strands run along it as long, slow sine ribbons with
-wavelengths of 146, 196 and 123 pt, speeds of 1, 0.7 and 1.25 times `traceCarrierSpeed` (0.2
-cycles a second) and their own start phases, so they cross slowly and never repeat; a very slow
-swell (308 pt, 0.08 cycles a second) changes their swing and thickness by 15% at most. At a
-sample a strand's swing is the blurred level at that point's age (1 s each side) times
-`traceReach` (0.9) of half the height, and its half thickness runs from `traceThinHalf` (0.75
-pt) in silence to `traceLoudHalf` (7 pt) at full voice, so louder is fatter and the spring's
-overshoot swells a syllable. An envelope plus a body band, which fades in as the level climbs
-from `traceBodyFrom` (0.1) to `traceBodyTo` (0.5) and spans the strands by at least
-`traceBodyReach` (0.2) of the swing, keeps the crossings from opening a hole. Everything thins
-onto the middle line over the outer `traceEdgeTaper` (40%) of each side. The edges go into one
-`Path` through quadratic curves between midpoints, so no facets show, and the `Canvas` fills it
-once with the non-zero rule: overlaps never brighten and the edge is crisp. A copy
-`traceRimWidth` (1.5 pt) wider is filled first at `traceRimOpacity` (0.3), which is the soft
-rim; there is no blur and no gradient anywhere. Silence is a 1.5 pt hairline along the middle.
-The owner found the 11-row dot grid low resolution on 2026-11-26 and chose a smooth vector body
-over it. The pure helpers are `nonisolated`: they sit in a `View`, which is main-actor, and the
-tests call them off it (a closure inside one trapped at run time before that). `outline` is a
+The view draws a silk line with fanned echoes (style A7 of a trace lab of six directions and then ten silk variations, chosen by the owner on 2026-11-27 after calling the vector body an intestine). `VoiceTrace.strands` returns five lines: a 1.75 pt main line and four echoes, faintest first (`DS.HUD.traceEchoLags`, `traceEchoOpacities`, `traceEchoWidths`). Each is a sine of `traceCycles` (1.6) waves across the width travelling at `traceSpeed` (2.6 rad/s); an echo trails by its lag times `traceEchoPhase` and is lower by its lag times `traceEchoFalloff`, so they fan out like threads. The height is `traceReach` (0.42) of the view at full voice, driven by the loudest level of the last `traceLevelWindow` (0.12 s), so a short gap between syllables does not flatten it, and every line closes onto the middle over the outer `traceTaper` (22%) of each side. Lines are quadratic curves through sample midpoints, stroked with round caps; no blur and no gradient. Silence is the lines lying flat. The pure helpers are `nonisolated`: they sit in a `View`, which is main-actor, and the
+tests call them off it (a closure inside one trapped at run time before that). `strands` is a
 pure function, so it is tested (`VoiceTraceBodyTests`); the view reads the model under a
 `GeometryReader` and hands the `Canvas` plain arrays, so nothing mutates state in the draw (see
 above). The timeline runs at 60 Hz while active and is paused otherwise. Before the phone's hold
-has audio (`heardAudio` false) it is the hairline in `DS.Keyboard.waveformFlat`. Reduce Motion
-stops the strands' travel and the swell (the body still follows the level) and redraws at 15 Hz.
+has audio (`heardAudio` false) it is one `traceIdleWidth` hairline in `DS.Keyboard.waveformFlat`. Reduce Motion
+stops the lines' travel (their height still follows the level) and redraws at 15 Hz.
 The model lives in a `VoiceTraceSource`, fed from where the audio arrives
 (`KeyboardDictation.received` and the pre-roll, `DictationController`'s capture callback). The
 pre-roll goes in so the room is calibrated before the press. The Mac's `AudioCapture` reports

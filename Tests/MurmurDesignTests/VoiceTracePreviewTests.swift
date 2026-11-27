@@ -39,10 +39,13 @@ struct VoiceTracePreviewTests {
                 feed(-75, seconds: word.gap)
             }
             if extraSilence > 0 { feed(-75, seconds: extraSilence) }
+            // A negative pause means "partway into the next word".
+            if extraSilence < 0, count < words.count { feed(words[count].loud, seconds: 0.2) }
             return Moment(label: label, time: time, source: source)
         }
         let moments = [
             moment("word 2", after: 2, extraSilence: 0),
+            moment("inside word 4", after: 3, extraSilence: -1),
             moment("word 4", after: 4, extraSilence: 0),
             moment("mid word 6", after: 5, extraSilence: 0.25),
             moment("pause", after: 6, extraSilence: 0.6),
@@ -60,9 +63,8 @@ struct VoiceTracePreviewTests {
 
             var body: some View {
                 Canvas { context, size in
-                    let count = Int((size.width / 2 / DS.HUD.traceSampleSpacing).rounded(.up)) + 1
                     let amplitudes = moment.map {
-                        $0.source.amplitudes(count: count, seconds: DS.HUD.traceSeconds, at: $0.time)
+                        $0.source.amplitudes(count: DS.HUD.traceLevelSamples, seconds: DS.HUD.traceLevelWindow, at: $0.time)
                     } ?? []
                     VoiceTrace.draw(
                         amplitudes: amplitudes,
