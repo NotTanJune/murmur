@@ -365,8 +365,7 @@ final class TypingController {
         refreshLexicon(force: true)
         readTraits()
         resetFieldState()
-        engine.setPage(
-            traits.keyboardKind == .number || traits.keyboardKind == .decimal ? .numberPad : .letters)
+        engine.setPage(Self.startPage(for: traits.keyboardKind))
         engine.setShift(.off)
         stateIsDirty = true
         refreshText()
@@ -507,12 +506,24 @@ final class TypingController {
             returnKeyTitle: Self.title(for: returnKey))
         let prominent = Self.isProminent(returnKey)
         if next != traits || prominent != returnIsProminent {
+            let kindChanged = next.keyboardKind != traits.keyboardKind
             traits = next
             returnIsProminent = prominent
             // An email or web address field has its own bottom row on the letters page.
             engine.setField(next.keyboardKind)
+            // Focus moved to a field of another kind while the keyboard stayed up (a merchant
+            // name, then an amount): open on that field's own page, as the stock keyboard
+            // does. `keyboardAppeared` only runs when the keyboard comes up, so without this a
+            // number field reached from a text field stayed on the letters page.
+            if kindChanged, searchSink == nil { engine.setPage(Self.startPage(for: next.keyboardKind)) }
             stateIsDirty = true
         }
+    }
+
+    /// The page a field opens on: the number pad for number and decimal fields, letters for
+    /// everything else.
+    private static func startPage(for kind: FieldKeyboardKind) -> Page {
+        kind == .number || kind == .decimal ? .numberPad : .letters
     }
 
     private static func kind(of type: UIKeyboardType?) -> FieldKeyboardKind {
